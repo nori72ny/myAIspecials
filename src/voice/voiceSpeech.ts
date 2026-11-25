@@ -32,9 +32,34 @@ export interface SpeechUtteranceLike {
   text: string;
   lang: string;
   rate: number;
+  /** Optional in the shape so existing utterance fakes stay valid;
+   * the controller always sets it on real utterances. */
+  pitch?: number;
   voice: SpeechVoiceLike | null;
   onend: (() => void) | null;
   onerror: (() => void) | null;
+}
+
+/**
+ * Per-call speaking style. Rate falls back to the owner's stored
+ * rate and pitch to DEFAULT_SPEECH_PITCH when a field is absent.
+ * The voice conversation passes its style profile through here —
+ * the connection point where a future owner-style profile (the
+ * owner's own way of speaking, saved by the personal-profile track)
+ * can shape how answers sound without touching playback mechanics.
+ */
+export interface SpeechStyleOptions {
+  rate?: number;
+  pitch?: number;
+}
+
+export const DEFAULT_SPEECH_PITCH = 1.0;
+export const MIN_SPEECH_PITCH = 0.5;
+export const MAX_SPEECH_PITCH = 2.0;
+
+function clampPitch(pitch: number): number {
+  if (!Number.isFinite(pitch)) return DEFAULT_SPEECH_PITCH;
+  return Math.min(MAX_SPEECH_PITCH, Math.max(MIN_SPEECH_PITCH, pitch));
 }
 
 export interface SpeechSynthesisLike {
@@ -131,13 +156,12 @@ const SENTENCE_TERMINATORS = new Set(['。', '！', '？', '!', '?', '\n']);
 const MAX_UTTERANCE_CHARS = 180;
 
 /**
- * Splits speakable text into sentence-sized chunks for queued
- * playback: the first chunk is ready immediately, which is what keeps
- * the gap before the first spoken words short. ASCII periods between
- * digits (decimals, versions) never split. Over-long sentences are
- * broken further at Japanese commas so no single utterance stalls.
+ * Splits speakable text into whole sentences, without any further
+ * chunking. ASCII periods between digits (decimals, versions) never
+ * split. The spoken-summary builder uses this form: a summary must
+ * only ever contain complete sentences from the source answer.
  */
-export function splitSpeechSentences(text: string): string[] {
+export function splitSpeakableSentences(text: string): string[] {
   const sentences: string[] = [];
   let current = '';
   const flush = () => {
@@ -159,7 +183,18 @@ export function splitSpeechSentences(text: string): string[] {
     if (SENTENCE_TERMINATORS.has(char)) flush();
   }
   flush();
-  return sentences.flatMap((sentence) => chunkLongSentence(sentence));
+  return sentences;
+}
+
+/**
+ * Splits speakable text into sentence-sized chunks for queued
+ * playback: the first chunk is ready immediately, which is what keeps
+ * the gap before the first spoken words short. Over-long sentences
+ * are broken further at Japanese commas so no single utterance
+ * stalls.
+ */
+export function splitSpeechSentences(text: string): string[] {
+  return splitSpeakableSentences(text).flatMap((sentence) => chunkLongSentence(sentence));
 }
 
 function chunkLongSentence(sentence: string): string[] {
@@ -361,9 +396,11 @@ export class VoiceSpeechController {
   /**
    * Reads `rawText` aloud under playback id `id` (the message id for
    * answers). Any current playback is replaced. Returns false when
-   * speech is unavailable or the text has nothing speakable.
+   * speech is unavailable or the text has nothing speakable. The
+   * optional style overrides the stored rate / default pitch for
+   * this playback only; stored settings are never changed by it.
    */
-  speak(id: string, rawText: string): boolean {
+  speak(id: string, rawText: string, style?: SpeechStyleOptions): boolean {
     const synthesis = this.synthesis();
     if (!synthesis || !this.deps.createUtterance) return false;
     const sentences = splitSpeechSentences(toSpeechText(rawText));
@@ -371,7 +408,10 @@ export class VoiceSpeechController {
     this.stop();
     const session = ++this.session;
     const voice = this.resolveVoice();
-    const rate = this.getRate();
+    const rate = style?.rate !== undefined && Number.isFinite(style.rate)
+      ? Math.min(MAX_SPEECH_RATE, Math.max(MIN_SPEECH_RATE, style.rate))
+      : this.getRate();
+    const pitch = clampPitch(style?.pitch ?? DEFAULT_SPEECH_PITCH);
     this.pendingUtterances = sentences.length;
     this.setActiveId(id);
     for (const sentence of sentences) {
@@ -379,6 +419,7 @@ export class VoiceSpeechController {
       utterance.voice = voice;
       utterance.lang = voice?.lang ?? 'ja-JP';
       utterance.rate = rate;
+      utterance.pitch = pitch;
       const settle = () => {
         if (session !== this.session) return;
         this.pendingUtterances -= 1;
@@ -408,6 +449,7 @@ export class VoiceSpeechController {
     utterance.voice = voice;
     utterance.lang = voice.lang;
     utterance.rate = this.getRate();
+    utterance.pitch = DEFAULT_SPEECH_PITCH;
     const settle = () => {
       if (session !== this.session) return;
       this.pendingUtterances = 0;

@@ -151,9 +151,25 @@
 }
 @media (prefers-reduced-motion: reduce) {
   .origin-cat-breathe,
-  .origin-cat-joy {
+  .origin-cat-joy,
+  .origin-orin-presence__disc.is-speaking {
     animation: none;
   }
+}
+/* 話している雰囲気（VC-3 段階1、2026-11-25）：音声再生中、円盤が
+   小さく上下に揺れる。言葉に合わせた口の動き（段階2）は絵素材に
+   口のレイヤーが無いため未実装で、ここはジェスチャーに留める。
+   喜ぶ動きと同じく transform を使うため、再生が重なった場合は
+   後勝ち（is-speaking のキーフレーム）になる。 */
+.origin-orin-presence__disc.is-speaking {
+  animation: origin-orin-speaking 900ms ease-in-out infinite;
+  transform-origin: 50% 62%;
+}
+@keyframes origin-orin-speaking {
+  0%, 100% { transform: translateY(0) scale(1); }
+  30% { transform: translateY(-2px) scale(1.012); }
+  55% { transform: translateY(0) scale(1); }
+  78% { transform: translateY(-1px) scale(1.006); }
 }
 [data-testid="origin-core-logo"] .origin-logo-glow {
   inset: -5px !important;
