@@ -892,3 +892,58 @@ a[href]:focus-visible {
     padding-bottom: max(24px, env(safe-area-inset-bottom, 0px)) !important;
   }
 }
+
+/* Seasonal background (owner request 2026-11-16, design record
+   ORIN_MOTION_DESIGN_2026-11-16 supplement 2; implemented
+   2026-11-25). The season comes from resolveOriginCatSeason
+   (components/OriginCatState.tsx) — the same source of truth as
+   Orin's idle art and the profile-card illustration — and main.tsx
+   mirrors it onto :root as data-season. Outside the seasons the
+   attribute is absent, every rule below is inert, and the canvas
+   stays exactly the theme's --bg-primary.
+
+   Restraint is the design. The brief asks for a background that
+   stays a supporting player, and the owner's 2026-11-19 judgement
+   rejects anything that reads childish or amateur, so the season
+   is carried only by (1) a whisper of color temperature on the
+   canvas itself and (2) one soft light falloff at the top of the
+   frame, behind the home hero. No motifs, no shapes, and no
+   animation: a static wash cannot cost performance and needs no
+   reduced-motion handling. Text tokens are untouched, and the
+   light canvas keeps lightness >= 0.994, so text contrast is
+   unchanged to three decimals (guarded in OriginCatState.test.tsx).
+
+   Winter reads as cool air: the white leans a hair toward the
+   brand's blue-grey and the top light is cool. New Year is warmer
+   and fainter still — a temperature shift on the canvas only, with
+   no light falloff on light themes (the vermillion accent lives
+   on Orin's collar, not on the canvas).
+
+   Dark theme: the canvas is already a cold navy, so winter only
+   deepens it one step (lightness 0.155 -> 0.150, chroma 0.014 ->
+   0.018) and New Year leaves the value untouched. In dark, <main>
+   paints its own opaque background over .origin-app, so the top
+   light is applied to main itself, where it composes with the
+   !important background-color above. */
+:root[data-theme="light"][data-season="winter"] {
+  --bg-primary: oklch(0.994 0.005 252);
+}
+:root[data-theme="light"][data-season="newyear"] {
+  --bg-primary: oklch(0.997 0.004 55);
+}
+:root[data-theme="dark"][data-season="winter"] {
+  --bg-primary: oklch(0.150 0.018 262);
+}
+/* The !important is load-bearing: .origin-personal-shell pins
+   .origin-app's background with !important (origin-functional-ui.css),
+   whose shorthand would otherwise reset this layer away. Scoped by
+   data-season, it can never leak outside the season. */
+:root[data-theme="light"][data-season="winter"] .origin-app {
+  background-image: radial-gradient(120% 55% at 50% -10%, oklch(0.905 0.028 250 / 0.24), oklch(0.905 0.028 250 / 0) 62%) !important;
+}
+:root[data-theme="dark"][data-season="winter"] main {
+  background-image: radial-gradient(120% 55% at 50% -10%, oklch(0.38 0.045 250 / 0.12), oklch(0.38 0.045 250 / 0) 62%);
+}
+:root[data-theme="dark"][data-season="newyear"] main {
+  background-image: radial-gradient(120% 55% at 50% -10%, oklch(0.42 0.05 45 / 0.07), oklch(0.42 0.05 45 / 0) 62%);
+}

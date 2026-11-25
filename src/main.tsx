@@ -5,6 +5,7 @@ import SettingsModal from './components/SettingsModal';
 import SettingsErrorBoundary from './components/SettingsErrorBoundary';
 import SplashScreen from './components/SplashScreen';
 import FocusModeController from './components/FocusModeController';
+import { resolveOriginCatSeason } from './components/OriginCatState';
 import PersonalEditionApp from './components/personal/PersonalEditionApp';
 import { isCreativeArtifactMetaV15, type CreativeArtifactMetaV15 } from './creative/creativeStudioV15';
 import { usePersonalSettings } from './hooks/usePersonalSettings';
@@ -270,6 +271,14 @@ function PersonalReleaseRoot() {
   useEffect(() => { const media = window.matchMedia('(prefers-color-scheme: dark)'); const onChange = (event: MediaQueryListEvent) => setSystemPrefersDark(event.matches); setSystemPrefersDark(media.matches); media.addEventListener?.('change', onChange); return () => media.removeEventListener?.('change', onChange); }, []);
   useEffect(() => { const announceUpdate = () => setUpdateReady(true); window.addEventListener('origin:pwa-update-ready', announceUpdate); return () => window.removeEventListener('origin:pwa-update-ready', announceUpdate); }, []);
   useEffect(() => { const root = document.documentElement; const isDark = resolvedTheme === 'dark'; root.lang = settings.language; root.dataset.theme = resolvedTheme; root.dataset.designTheme = settings.designTheme === 'luxury' || settings.designTheme === 'glass' ? settings.designTheme : 'minimal'; root.classList.toggle('dark', isDark); root.classList.toggle('light', !isDark); document.querySelector('meta[name="theme-color"]')?.setAttribute('content', isDark ? '#0b1024' : '#ffffff'); }, [resolvedTheme, settings.language, settings.designTheme]);
+  // 背景の季節デザイン（オーナー依頼 2026-11-16、実装 2026-11-25）：
+  // 季節の判定はオリンの待機姿・プロフィールカードと同じ
+  // resolveOriginCatSeason を正本とし、結果を data-season 属性として
+  // CSS（index.css の季節ルール）へ渡す。季節外では属性自体を外し、
+  // 背景は従来どおりテーマの --bg-primary そのものになる。季節は
+  // 日付で決まりセッション中に意味を持って変わらないため、判定は
+  // 起動時の一度だけでよい（OrinPanel の描画時判定と同じ前提）。
+  useEffect(() => { const root = document.documentElement; const season = resolveOriginCatSeason(new Date()); if (season) root.dataset.season = season; else delete root.dataset.season; }, []);
   useEffect(() => { document.documentElement.dataset.originStorageState = !isHydrated ? 'hydrating' : storageHealth === 'ready' ? 'ready' : 'degraded'; }, [isHydrated, storageHealth]);
   useEffect(() => { let second = 0; const first = window.requestAnimationFrame(() => { second = window.requestAnimationFrame(() => setHasPainted(true)); }); return () => { window.cancelAnimationFrame(first); if (second) window.cancelAnimationFrame(second); }; }, []);
   useEffect(() => { let active = true; const legacy = loadLegacySnapshot(); const cancelIdle = scheduleIdle(() => { void migrateOriginLegacySnapshot(originIndexedDbAdapter, legacy, () => { window.localStorage.removeItem(HISTORY_STORAGE_KEY); window.localStorage.removeItem(SESSION_STORAGE_KEY); }).then((result) => { if (!active) return; if (result.snapshot) { // 保存されていた進行中会話は開かず、履歴セッションへ退避する（起動時は必ずトップ画面）。

@@ -373,3 +373,72 @@ describe('resolveOriginCatSeason', () => {
     expect(ORIGIN_CAT_NEWYEAR_FULL_SRC).toBe(ORIGIN_CAT_SEASON_FULL_SRC.newyear);
   });
 });
+
+describe('seasonal background (index.css / main.tsx wiring)', () => {
+  const css = readFileSync(resolve(process.cwd(), 'src/index.css'), 'utf8');
+  const mainTsx = readFileSync(resolve(process.cwd(), 'src/main.tsx'), 'utf8');
+
+  // セレクタ（末尾の " {" まで）から宣言ブロックの中身を取り出す。
+  const ruleBody = (selectorWithBrace: string): string => {
+    const start = css.indexOf(selectorWithBrace);
+    if (start < 0) return '';
+    const open = css.indexOf('{', start);
+    const close = css.indexOf('}', open);
+    return css.slice(open + 1, close);
+  };
+
+  it('mirrors the shared season judgement onto :root as data-season in main.tsx', () => {
+    // 背景も待機姿・完成イラストと同じ resolveOriginCatSeason を正本に
+    // すること（日付条件を別に持たない）を固定する。
+    expect(mainTsx).toContain("import { resolveOriginCatSeason } from './components/OriginCatState';");
+    expect(mainTsx).toContain('root.dataset.season = season');
+    // 季節外では属性自体を外し、従来表示に完全に戻ること。
+    expect(mainTsx).toContain('delete root.dataset.season');
+  });
+
+  it('shifts only the canvas temperature on light themes', () => {
+    expect(ruleBody(':root[data-theme="light"][data-season="winter"] {')).toContain('--bg-primary: oklch(0.994 0.005 252);');
+    expect(ruleBody(':root[data-theme="light"][data-season="newyear"] {')).toContain('--bg-primary: oklch(0.997 0.004 55);');
+  });
+
+  it('keeps the light seasonal canvas faint enough that text contrast is unchanged', () => {
+    for (const selector of [':root[data-theme="light"][data-season="winter"] {', ':root[data-theme="light"][data-season="newyear"] {']) {
+      const match = ruleBody(selector).match(/--bg-primary: oklch\(([\d.]+) ([\d.]+) [\d.]+\)/);
+      expect(match).not.toBeNull();
+      // 白（明度1.0）からの変化は明度0.006以内・彩度0.005以内に収める。
+      // この範囲では --text-primary とのコントラストは小数第3位まで不変。
+      expect(Number(match![1])).toBeGreaterThanOrEqual(0.994);
+      expect(Number(match![2])).toBeLessThanOrEqual(0.005);
+    }
+  });
+
+  it('deepens only the winter canvas on dark themes and leaves the New Year canvas untouched', () => {
+    expect(ruleBody(':root[data-theme="dark"][data-season="winter"] {')).toContain('--bg-primary: oklch(0.150 0.018 262);');
+    // お正月のダークは地の色を変えず、上部の淡い光だけで表す。
+    expect(ruleBody(':root[data-theme="dark"][data-season="newyear"] {')).toBe('');
+  });
+
+  it('adds the cool top light on light themes for winter only', () => {
+    const body = ruleBody(':root[data-theme="light"][data-season="winter"] .origin-app {');
+    expect(body).toContain('background-image: radial-gradient(');
+    // .origin-personal-shell が .origin-app の background を !important で
+    // 固定しているため、この層も !important でないと shorthand に消される。
+    expect(body).toContain('!important');
+    // ライトのお正月は色温度のみ（光のフォールオフは付けない）。
+    expect(css).not.toContain('[data-season="newyear"] .origin-app');
+  });
+
+  it('puts the dark top light on main, which paints over .origin-app in dark themes', () => {
+    expect(ruleBody(':root[data-theme="dark"][data-season="winter"] main {')).toContain('background-image: radial-gradient(');
+    expect(ruleBody(':root[data-theme="dark"][data-season="newyear"] main {')).toContain('background-image: radial-gradient(');
+  });
+
+  it('keeps seasonal rules free of text tokens, image motifs and animation', () => {
+    // コメント文ではなく宣言そのものを対象にするため、コメントは除いてから見る。
+    const section = css.slice(css.indexOf('/* Seasonal background')).replace(/\/\*[\s\S]*?\*\//g, '');
+    expect(section).not.toContain('--text-');
+    expect(section).not.toContain('url(');
+    expect(section).not.toContain('animation');
+    expect(section).not.toContain('@keyframes');
+  });
+});
