@@ -5,6 +5,7 @@ import {
   MAX_AGENT_RUN_ARTIFACTS_TOTAL_CHARS,
   assertAgentRunStatusTransition,
   isAgentRunRecordStatus,
+  isAgentRunStepStateCompleted,
   isAgentRunTerminalStatus,
   normalizeAgentRunApprovalDeadlineAt,
   normalizeAgentRunHold,
@@ -279,9 +280,17 @@ export class InMemoryAgentRunStore implements AgentRunStore {
       .filter((artifact) => {
         if (artifact.expiresAt <= timestamp) return true;
         const run = this.runs.get(artifact.runId);
-        return run !== undefined
-          && isAgentRunTerminalStatus(run.status)
-          && run.updatedAt + AGENT_RUN_ARTIFACT_TERMINAL_GRACE_MS <= timestamp;
+        if (run === undefined
+          || !isAgentRunTerminalStatus(run.status)
+          || run.updatedAt + AGENT_RUN_ARTIFACT_TERMINAL_GRACE_MS > timestamp) return false;
+        // K-17 (design AGENT_K17_FAILED_STEP_ARTIFACT_DESIGN_
+        // 2026-11-24 §4): a diagnostic row of a run that terminated
+        // as failed — its step state is not completed, by the same
+        // stepsState derivation the read side uses — is exempt from
+        // the terminal grace and is judged by its own expiry alone.
+        // Success rows of a failed run, and every row of any other
+        // terminal run, keep the grace exactly as before.
+        return !(run.status === 'failed' && !isAgentRunStepStateCompleted(run.stepsState, artifact.stepIndex));
       })
       .sort((a, b) => a.expiresAt - b.expiresAt)
       .slice(0, limit);
