@@ -10,6 +10,7 @@ import {
   AGENT_RUN_RATE_LIMIT_HOLD_MAX_PER_STEP,
   AGENT_RUN_RATE_LIMIT_HOLD_MAX_RUN_ELAPSED_MS,
   AGENT_RUN_RATE_LIMIT_HOLD_MIN_WAIT_MS,
+  MAX_AGENT_RUN_LIVE_MODEL_CALLS,
   MAX_AGENT_RUN_LIVE_QUERY_LENGTH,
   MAX_AGENT_RUN_LIVE_SOURCES,
   MAX_AGENT_RUN_LIVE_SOURCE_EXCERPT_LENGTH,
@@ -26,6 +27,7 @@ import {
   type AgentRunStepAnalyzerExecution,
   type AgentRunStepCoverageFailure,
   type AgentRunStepLiveDetail,
+  type AgentRunStepModelCall,
   type AgentRunStepReconciliation,
   type AgentRunStepRowsOutput,
   type AgentRunStepValueTableSummary,
@@ -34,6 +36,7 @@ import {
   type PutAgentRunStepArtifactInput,
 } from './agentRunRecord.js';
 import { containsLikelySecret } from './safeFilePolicy.js';
+import type { AgentModelCallTiming } from './agentModelCall.js';
 import {
   AGENT_RUN_MAX_DELEGATED_STEPS_PER_ADVANCE,
   addAgentRunQuotaCharge,
@@ -610,6 +613,48 @@ export function providerAttemptsFromAnalyzerMessage(
 }
 
 /**
+ * The step's model-call timings (D7 countermeasure A, diagnosis
+ * AGENT_D7_DIAGNOSIS_2026-11-25 §6), carried on the execution
+ * record from the tool result — unlike the message-parsed traces
+ * above, this channel is structured end to end, but the projection
+ * still re-validates every entry against the same closed shapes
+ * before the record normalizer checks them again: a malformed
+ * entry is dropped, never repaired, and the duration — the field
+ * the whole record exists for — is mandatory. Capped at the record
+ * layer's per-step bound, in dispatch order.
+ */
+const MODEL_CALL_TIMING_OUTCOMES: ReadonlySet<string> = new Set(['succeeded', 'failed']);
+
+export function modelCallsFromExecutionTimings(
+  timings: readonly AgentModelCallTiming[] | undefined,
+): AgentRunStepModelCall[] | undefined {
+  if (!timings) return undefined;
+  const calls: AgentRunStepModelCall[] = [];
+  for (const timing of timings) {
+    if (calls.length >= MAX_AGENT_RUN_LIVE_MODEL_CALLS) break;
+    if (!timing || typeof timing !== 'object') continue;
+    if (!ANALYZER_ATTEMPT_PROVIDER_ID_PATTERN.test(timing.providerId)) continue;
+    if (!MODEL_CALL_TIMING_OUTCOMES.has(timing.outcome)) continue;
+    if (!Number.isInteger(timing.durationMs) || timing.durationMs < 0 || timing.durationMs > 3_600_000) continue;
+    const call: AgentRunStepModelCall = {
+      providerId: timing.providerId,
+      outcome: timing.outcome as AgentRunStepModelCall['outcome'],
+      durationMs: timing.durationMs,
+    };
+    if (timing.modelId !== undefined) {
+      if (!ANALYZER_ATTEMPT_MODEL_ID_PATTERN.test(timing.modelId)) continue;
+      call.modelId = timing.modelId;
+    }
+    if (timing.errorCode !== undefined) {
+      if (!ANALYZER_ATTEMPT_ERROR_CODE_PATTERN.test(timing.errorCode)) continue;
+      call.errorCode = timing.errorCode;
+    }
+    calls.push(call);
+  }
+  return calls.length > 0 ? calls : undefined;
+}
+
+/**
  * The reconciler's output bundle carries its recorded outcome in a
  * fixed `reconciliation` block (misreading countermeasure design
  * §2 layer 2) — the advancer reads the block back into the step's
@@ -832,9 +877,16 @@ export function buildStepLiveDetail(input: {
    * attempts — the body of any model response
    * never enters the record. */
   failureMessage?: string;
+  /** The step's model dispatches with their measured durations
+   * (D7 countermeasure A), from the execution record. Read for
+   * every tool — only the model-calling tools produce them — and
+   * re-validated entry by entry before they are kept. */
+  modelCalls?: readonly AgentModelCallTiming[];
 }): AgentRunStepLiveDetail | undefined {
   try {
     const detail: AgentRunStepLiveDetail = { startedAt: input.startedAt, finishedAt: input.finishedAt };
+    const modelCalls = modelCallsFromExecutionTimings(input.modelCalls);
+    if (modelCalls) detail.modelCalls = modelCalls;
     if (input.toolName === 'attachment_analyzer') {
       const parseFailure = parseFailureFromAnalyzerMessage(input.failureMessage);
       if (parseFailure) detail.parseFailure = parseFailure;
@@ -1243,6 +1295,14 @@ export async function advanceAgentRun(
   let delegatedThisAdvance = 0;
 
   let currentStepIndex = -1;
+  // The in-flight step's start, hoisted for the exception path
+  // (D7 countermeasure A): a step that escapes the loop by throwing
+  // otherwise records no timing at all — its start lived only in
+  // the loop iteration's local scope — so the catch below could
+  // not say how long the failed step ran. Set at exactly the point
+  // the loop takes its own step start; cleared by nothing, because
+  // the catch consults it only for the step it names.
+  let currentStepTiming: { index: number; startedAt: number } | undefined;
   try {
     for (let index = startIndex; index >= 0 && index < plan.length; index += 1) {
       currentStepIndex = index;
@@ -1359,6 +1419,7 @@ export async function advanceAgentRun(
       // the post-execution assignment below replaces the entry.
       const stepStateBeforeExecution = stepsState[index];
       const stepStartedAt = now();
+      currentStepTiming = { index, startedAt: stepStartedAt };
       const execution = await executeNextTask(graph, async () => {
         if ('error' in resolved) return { ok: false, message: resolved.error };
         return runTool(step.toolName, stepParams);
@@ -1386,6 +1447,7 @@ export async function advanceAgentRun(
         startedAt: stepStartedAt,
         finishedAt: now(),
         failureMessage: executionRecord?.toolFailureMessage,
+        modelCalls: executionRecord?.modelCallTimings,
       });
       stepsState[index] = {
         id: `task-${index + 1}`,
@@ -1531,11 +1593,22 @@ export async function advanceAgentRun(
       : 'TOOL_EXECUTION_BLOCKED';
     if (currentStepIndex >= 0 && stepsState[currentStepIndex]?.status !== 'completed') {
       const priorStepState = stepsState[currentStepIndex];
+      // The thrown step's timing (D7 countermeasure A): the normal
+      // path replaces the live detail wholesale with this step's
+      // own span, and the exception path does the same with the
+      // span it can still prove — the hoisted start and the moment
+      // the exception landed. A step that threw before its start
+      // was taken (or in an earlier iteration) keeps the previous
+      // behavior exactly: no live detail is fabricated for it.
+      const thrownStepLiveDetail: AgentRunStepLiveDetail | undefined = currentStepTiming?.index === currentStepIndex
+        ? { startedAt: currentStepTiming.startedAt, finishedAt: now() }
+        : undefined;
       stepsState[currentStepIndex] = {
         ...stepsState[currentStepIndex],
         id: `task-${currentStepIndex + 1}`,
         status: 'failed',
         errorCode,
+        ...(thrownStepLiveDetail ? { liveDetail: thrownStepLiveDetail } : {}),
       };
       await runStore.updateProgress(record.runId, driverId, { stepsState }).catch(() => false);
       // Rate-limit hold (design §2-B): the same parking as the step
@@ -1547,7 +1620,7 @@ export async function advanceAgentRun(
         && errorCode === 'PROVIDER_RATE_LIMITED'
         && priorStepState !== undefined
         && plan[currentStepIndex]?.toolName === 'attachment_analyzer') {
-        const parked = await tryParkRateLimitedStep(currentStepIndex, priorStepState, undefined).catch(() => null);
+        const parked = await tryParkRateLimitedStep(currentStepIndex, priorStepState, thrownStepLiveDetail).catch(() => null);
         if (parked) return parked;
       }
     }

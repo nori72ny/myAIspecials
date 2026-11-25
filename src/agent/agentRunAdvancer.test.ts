@@ -1410,3 +1410,72 @@ describe('step live detail: wave-1 observability (対策1(a)(c)(d))', () => {
     expect(detail?.valueTable?.entryCount).toBe(12);
   });
 });
+
+describe('step timing record (D7 countermeasure A)', () => {
+  it('buildStepLiveDetail keeps validated model calls and drops malformed ones', () => {
+    const detail = buildStepLiveDetail({
+      toolName: 'repository_explorer',
+      params: {},
+      artifact: undefined,
+      startedAt: 1_000,
+      finishedAt: 2_000,
+      modelCalls: [
+        { providerId: 'groq-free', modelId: 'openai/gpt-oss-120b', outcome: 'succeeded', durationMs: 321 },
+        { providerId: 'bad provider!', outcome: 'succeeded', durationMs: 1 },
+        { providerId: 'groq-free', outcome: 'succeeded', durationMs: -1 },
+      ] as never,
+    });
+    expect(detail?.modelCalls).toEqual([
+      { providerId: 'groq-free', modelId: 'openai/gpt-oss-120b', outcome: 'succeeded', durationMs: 321 },
+    ]);
+  });
+
+  it('records a step\'s model call timings in its persisted live detail', async () => {
+    const store = new InMemoryAgentRunStore();
+    const { store: consumptionStore } = makeConsumptionStore();
+    const timings = [
+      { providerId: 'cloudflare-workers-ai-free', outcome: 'failed' as const, errorCode: 'PROVIDER_UNAVAILABLE', durationMs: 100 },
+      { providerId: 'groq-free', modelId: 'openai/gpt-oss-120b', outcome: 'succeeded' as const, durationMs: 321 },
+      { providerId: 'Bearer supersecretvalue', outcome: 'succeeded' as const, durationMs: 1 },
+    ];
+    const runTool = vi.fn(async (name: ToolName, _input: ToolParams): Promise<ToolResult> => ({
+      ok: true,
+      tool: name,
+      artifact: `artifact:${name}`,
+      message: 'ok',
+      modelCallTimings: timings,
+    }));
+    const seeded = await seedRun(store, [{ toolName: 'repository_explorer' }]);
+    const outcome = await advanceAgentRun(
+      { runStore: store, consumptionStore, runTool, verifyArtifact: okVerifier },
+      seeded,
+      'driver-alpha-01',
+    );
+    expect(outcome.kind).toBe('completed');
+    const record = await store.get(RUN_ID, OWNER);
+    // The malformed third entry never reaches the record.
+    expect(record?.stepsState[0]?.liveDetail?.modelCalls).toEqual([timings[0], timings[1]]);
+    expect(JSON.stringify(record?.stepsState[0]?.liveDetail)).not.toContain('supersecretvalue');
+  });
+
+  it('records start and finish for a step whose tool throws instead of returning', async () => {
+    const store = new InMemoryAgentRunStore();
+    const { store: consumptionStore } = makeConsumptionStore();
+    const runTool = vi.fn(async (): Promise<ToolResult> => {
+      throw new Error('REPOSITORY_READ_ONLY');
+    });
+    const seeded = await seedRun(store, [{ toolName: 'repository_explorer' }]);
+    const outcome = await advanceAgentRun(
+      { runStore: store, consumptionStore, runTool, verifyArtifact: okVerifier },
+      seeded,
+      'driver-alpha-01',
+    );
+    expect(outcome.kind).toBe('failed');
+    const record = await store.get(RUN_ID, OWNER);
+    const step = record?.stepsState[0];
+    expect(step?.status).toBe('failed');
+    expect(typeof step?.liveDetail?.startedAt).toBe('number');
+    expect(typeof step?.liveDetail?.finishedAt).toBe('number');
+    expect(step?.liveDetail?.finishedAt).toBeGreaterThanOrEqual(step?.liveDetail?.startedAt ?? 0);
+  });
+});

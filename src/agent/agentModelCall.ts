@@ -128,6 +128,83 @@ export type AgentModelServing = {
   modelId?: string;
 };
 
+/**
+ * The cap on the dispatch timings one step's result carries (D7
+ * countermeasure A): an analyzer step dispatches at most 2 chunks
+ * × 2 logical calls (first + parse repair) × 3 transient-retry
+ * dispatches = 12, a reconciler step at most 2 × 3 = 6. The run
+ * record enforces the same bound on its side
+ * (MAX_AGENT_RUN_LIVE_MODEL_CALLS); this cap only keeps the tool
+ * result itself small.
+ */
+export const MAX_AGENT_MODEL_CALL_TIMINGS_PER_STEP = 12;
+
+/**
+ * One dispatch's timing evidence (D7 countermeasure A, diagnosis
+ * AGENT_D7_DIAGNOSIS_2026-11-25 §5/§6): the route and model the
+ * dispatch is attributable to, whether it succeeded or failed
+ * (with the failure's code), and the dispatch's measured
+ * wall-clock duration. Until now a successful dispatch reported
+ * only its text and a failed one only its final code plus — on the
+ * provider-error path — its failover attempts, so how long a
+ * step's provider calls took could never be separated from
+ * ORIGIN-side waiting. Identifiers, a closed outcome, a code and
+ * a duration only — never a request or response body, exactly
+ * like the serving and attempt evidence above.
+ */
+export type AgentModelCallTiming = {
+  providerId: string;
+  modelId?: string;
+  outcome: 'succeeded' | 'failed';
+  errorCode?: string;
+  durationMs: number;
+};
+
+/**
+ * Reduces one dispatch's evidence to its timing entry. A success
+ * is attributed to its serving; a failure to the last failover
+ * attempt that was actually dispatched (outcome not `skipped`) —
+ * the attempt that determined the dispatch's outcome, the same
+ * reduction the analyzer's execution trace applies to a failed
+ * dispatch's servings (D8). A dispatch with neither (a plan-level
+ * refusal, a non-provider error, an injected double) contributes
+ * no entry: no entry at all is better than a fabricated
+ * identifier, in the fail-soft style of the serving reduction.
+ */
+export function modelCallTimingFromDispatch(input: {
+  serving?: AgentModelServing;
+  providerAttempts?: readonly OriginProviderAttemptDiagnostic[];
+  code?: string;
+  durationMs: number;
+}): AgentModelCallTiming | undefined {
+  const durationMs = Number.isFinite(input.durationMs)
+    ? Math.max(0, Math.floor(input.durationMs))
+    : 0;
+  if (input.serving) {
+    return {
+      providerId: input.serving.providerId,
+      ...(input.serving.modelId ? { modelId: input.serving.modelId } : {}),
+      outcome: input.code === undefined ? 'succeeded' : 'failed',
+      ...(input.code !== undefined ? { errorCode: input.code } : {}),
+      durationMs,
+    };
+  }
+  const attempts = input.providerAttempts ?? [];
+  for (let index = attempts.length - 1; index >= 0; index -= 1) {
+    const attempt = attempts[index];
+    if (!attempt || attempt.outcome === 'skipped') continue;
+    if (typeof attempt.providerId !== 'string' || attempt.providerId.length === 0) continue;
+    return {
+      providerId: attempt.providerId,
+      ...(typeof attempt.modelId === 'string' && attempt.modelId.length > 0 ? { modelId: attempt.modelId } : {}),
+      outcome: 'failed',
+      ...(input.code !== undefined ? { errorCode: input.code } : {}),
+      durationMs,
+    };
+  }
+  return undefined;
+}
+
 /** The slug shape every downstream carrier of a serving accepts:
  * the analyzer's execution trace and the run record both validate
  * provider ids against this exact pattern. Routing evidence speaks
@@ -177,7 +254,15 @@ export function servingFromRoutingEvidence(evidence: unknown): AgentModelServing
 }
 
 export type AgentModelCallResult =
-  | { ok: true; text: string; serving?: AgentModelServing }
+  | {
+      ok: true;
+      text: string;
+      serving?: AgentModelServing;
+      /** The dispatch's timing evidence (D7 countermeasure A).
+       * Present when the dispatch is attributable to a route;
+       * observability only — no caller may branch on it. */
+      timing?: AgentModelCallTiming;
+    }
   | {
       ok: false;
       code: string;
@@ -187,6 +272,12 @@ export type AgentModelCallResult =
        * attempts; a plan-level refusal (no transport happened)
        * carries none. */
       providerAttempts?: readonly OriginProviderAttemptDiagnostic[];
+      /** The dispatch's timing evidence (D7 countermeasure A):
+       * present when the failure is attributable to a route — a
+       * provider error with dispatched attempts, or an invalid
+       * response from a known serving. A plan-level refusal (no
+       * transport happened) carries none. */
+      timing?: AgentModelCallTiming;
     };
 
 /**
@@ -217,6 +308,12 @@ export function createAgentModelExecutor(env: NodeJS.ProcessEnv): AgentModelExec
       { nowMs: Date.now() },
     );
     if (planned.ok !== true) return { ok: false, code: planned.code };
+    // Dispatch timing (D7 countermeasure A): the measured span is
+    // the failover dispatch itself — the provider call the step
+    // waited on. Plan building before it is ORIGIN-side work and
+    // stays outside the span, which is exactly the separation the
+    // timing exists to make.
+    const dispatchStartedAt = Date.now();
     try {
       const result = await executeOriginProviderWithFailover({
         plan: planned.plan,
@@ -225,14 +322,29 @@ export function createAgentModelExecutor(env: NodeJS.ProcessEnv): AgentModelExec
         groqCapacityAllocation: agentAnalyzerCapacityAllocation(input.chunkIndex, env),
         messages: [{ role: 'user', content: input.userText }],
       }, env);
+      const durationMs = Date.now() - dispatchStartedAt;
       const text = typeof result.text === 'string' ? result.text : '';
-      if (!text.trim()) return { ok: false, code: 'PROVIDER_INVALID_RESPONSE' };
       const serving = servingFromRoutingEvidence(result.routingEvidence);
-      return { ok: true, text, ...(serving ? { serving } : {}) };
+      if (!text.trim()) {
+        const timing = modelCallTimingFromDispatch({ serving, code: 'PROVIDER_INVALID_RESPONSE', durationMs });
+        return { ok: false, code: 'PROVIDER_INVALID_RESPONSE', ...(timing ? { timing } : {}) };
+      }
+      const timing = modelCallTimingFromDispatch({ serving, durationMs });
+      return { ok: true, text, ...(serving ? { serving } : {}), ...(timing ? { timing } : {}) };
     } catch (error) {
       if (error instanceof OriginProviderError) {
         const providerAttempts = failoverAttemptsFromProviderError(error);
-        return { ok: false, code: error.code, ...(providerAttempts ? { providerAttempts } : {}) };
+        const timing = modelCallTimingFromDispatch({
+          providerAttempts,
+          code: error.code,
+          durationMs: Date.now() - dispatchStartedAt,
+        });
+        return {
+          ok: false,
+          code: error.code,
+          ...(providerAttempts ? { providerAttempts } : {}),
+          ...(timing ? { timing } : {}),
+        };
       }
       return { ok: false, code: 'PROVIDER_INTERNAL_ERROR' };
     }

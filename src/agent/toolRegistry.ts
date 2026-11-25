@@ -11,7 +11,7 @@ import { createDefaultOriginResearchExecutor } from '../search/originSearchGroun
 import { generateArtifactV12Async, type ArtifactType } from '../artifacts/artifactGeneratorV12.js';
 import type { AgentCodeDelegationPort } from './agentCodingDelegationV14.js';
 import type { AgentAttachmentStore } from './agentAttachmentRecord.js';
-import type { AgentModelExecutor } from './agentModelCall.js';
+import type { AgentModelCallTiming, AgentModelExecutor } from './agentModelCall.js';
 import {
   executeAttachmentAnalyzer,
   executeAttachmentReader,
@@ -49,6 +49,20 @@ export type ToolResult = {
    * it only where a computed payload would otherwise be discarded.
    */
   diagnosticArtifact?: string;
+  /**
+   * Observability channel, separate from both artifacts above:
+   * the model dispatches this call made, with their measured
+   * durations (D7 countermeasure A, diagnosis
+   * AGENT_D7_DIAGNOSIS_2026-11-25 §6). Only the model-calling
+   * tools (attachment analyzer / reconciler) populate it, on
+   * success and failure alike; it never affects the outcome, the
+   * message or any gate, and its only reader is the run advancer,
+   * which reduces it into the step's live detail (the record
+   * layer re-validates every entry before keeping it). Entries
+   * carry identifiers, a closed outcome, a code and a duration
+   * only — no request or response body, no user text.
+   */
+  modelCallTimings?: readonly AgentModelCallTiming[];
 };
 export type ToolExecutionContext = {
   codeDelegation?: AgentCodeDelegationPort;

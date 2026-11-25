@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { describe, expect, it } from 'vitest';
-import { agentAnalyzerCapacityAllocation, createAgentModelExecutor, failoverAttemptsFromProviderError, servingFromRoutingEvidence } from './agentModelCall.js';
+import { agentAnalyzerCapacityAllocation, createAgentModelExecutor, failoverAttemptsFromProviderError, modelCallTimingFromDispatch, servingFromRoutingEvidence } from './agentModelCall.js';
 import { OriginProviderError } from '../legacy/originProviderClient.js';
 
 describe('agentModelCall (failover-backed model executor)', () => {
@@ -124,5 +124,47 @@ describe('agentAnalyzerCapacityAllocation (design §2-C)', () => {
     expect(agentAnalyzerCapacityAllocation(-1, on)).toBe('agent-analyzer-chunk');
     expect(agentAnalyzerCapacityAllocation(1.5, on)).toBe('agent-analyzer-chunk');
     expect(agentAnalyzerCapacityAllocation(Number.NaN, on)).toBe('agent-analyzer-chunk');
+  });
+});
+
+describe('modelCallTimingFromDispatch (D7 countermeasure A)', () => {
+  it('attributes a success to its serving, the duration floored to an integer', () => {
+    expect(modelCallTimingFromDispatch({
+      serving: { providerId: 'groq-free', modelId: 'openai/gpt-oss-120b' },
+      durationMs: 1234.7,
+    })).toEqual({ providerId: 'groq-free', modelId: 'openai/gpt-oss-120b', outcome: 'succeeded', durationMs: 1234 });
+  });
+
+  it('attributes an invalid response to its serving as a failure carrying the code', () => {
+    expect(modelCallTimingFromDispatch({
+      serving: { providerId: 'cloudflare-workers-ai-free' },
+      code: 'PROVIDER_INVALID_RESPONSE',
+      durationMs: 25_000,
+    })).toEqual({ providerId: 'cloudflare-workers-ai-free', outcome: 'failed', errorCode: 'PROVIDER_INVALID_RESPONSE', durationMs: 25_000 });
+  });
+
+  it('attributes a provider failure to the last dispatched (non-skipped) attempt', () => {
+    expect(modelCallTimingFromDispatch({
+      providerAttempts: [
+        { providerId: 'cloudflare-workers-ai-free', modelId: '@cf/openai/gpt-oss-120b', outcome: 'availability-error', errorCode: 'PROVIDER_TIMEOUT', durationMs: 25_000 },
+        { providerId: 'groq-free', modelId: 'openai/gpt-oss-120b', outcome: 'skipped' },
+      ],
+      code: 'PROVIDER_TIMEOUT',
+      durationMs: 25_100,
+    })).toEqual({ providerId: 'cloudflare-workers-ai-free', modelId: '@cf/openai/gpt-oss-120b', outcome: 'failed', errorCode: 'PROVIDER_TIMEOUT', durationMs: 25_100 });
+  });
+
+  it('returns undefined when the dispatch has no attributable route', () => {
+    expect(modelCallTimingFromDispatch({ durationMs: 10 })).toBeUndefined();
+    expect(modelCallTimingFromDispatch({ providerAttempts: [], code: 'PROVIDER_UNAVAILABLE', durationMs: 10 })).toBeUndefined();
+    expect(modelCallTimingFromDispatch({
+      providerAttempts: [{ providerId: 'groq-free', modelId: 'openai/gpt-oss-120b', outcome: 'skipped' }],
+      code: 'PROVIDER_UNAVAILABLE',
+      durationMs: 10,
+    })).toBeUndefined();
+  });
+
+  it('clamps a negative duration to zero', () => {
+    expect(modelCallTimingFromDispatch({ serving: { providerId: 'groq-free' }, durationMs: -5 })?.durationMs).toBe(0);
   });
 });

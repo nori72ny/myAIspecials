@@ -65,3 +65,38 @@ describe('taskGraphExecutor diagnostic channel (K-17, PR-β)', () => {
     expect(record).not.toHaveProperty('diagnosticArtifact');
   });
 });
+
+/**
+ * Model-call timing channel (D7 countermeasure A): unlike the
+ * failure-only diagnostic channel above, a step's dispatch timings
+ * ride the record on BOTH branches — the successful calls are
+ * exactly what the timing record exists to account for.
+ */
+describe('taskGraphExecutor model-call timing channel (D7 countermeasure A)', () => {
+  const timings = [{ providerId: 'groq-free', modelId: 'openai/gpt-oss-120b', outcome: 'succeeded' as const, durationMs: 321 }];
+
+  it('carries a successful tool\'s timings on the record', async () => {
+    const graph = createAgentTaskGraph('goal', ['analyze']);
+    const tool: ExecutorTool = async () => ({ ok: true, artifact: 'REAL ARTIFACT', modelCallTimings: timings });
+    const { record } = await executeNextTask(graph, tool, okVerify);
+    expect(record?.status).toBe('completed');
+    expect(record?.modelCallTimings).toEqual(timings);
+  });
+
+  it('carries a failed tool\'s timings on the record too', async () => {
+    const graph = createAgentTaskGraph('goal', ['analyze']);
+    const tool: ExecutorTool = async () => ({ ok: false, message: 'PROVIDER_TIMEOUT', modelCallTimings: timings });
+    const { record } = await executeNextTask(graph, tool, okVerify);
+    expect(record?.status).toBe('failed');
+    expect(record?.artifact).toBe('');
+    expect(record?.modelCallTimings).toEqual(timings);
+  });
+
+  it('leaves the channel unset when the tool reports no timings', async () => {
+    const graph = createAgentTaskGraph('goal', ['analyze']);
+    const tool: ExecutorTool = async () => ({ ok: true, artifact: 'REAL ARTIFACT' });
+    const { record } = await executeNextTask(graph, tool, okVerify);
+    expect(record?.status).toBe('completed');
+    expect(record).not.toHaveProperty('modelCallTimings');
+  });
+});
