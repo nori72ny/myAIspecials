@@ -1,9 +1,11 @@
 import {
   buildOriginCloudflareRoutePlan,
   buildOriginGroqRoutePlan,
+  buildOriginOvhcloudRoutePlan,
   ORIGIN_CLOUDFLARE_WORKERS_AI_FREE_PROVIDER_ID,
   ORIGIN_GROQ_FREE_PROVIDER_ID,
   ORIGIN_OPENROUTER_FREE_PROVIDER_ID,
+  ORIGIN_OVHCLOUD_FREE_PROVIDER_ID,
 } from "../lib/orchestration/OriginExecutionPolicy.js";
 import {
   ORIGIN_CLOUDFLARE_FREE_MODEL,
@@ -15,6 +17,12 @@ import {
   type OriginGroqFreeModelEvidence,
   type OriginGroqFreeModelId,
 } from "../lib/orchestration/OriginGroqFreeModelCatalog.js";
+import {
+  isOriginOvhcloudFreeModelId,
+  ORIGIN_OVHCLOUD_FREE_MODEL_ID,
+  type OriginOvhcloudFreeModelEvidence,
+  type OriginOvhcloudFreeModelId,
+} from "../lib/orchestration/OriginOvhcloudFreeModelCatalog.js";
 import { ORIGIN_OPENROUTER_ROUTE_DISPOSITION } from "../lib/orchestration/OriginFreeModelCatalog.js";
 import {
   assertOriginZeroCostExecutionResult,
@@ -42,6 +50,12 @@ import {
   OriginGroqPreflightError,
   type OriginGroqStreamExecutor,
 } from "./originGroqProviderClient.js";
+import {
+  assertOriginOvhcloudExecutionResult,
+  executeOriginOvhcloudProvider,
+  isOriginOvhcloudFailoverEnabled,
+  OriginOvhcloudPreflightError,
+} from "./originOvhcloudProviderClient.js";
 import {
   executeOriginProviderStream,
   type OriginProviderStreamHandlers,
@@ -221,6 +235,29 @@ import {
  * The primary attempt budget and circuit breaker below are dormant while
  * the disposition stands; restarting the route means reverting the
  * disposition and renewing the route's catalog evidence first.
+ *
+ * Fourth route (OVHcloud anonymous tier, 2026-11-25): the owner approved
+ * adopting OVHcloud AI Endpoints' anonymous tier as an auxiliary route.
+ * It is the dispatcher's last resort in the blocking entry only, reached
+ * from the final route's failure points (attemptGroqRoute in the current
+ * order, attemptCloudflareRoute in Groq-first order) and gated three
+ * ways, all of which must hold: the ORIGIN_OVH_FAILOVER_ENABLED switch
+ * is exactly "true" (default OFF), the request carries the caller's
+ * explicit lightweight-and-non-confidential mark
+ * (ovhcloudFallbackEligible — no caller sets it yet, so the route is
+ * unreachable until one is deliberately marked), and the attempt record
+ * shows BOTH earlier failover routes availability-down in this dispatch
+ * (an availability-error outcome, the agent invalid-response shape, or
+ * the Cloudflare circuit-open skip that encodes its opening availability
+ * code; plain pre-execution skips and integrity failures never open
+ * this route). When any gate fails, the failure that would have
+ * surfaced before this route existed surfaces unchanged, with the same
+ * attempt record. When the route runs, it is raced against whatever
+ * total budget remains, sends exactly once, and its outcome joins the
+ * attempt record like every other route's; a pre-execution skip of this
+ * route surfaces the earlier routes' error, and an executed failure
+ * surfaces this route's own error. The streaming entry does not attempt
+ * this route in this phase.
  */
 
 export const ORIGIN_FAILOVER_TRIGGER_CODES: ReadonlySet<OriginProviderErrorCode> = new Set([
@@ -346,9 +383,11 @@ export interface OriginProviderFailoverOptions {
   nowMs?: number;
   cloudflareCatalog?: readonly OriginCloudflareFreeModelEvidence[];
   groqCatalog?: readonly OriginGroqFreeModelEvidence[];
+  ovhcloudCatalog?: readonly OriginOvhcloudFreeModelEvidence[];
   primaryExecute?: typeof executeOriginProvider;
   cloudflareExecute?: typeof executeOriginCloudflareProvider;
   groqExecute?: typeof executeOriginGroqProvider;
+  ovhcloudExecute?: typeof executeOriginOvhcloudProvider;
   streamExecute?: typeof executeOriginProviderStream;
   /**
    * Streaming executors for the failover routes, used only by the streaming
@@ -650,6 +689,18 @@ function groqAttemptEvidence(
   return {
     providerId: ORIGIN_GROQ_FREE_PROVIDER_ID,
     modelId: ORIGIN_GROQ_FREE_MODEL_ID,
+    outcome,
+    ...extras,
+  };
+}
+
+function ovhcloudAttemptEvidence(
+  outcome: OriginProviderAttemptEvidence["outcome"],
+  extras: Partial<OriginProviderAttemptEvidence> = {},
+): OriginProviderAttemptEvidence {
+  return {
+    providerId: ORIGIN_OVHCLOUD_FREE_PROVIDER_ID,
+    modelId: ORIGIN_OVHCLOUD_FREE_MODEL_ID,
     outcome,
     ...extras,
   };
@@ -962,6 +1013,12 @@ function composeGroqResult(
  * as the two-route dispatcher behaved. When the route is skipped before execution,
  * the earlier routes' error stays the surfaced one; when the route executed and
  * failed, its own error is surfaced with the full attempt history.
+ *
+ * Every failure exit passes through attemptOvhcloudRoute first (fourth
+ * route, 2026-11-25): while its gates do not all hold — the default — it
+ * rethrows exactly the error and attempt record this function used to
+ * throw, so behavior is unchanged; only a fully gated dispatch continues
+ * to the OVHcloud route instead.
  */
 async function attemptGroqRoute(
   request: OriginProviderExecutionRequest,
@@ -972,7 +1029,7 @@ async function attemptGroqRoute(
   fallbackError: OriginProviderError,
 ): Promise<OriginProviderExecutionResult> {
   if (!isOriginGroqRouteConfigured(env)) {
-    throw withFailoverAttempts(fallbackError, priorAttempts);
+    return attemptOvhcloudRoute(request, env, fetchImpl, options, priorAttempts, fallbackError);
   }
   const groqStartedAtMs = Date.now();
   try {
@@ -984,12 +1041,200 @@ async function attemptGroqRoute(
         skipReason: error.reason,
         transportRequestCount: 0,
       });
-      throw withFailoverAttempts(fallbackError, [...priorAttempts, skipped]);
+      return attemptOvhcloudRoute(request, env, fetchImpl, options, [...priorAttempts, skipped], fallbackError);
     }
     if (error instanceof OriginProviderError) {
       const failed = groqAttemptEvidence(
         ORIGIN_FAILOVER_TRIGGER_CODES.has(error.code) ? "availability-error" : "failed",
         { errorCode: error.code, ...upstreamAttemptFields(error), transportRequestCount: error.diagnostic?.transportRequestCount, durationMs: Date.now() - groqStartedAtMs },
+      );
+      return attemptOvhcloudRoute(request, env, fetchImpl, options, [...priorAttempts, failed], error);
+    }
+    throw error;
+  }
+}
+
+async function runOvhcloudRoute(
+  request: OriginProviderExecutionRequest,
+  env: NodeJS.ProcessEnv,
+  fetchImpl: OriginFetch,
+  options: OriginProviderFailoverOptions,
+): Promise<OriginProviderExecutionResult> {
+  // Mirrors the other routes: the route plan keeps the primary plan's
+  // semantics with the timeout raised to the shared route maximum, so a
+  // long generation on the last route is bounded by the dispatch total
+  // budget, not the plan default. The OVHcloud client's own 20s cap
+  // bounds the single send further.
+  const planResult = buildOriginOvhcloudRoutePlan(
+    { ...request.plan, timeoutMs: Math.max(request.plan.timeoutMs, ORIGIN_CLOUDFLARE_ROUTE_TIMEOUT_MS) },
+    {
+      ovhcloudFreeModelCatalog: options.ovhcloudCatalog,
+      nowMs: options.nowMs,
+    },
+  );
+  if (planResult.ok === false) {
+    throw new OriginOvhcloudPreflightError(
+      planResult.code === "FREE_MODEL_CATALOG_INVALID" ? "catalog-invalid" : "evidence-stale",
+    );
+  }
+  const execute = options.ovhcloudExecute ?? executeOriginOvhcloudProvider;
+  return execute(
+    { plan: planResult.plan, messages: request.messages, systemInstruction: request.systemInstruction },
+    env,
+    fetchImpl,
+    { catalog: options.ovhcloudCatalog, nowMs: options.nowMs },
+  );
+}
+
+/**
+ * Runs the OVHcloud route inside the dispatch's total budget, with the
+ * same semantics as the other bounded routes: raced against the time
+ * remaining in the window (this is the last route, so it keeps the full
+ * remainder) and aborted when the window expires. Without a window
+ * (direct internal use only) the route runs exactly as the unbounded
+ * helper.
+ */
+async function runOvhcloudRouteBounded(
+  request: OriginProviderExecutionRequest,
+  env: NodeJS.ProcessEnv,
+  fetchImpl: OriginFetch,
+  options: OriginProviderFailoverOptions,
+): Promise<OriginProviderExecutionResult> {
+  if (!options.totalBudgetWindow) return runOvhcloudRoute(request, env, fetchImpl, options);
+  const sliceMs = totalBudgetRemainingMs(options);
+  if (sliceMs <= 0) throw totalBudgetTimeoutError(0);
+  const routeController = new AbortController();
+  const transport = { count: 0 };
+  const boundedFetch = createAttemptBoundedFetch(fetchImpl, routeController, transport);
+  const routePromise = runOvhcloudRoute(request, env, boundedFetch, options);
+  routePromise.catch(() => undefined);
+  const settled: Promise<
+    | { kind: "result"; result: OriginProviderExecutionResult }
+    | { kind: "error"; error: unknown }
+  > = routePromise.then(
+    (result) => ({ kind: "result" as const, result }),
+    (error) => ({ kind: "error" as const, error }),
+  );
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const budget = new Promise<"budget">((resolve) => {
+    timer = setTimeout(() => resolve("budget"), sliceMs);
+  });
+  const winner = await Promise.race([settled, budget]);
+  if (winner === "budget") {
+    routeController.abort();
+    throw totalBudgetTimeoutError(transport.count);
+  }
+  if (timer) clearTimeout(timer);
+  if (winner.kind === "error") throw winner.error;
+  return winner.result;
+}
+
+function composeOvhcloudResult(
+  ovhcloudResult: OriginProviderExecutionResult,
+  priorAttempts: readonly OriginProviderAttemptEvidence[],
+  ovhcloudDurationMs?: number,
+): OriginProviderExecutionResult {
+  const ovhcloudAttempt = ovhcloudAttemptEvidence("succeeded", {
+    modelId: ovhcloudResult.routingEvidence?.servedModel ?? ORIGIN_OVHCLOUD_FREE_MODEL_ID,
+    rateLimitHit: false,
+    ...(ovhcloudResult.rateLimit ? { rateLimit: ovhcloudResult.rateLimit } : {}),
+    transportRequestCount: ovhcloudResult.transportRequestCount,
+    ...(ovhcloudDurationMs !== undefined ? { durationMs: ovhcloudDurationMs } : {}),
+  });
+  const priorTransport = priorAttempts.reduce((sum, attempt) => sum + (attempt.transportRequestCount ?? 0), 0);
+  return {
+    ...ovhcloudResult,
+    transportRequestCount: priorTransport + (ovhcloudResult.transportRequestCount ?? 0),
+    attempts: [...priorAttempts, ovhcloudAttempt],
+  };
+}
+
+/**
+ * Whether one earlier route's attempt record shows that route was
+ * availability-down in this dispatch — the only state from which the
+ * fourth route may be entered. Three shapes qualify, mirroring
+ * attemptDidNotServe: an availability-error outcome with a trigger
+ * code; the agent data-step invalid-response failure (the route
+ * produced no usable text, so nothing of it can leak into an answer);
+ * and the Cloudflare circuit-open skip, which is a pre-execution skip
+ * but carries the availability code that opened the breaker — the
+ * route is being skipped precisely because it repeatedly failed with
+ * that availability error. Plain pre-execution skips (stale evidence,
+ * missing configuration) and every other outcome do NOT qualify: the
+ * fourth route is a receiver for provider unavailability, not a mask
+ * for a route disabled by policy.
+ */
+function routeAttemptWasAvailabilityDown(attempt: OriginProviderAttemptEvidence): boolean {
+  if (attempt.outcome === "availability-error"
+    && Boolean(attempt.errorCode)
+    && ORIGIN_FAILOVER_TRIGGER_CODES.has(attempt.errorCode as OriginProviderErrorCode)) {
+    return true;
+  }
+  if (attempt.outcome === "failed" && attempt.errorCode === "PROVIDER_INVALID_RESPONSE") {
+    return true;
+  }
+  return attempt.outcome === "skipped"
+    && attempt.skipReason === ORIGIN_CLOUDFLARE_CIRCUIT_SKIP_REASON
+    && Boolean(attempt.errorCode)
+    && ORIGIN_FAILOVER_TRIGGER_CODES.has(attempt.errorCode as OriginProviderErrorCode);
+}
+
+/** Whether the record holds exactly one Cloudflare and one Groq attempt and both were availability-down. */
+function bothFailoverRoutesAvailabilityDown(attempts: readonly OriginProviderAttemptEvidence[]): boolean {
+  const cloudflare = attempts.filter((attempt) => attempt.providerId === ORIGIN_CLOUDFLARE_WORKERS_AI_FREE_PROVIDER_ID);
+  const groq = attempts.filter((attempt) => attempt.providerId === ORIGIN_GROQ_FREE_PROVIDER_ID);
+  return cloudflare.length === 1
+    && groq.length === 1
+    && routeAttemptWasAvailabilityDown(cloudflare[0])
+    && routeAttemptWasAvailabilityDown(groq[0]);
+}
+
+/**
+ * Fourth-route attempt (OVHcloud anonymous tier), entered from the
+ * final route's failure points in both orders (attemptGroqRoute in the
+ * current order, attemptCloudflareRoute in Groq-first order). The
+ * gates, all mandatory: the ORIGIN_OVH_FAILOVER_ENABLED switch is on,
+ * the request carries the caller's lightweight-and-non-confidential
+ * mark, the attempt record shows both earlier failover routes
+ * availability-down, and the total budget still has time left. While
+ * any gate fails — including the default state, switch off and no
+ * caller marked — this throws exactly the error and attempt record the
+ * caller would have thrown before this route existed, so the dispatch
+ * is unchanged. When the route runs: a success is composed over the
+ * full attempt history, a pre-execution skip surfaces the incoming
+ * error with the skip recorded, and an executed failure surfaces this
+ * route's own error with the full history.
+ */
+async function attemptOvhcloudRoute(
+  request: OriginProviderExecutionRequest,
+  env: NodeJS.ProcessEnv,
+  fetchImpl: OriginFetch,
+  options: OriginProviderFailoverOptions,
+  priorAttempts: readonly OriginProviderAttemptEvidence[],
+  fallbackError: OriginProviderError,
+): Promise<OriginProviderExecutionResult> {
+  if (!isOriginOvhcloudFailoverEnabled(env)
+    || request.ovhcloudFallbackEligible !== true
+    || !bothFailoverRoutesAvailabilityDown(priorAttempts)
+    || totalBudgetRemainingMs(options) <= 0) {
+    throw withFailoverAttempts(fallbackError, priorAttempts);
+  }
+  const ovhcloudStartedAtMs = Date.now();
+  try {
+    const ovhcloudResult = await runOvhcloudRouteBounded(request, env, fetchImpl, options);
+    return composeOvhcloudResult(ovhcloudResult, priorAttempts, Date.now() - ovhcloudStartedAtMs);
+  } catch (error) {
+    if (error instanceof OriginOvhcloudPreflightError) {
+      const skipped = ovhcloudAttemptEvidence("skipped", {
+        skipReason: error.reason,
+        transportRequestCount: 0,
+      });
+      throw withFailoverAttempts(fallbackError, [...priorAttempts, skipped]);
+    }
+    if (error instanceof OriginProviderError) {
+      const failed = ovhcloudAttemptEvidence(
+        ORIGIN_FAILOVER_TRIGGER_CODES.has(error.code) ? "availability-error" : "failed",
+        { errorCode: error.code, ...upstreamAttemptFields(error), transportRequestCount: error.diagnostic?.transportRequestCount, durationMs: Date.now() - ovhcloudStartedAtMs },
       );
       throw withFailoverAttempts(error, [...priorAttempts, failed]);
     }
@@ -1014,6 +1259,11 @@ async function attemptGroqRoute(
  * last chance its attempt. The outcome is still recorded on the breaker as
  * usual: a success closes it, and a counted failure re-opens it at once (the
  * record function's executed-while-open case).
+ *
+ * Both failure exits pass through attemptOvhcloudRoute first (fourth
+ * route, 2026-11-25), exactly as attemptGroqRoute's exits do: while its
+ * gates do not all hold — the default — the error and attempt record
+ * this function used to throw are thrown unchanged.
  */
 async function attemptCloudflareRoute(
   request: OriginProviderExecutionRequest,
@@ -1036,7 +1286,7 @@ async function attemptCloudflareRoute(
           : error.reason,
         transportRequestCount: 0,
       });
-      throw withFailoverAttempts(fallbackError, [...priorAttempts, skipped]);
+      return attemptOvhcloudRoute(request, env, fetchImpl, options, [...priorAttempts, skipped], fallbackError);
     }
     if (error instanceof OriginProviderError) {
       recordCloudflareRouteFailure(error, options);
@@ -1044,7 +1294,7 @@ async function attemptCloudflareRoute(
         ORIGIN_FAILOVER_TRIGGER_CODES.has(error.code) ? "availability-error" : "failed",
         { errorCode: error.code, ...upstreamAttemptFields(error), transportRequestCount: error.diagnostic?.transportRequestCount, durationMs: Date.now() - cloudflareStartedAtMs },
       );
-      throw withFailoverAttempts(error, [...priorAttempts, failed]);
+      return attemptOvhcloudRoute(request, env, fetchImpl, options, [...priorAttempts, failed], error);
     }
     throw error;
   }
@@ -1997,7 +2247,9 @@ function attemptDidNotServe(attempt: OriginProviderAttemptEvidence): boolean {
  * or a pre-execution skip with zero transport — and each failover route appears at
  * most once. Both orders therefore verify: Cloudflare-then-Groq (the current order)
  * and Groq-then-Cloudflare (Groq-first direct chat), as do the two-attempt shapes
- * where the first failover route tried already served.
+ * where the first failover route tried already served. The four-attempt shape
+ * (primary, Cloudflare, Groq, OVHcloud — in either failover order) verifies the
+ * same way, with the OVHcloud route as the serving last attempt.
  */
 export function assertOriginZeroCostExecutionResultWithFailover(
   result: OriginProviderExecutionResult,
@@ -2010,7 +2262,7 @@ export function assertOriginZeroCostExecutionResultWithFailover(
   const attempts = result.attempts;
   assertZeroCostField(result.actualCostUsd, "actualCostUsd");
   assertZeroCostField(result.usage?.costUsd, "usage.costUsd");
-  if (!Array.isArray(attempts) || attempts.length < 1 || attempts.length > 3) {
+  if (!Array.isArray(attempts) || attempts.length < 1 || attempts.length > 4) {
     routingFailure("許可された無料Provider/Modelの証跡を確認できません。");
   }
   let transportTotal = 0;
@@ -2070,7 +2322,8 @@ export function assertOriginZeroCostExecutionResultWithFailover(
   const seenFailoverProviders = new Set<string>();
   for (const attempt of attempts.slice(1)) {
     if (attempt.providerId !== ORIGIN_CLOUDFLARE_WORKERS_AI_FREE_PROVIDER_ID
-      && attempt.providerId !== ORIGIN_GROQ_FREE_PROVIDER_ID) {
+      && attempt.providerId !== ORIGIN_GROQ_FREE_PROVIDER_ID
+      && attempt.providerId !== ORIGIN_OVHCLOUD_FREE_PROVIDER_ID) {
       routingFailure("許可された無料Provider/Modelの証跡を確認できません。");
     }
     if (seenFailoverProviders.has(attempt.providerId)) {
@@ -2088,6 +2341,20 @@ export function assertOriginZeroCostExecutionResultWithFailover(
       routingFailure("許可された無料Provider/Modelの証跡を確認できません。");
     }
     assertOriginCloudflareExecutionResult(result);
+    return;
+  }
+  // The serving route is OVHcloud (fourth route, 2026-11-25): its attempt
+  // names the one catalogued model, and the middle attempts before it —
+  // the Cloudflare and Groq attempts — were already required above to
+  // show they did not serve, which for this route additionally means
+  // they were availability-down (the dispatcher's own entry gate; the
+  // assertion re-checks the did-not-serve shape, the route's client
+  // assertion re-checks the serving result itself).
+  if (serving.providerId === ORIGIN_OVHCLOUD_FREE_PROVIDER_ID) {
+    if (serving.outcome !== "succeeded" || !isOriginOvhcloudFreeModelId(serving.modelId)) {
+      routingFailure("許可された無料Provider/Modelの証跡を確認できません。");
+    }
+    assertOriginOvhcloudExecutionResult(result, serving.modelId as OriginOvhcloudFreeModelId);
     return;
   }
   // The serving route is Groq. Its attempt may name either catalog model: the
