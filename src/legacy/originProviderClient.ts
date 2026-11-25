@@ -72,6 +72,23 @@ export interface OriginProviderExecutionRequest {
    */
   groqCapacityAllocation?: OriginGroqCapacityAllocation;
   /**
+   * Optional last-resort-route eligibility mark for the OVHcloud AI
+   * Endpoints anonymous tier (fourth route, owner-approved 2026-11-25 as
+   * an auxiliary route). A caller may set this to true ONLY when the
+   * call's payload is lightweight and non-confidential: no conversation
+   * text, no personal data, nothing the caller would not send to a
+   * provider whose commercial-use terms are not yet confirmed in
+   * writing. The failover dispatcher attempts the OVHcloud route only
+   * when this mark is exactly true, the ORIGIN_OVH_FAILOVER_ENABLED
+   * switch is exactly "true", and both earlier failover routes
+   * (Cloudflare, Groq) ended availability-down in the same dispatch.
+   * Routes 1-3 never read this field, the streaming dispatcher does not
+   * act on it, and no caller sets it as of this field's introduction —
+   * the route stays unreachable until a caller is deliberately marked,
+   * which is the intended default posture for an anonymous tier.
+   */
+  ovhcloudFallbackEligible?: boolean;
+  /**
    * Optional text-release policy for the upstream streaming executor; every other
    * executor ignores this field. "hold-until-verified" (also the behavior when the
    * field is absent) releases the answer text only after the stream has terminated

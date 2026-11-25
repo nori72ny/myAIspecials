@@ -3,17 +3,20 @@ import { classifyTask, type AITaskRequest, type AITaskType } from "./MultiAIOrch
 import { DEFAULT_ORIGIN_FREE_MODEL_CATALOG, ORIGIN_DEFAULT_OPENROUTER_FREE_MODEL, ORIGIN_OPENROUTER_ROUTE_DISPOSITION, selectCurrentOriginFreeModel, selectOriginFreeModelForStoppedRoute, type OriginFreeModelEvidence } from "./OriginFreeModelCatalog.js";
 import { ORIGIN_CLOUDFLARE_FREE_MODEL, selectCurrentOriginCloudflareFreeModel, type OriginCloudflareFreeModelEvidence } from "./OriginCloudflareFreeModelCatalog.js";
 import { ORIGIN_GROQ_FREE_MODEL_ID, selectCurrentOriginGroqFreeModel, type OriginGroqFreeModelEvidence } from "./OriginGroqFreeModelCatalog.js";
+import { ORIGIN_OVHCLOUD_FREE_MODEL_ID, selectCurrentOriginOvhcloudFreeModel, type OriginOvhcloudFreeModelEvidence } from "./OriginOvhcloudFreeModelCatalog.js";
 
 export const ORIGIN_OPENROUTER_FREE_PROVIDER_ID = "openrouter-free" as const;
 export const ORIGIN_GOOGLE_AI_STUDIO_FREE_PROVIDER_ID = "google-ai-studio-free" as const;
 export const ORIGIN_GROQ_FREE_PROVIDER_ID = "groq-free" as const;
 export const ORIGIN_CLOUDFLARE_WORKERS_AI_FREE_PROVIDER_ID = "cloudflare-workers-ai-free" as const;
+export const ORIGIN_OVHCLOUD_FREE_PROVIDER_ID = "ovhcloud-free" as const;
 export const ORIGIN_OPENROUTER_FREE_MODEL = ORIGIN_DEFAULT_OPENROUTER_FREE_MODEL;
 export const ORIGIN_GOOGLE_AI_STUDIO_FREE_MODEL = "gemini-2.5-flash" as const;
 export const ORIGIN_GROQ_FREE_MODEL = "llama-3.3-70b-versatile" as const;
 export const ORIGIN_CLOUDFLARE_WORKERS_AI_FREE_MODEL = ORIGIN_CLOUDFLARE_FREE_MODEL;
+export const ORIGIN_OVHCLOUD_FREE_MODEL = ORIGIN_OVHCLOUD_FREE_MODEL_ID;
 
-export type OriginExecutionProviderId = typeof ORIGIN_OPENROUTER_FREE_PROVIDER_ID | typeof ORIGIN_GOOGLE_AI_STUDIO_FREE_PROVIDER_ID | typeof ORIGIN_GROQ_FREE_PROVIDER_ID | typeof ORIGIN_CLOUDFLARE_WORKERS_AI_FREE_PROVIDER_ID;
+export type OriginExecutionProviderId = typeof ORIGIN_OPENROUTER_FREE_PROVIDER_ID | typeof ORIGIN_GOOGLE_AI_STUDIO_FREE_PROVIDER_ID | typeof ORIGIN_GROQ_FREE_PROVIDER_ID | typeof ORIGIN_CLOUDFLARE_WORKERS_AI_FREE_PROVIDER_ID | typeof ORIGIN_OVHCLOUD_FREE_PROVIDER_ID;
 /** The OpenRouter route is dispositioned "stopped" (PKG-4 PR-2, 2026-11-17): it is never executed, and direct chat is served by the Cloudflare and Groq failover routes only. Gemini is a separately guarded secondary route only. Groq was independently verified on 2026-11-08 (ZDR enabled on the owner's free account) and exists only as a failover route; it stays disabled until GROQ_API_KEY is configured. */
 export const ORIGIN_ZERO_COST_PROVIDER_IDS: readonly OriginExecutionProviderId[] = [ORIGIN_OPENROUTER_FREE_PROVIDER_ID, ORIGIN_GOOGLE_AI_STUDIO_FREE_PROVIDER_ID];
 
@@ -39,7 +42,7 @@ export interface OriginExecutionPlan {
   providerDataPolicy: OriginProviderDataPolicy;
   modelEvidence: OriginProviderFreeEvidence;
 }
-export interface OriginExecutionPlanningOptions { freeModelCatalog?: readonly OriginFreeModelEvidence[]; cloudflareFreeModelCatalog?: readonly OriginCloudflareFreeModelEvidence[]; groqFreeModelCatalog?: readonly OriginGroqFreeModelEvidence[]; providerEvidence?: Partial<Record<OriginExecutionProviderId, OriginProviderFreeEvidence>>; nowMs?: number; }
+export interface OriginExecutionPlanningOptions { freeModelCatalog?: readonly OriginFreeModelEvidence[]; cloudflareFreeModelCatalog?: readonly OriginCloudflareFreeModelEvidence[]; groqFreeModelCatalog?: readonly OriginGroqFreeModelEvidence[]; ovhcloudFreeModelCatalog?: readonly OriginOvhcloudFreeModelEvidence[]; providerEvidence?: Partial<Record<OriginExecutionProviderId, OriginProviderFreeEvidence>>; nowMs?: number; }
 export type OriginExecutionPlanFailureCode = "FREE_PROVIDER_NOT_CONFIGURED" | "FREE_MODEL_CATALOG_INVALID" | "FREE_MODEL_EVIDENCE_STALE" | "INVALID_EXECUTION_POLICY";
 export type OriginExecutionPlanResult = { ok: true; plan: OriginExecutionPlan } | { ok: false; code: OriginExecutionPlanFailureCode; message: string };
 export const DEFAULT_ORIGIN_EXECUTION_POLICY: OriginExecutionPolicy = { freeOnly: true, maxEstimatedCostUsd: 0, timeoutMs: 20_000 };
@@ -91,6 +94,11 @@ function resolveProviderEvidence(providerId: OriginExecutionProviderId, planning
   if (providerId === ORIGIN_GROQ_FREE_PROVIDER_ID) {
     const result = selectCurrentOriginGroqFreeModel(planningOptions.groqFreeModelCatalog, nowMs);
     if ("model" in result) return { providerId: ORIGIN_GROQ_FREE_PROVIDER_ID, verifiedAt: result.model.verifiedAt, reviewAfter: result.model.reviewAfter, sourceUrl: result.model.sourceUrl };
+    return { ok: false, code: result.code, message: result.message };
+  }
+  if (providerId === ORIGIN_OVHCLOUD_FREE_PROVIDER_ID) {
+    const result = selectCurrentOriginOvhcloudFreeModel(planningOptions.ovhcloudFreeModelCatalog, nowMs);
+    if ("model" in result) return { providerId: ORIGIN_OVHCLOUD_FREE_PROVIDER_ID, verifiedAt: result.model.verifiedAt, reviewAfter: result.model.reviewAfter, sourceUrl: result.model.sourceUrl };
     return { ok: false, code: result.code, message: result.message };
   }
   if (providerId === ORIGIN_GOOGLE_AI_STUDIO_FREE_PROVIDER_ID) {
@@ -157,4 +165,31 @@ export function buildOriginGroqRoutePlan(sourcePlan: OriginExecutionPlan, planni
   if ("ok" in evidence && evidence.ok === false) return evidence;
   const modelEvidence = evidence as OriginProviderFreeEvidence;
   return { ok: true, plan: { providerId: ORIGIN_GROQ_FREE_PROVIDER_ID, providerLabel: "ORIGIN 無料AI", modelId: ORIGIN_GROQ_FREE_MODEL_ID, taskType: sourcePlan.taskType, capabilityDecision: sourcePlan.capabilityDecision, freeOnly: true, estimatedCostUsd: 0, timeoutMs: sourcePlan.timeoutMs, requiresOwnerApproval: false, reason: "第1経路は停止中、第2経路の可用性エラー時に限り、証拠が期限内でZDR有効化と無料上限を実地確認済みのGroq固定無料モデルへ切り替えるための経路計画です。GROQ_API_KEYが未設定の場合はこの経路自体が存在しないものとして扱い、証拠期限切れやトークン上限超過が見込まれる場合は実行しません。", providerDataPolicy: DEFAULT_ORIGIN_PROVIDER_DATA_POLICY, modelEvidence } };
+}
+
+/**
+ * Builds the fourth-route plan (OVHcloud AI Endpoints, anonymous tier) for
+ * the free-provider failover dispatcher. The owner approved adopting this
+ * route on 2026-11-25 as an auxiliary route only. Like the other route
+ * plans, this only derives a same-task, same-timeout plan for the fixed
+ * OVHcloud free model from the OVHcloud evidence catalog, under the exact
+ * same data policy class as every other route (dataCollection "deny", zero
+ * data retention required, no provider-level fallbacks). The route is a
+ * last-resort receiver: the dispatcher attempts it only after BOTH the
+ * Cloudflare and Groq routes ended availability-down, only while the
+ * ORIGIN_OVH_FAILOVER_ENABLED switch is exactly "true" (default OFF), and
+ * only for requests a caller explicitly marked as lightweight and
+ * non-confidential — the anonymous tier's commercial-use wording is
+ * unconfirmed, so conversation text and personal data are never sent to
+ * it. The tier needs no credential and has no billing path (no account,
+ * no balance; the limit refuses with HTTP 429), and the Batch API is
+ * never used because the ZDR annex excludes it.
+ */
+export function buildOriginOvhcloudRoutePlan(sourcePlan: OriginExecutionPlan, planningOptions: OriginExecutionPlanningOptions = {}): OriginExecutionPlanResult {
+  const nowMs = planningOptions.nowMs ?? Date.now();
+  if (!Number.isFinite(nowMs)) return { ok: false, code: "FREE_MODEL_CATALOG_INVALID", message: "無料Provider証拠の基準時刻が不正です。" };
+  const evidence = resolveProviderEvidence(ORIGIN_OVHCLOUD_FREE_PROVIDER_ID, planningOptions, nowMs);
+  if ("ok" in evidence && evidence.ok === false) return evidence;
+  const modelEvidence = evidence as OriginProviderFreeEvidence;
+  return { ok: true, plan: { providerId: ORIGIN_OVHCLOUD_FREE_PROVIDER_ID, providerLabel: "ORIGIN 無料AI", modelId: ORIGIN_OVHCLOUD_FREE_MODEL_ID, taskType: sourcePlan.taskType, capabilityDecision: sourcePlan.capabilityDecision, freeOnly: true, estimatedCostUsd: 0, timeoutMs: sourcePlan.timeoutMs, requiresOwnerApproval: false, reason: "第2・第3経路の両方が可用性エラーで終わった場合に限り、軽量・非機密と明示された呼び出しだけを受け止める最終受け皿（OVHcloud AI Endpoints 匿名ティア）の経路計画です。匿名ティアは登録・キー・カード不要で、ZDRが製品ページと契約附属書（Annex 10）で裏付けられ、上限超過はHTTP 429で止まり課金経路が存在しません。スイッチORIGIN_OVH_FAILOVER_ENABLEDが'true'でない限りディスパッチャはこの経路を試行せず、証拠期限切れの場合は実行しません。Batch APIはZDRの例外のため使いません。", providerDataPolicy: DEFAULT_ORIGIN_PROVIDER_DATA_POLICY, modelEvidence } };
 }
