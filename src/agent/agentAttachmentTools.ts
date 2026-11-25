@@ -374,8 +374,14 @@ function analyzerInstruction(
   // AGENT_ATTACHMENT_INSTRUCTION_TOTAL_MAX_CHARS (with the plain
   // findings shape the goal still gets its full
   // AGENT_ATTACHMENT_INSTRUCTION_MAX_CHARS clip).
+  // The three closing rules name the read-stage dropouts the
+  // agent specialist measured on failed run-f0d306fe (function
+  // inspection 2026-11-25): a stake held inside an entity, a
+  // checkbox-selected disclosure, and an entity written as a
+  // role word were present in the sources yet never reached the
+  // value table, so the deterministic pairing never saw them.
   const auditShape = auditMode && outputKind === 'findings'
-    ? `監査: 各所見にexplanation（なぜ矛盾か）と対の2番目の引用evidenceB・fileB・locationBも付けること。加えて比較可能な値と文書構造を {"values":[{"entity":"主体","attribute":"属性","value":"原文の値","normalizedValue":"正規化値","file":"ファイル名","location":"場所"}],"structure":{"agreements":[{"name":"合意名","parties":[{"name":"当事者","role":"役割"}]}],"definitions":[{"short":"略称","full":"正式名","file":"ファイル名","location":"場所"}]}} の形で返すこと。値テーブルの属性は統制語彙（${AGENT_AUDIT_ATTRIBUTE_VOCABULARY.join('／')}）から選ぶこと。所見として挙げた食い違いのペアは、同じ主体・同じ属性ラベルで値テーブルにも必ず入れること。`
+    ? `監査: 各所見にexplanation（なぜ矛盾か）と対の2番目の引用evidenceB・fileB・locationBも付けること。加えて比較可能な値と文書構造を {"values":[{"entity":"主体","attribute":"属性","value":"原文の値","normalizedValue":"正規化値","file":"ファイル名","location":"場所"}],"structure":{"agreements":[{"name":"合意名","parties":[{"name":"当事者","role":"役割"}]}],"definitions":[{"short":"略称","full":"正式名","file":"ファイル名","location":"場所"}]}} の形で返すこと。値テーブルの属性は統制語彙（${AGENT_AUDIT_ATTRIBUTE_VOCABULARY.join('／')}）から選ぶこと。所見として挙げた食い違いのペアは、同じ主体・同じ属性ラベルで値テーブルにも必ず入れること。合伙份额・出資比率など主体の中での持分は、持分を持つ主体の名称をentityにして報告すること。チェックボックスで選択された開示（資金源泉の「√自有资金」など）も値として報告すること。entityは役割語（情報披露義務人など）でなく当事者の名称で書くこと。`
     : '';
   const shape = baseShape + auditShape;
   const budget = AGENT_ATTACHMENT_INSTRUCTION_TOTAL_MAX_CHARS - head.length - shape.length - '依頼: '.length;
