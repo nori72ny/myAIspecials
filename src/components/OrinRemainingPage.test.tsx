@@ -101,9 +101,16 @@ describe('OrinRemainingPage (expansion design §7, moved to a sidebar page 2026-
     expect(screen.getByTestId('origin-remaining-page').textContent).toContain('終わった依頼は、オリンから開く「作業状況」で確認できます');
   });
 
-  it('does not claim zero when the runs list cannot be read', () => {
-    // 資格情報が無い（＝一覧を引けていない）状態で「0件」と
-    // 言い切るのは捏造になるため、読み込めなかった旨を出す。
+  it('does not claim zero when the runs list cannot be read', async () => {
+    // キーはあるのに取得が失敗した状態で「0件」と言い切るのは
+    // 捏造になるため、読み込めなかった旨を出す。
+    setSessionCredential('admin', 'test-credential');
+    stubFetch((url) => {
+      if (url.includes('/api/agent/v3/runs')) {
+        return new Response(JSON.stringify({ ok: false }), { status: 500, headers: { 'Content-Type': 'application/json' } });
+      }
+      return new Response('{}', { status: 200, headers: { 'Content-Type': 'application/json' } });
+    });
     render(
       <OrinRemainingPage
         language="ja"
@@ -112,7 +119,29 @@ describe('OrinRemainingPage (expansion design §7, moved to a sidebar page 2026-
         queuedRequests={[]}
       />,
     );
-    expect(screen.getByTestId('origin-remaining-unavailable').textContent).toBe('依頼の状況を読み込めませんでした');
+    const unavailable = await screen.findByTestId('origin-remaining-unavailable');
+    expect(unavailable.textContent).toBe('依頼の状況を読み込めませんでした');
+    expect(screen.queryByTestId('origin-remaining-empty')).toBeNull();
+    expect(screen.queryByTestId('origin-remaining-needs-credential')).toBeNull();
+  });
+
+  it('guides to the admin key instead of an error when no key is entered', async () => {
+    // キー未入力は取得の失敗ではない（2026-11-25 夜の本番チェック：
+    // パネルはローカル表示で完了1件を出すのに、ページだけが
+    // 「読み込めませんでした」になり、壊れているように見えた）。
+    // 0件とも失敗とも言わず、入力先を案内する。
+    render(
+      <OrinRemainingPage
+        language="ja"
+        foregroundItems={[]}
+        agentFallbackItem={null}
+        queuedRequests={[]}
+      />,
+    );
+    const guide = await screen.findByTestId('origin-remaining-needs-credential');
+    expect(guide.textContent).toBe('エージェントの依頼を表示するには、管理者キーが必要です');
+    expect(screen.getByTestId('origin-remaining-page').textContent).toContain('設定から管理者キーを入力してください');
+    expect(screen.queryByTestId('origin-remaining-unavailable')).toBeNull();
     expect(screen.queryByTestId('origin-remaining-empty')).toBeNull();
   });
 

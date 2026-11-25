@@ -20,7 +20,11 @@ import {
  * 後も、画面を開き直さずに次の取得から反映される。
  *
  * 状態の意味（0件と「分からない」を混同しない）：
- * - unavailable：資格情報が無い、または最初の取得が失敗した。
+ * - needs-credential：管理者キーが未入力で、一覧をまだ引いて
+ *   いない。取得の失敗ではない（2026-11-25 夜の本番チェックで、
+ *   キー未入力のセッションではページが「読み込めませんでした」
+ *   とだけ出て、パネルのローカル表示と食い違って見えたため分離）。
+ * - unavailable：資格情報はあるが、最初の取得が失敗した。
  *   「1件も無い」という意味ではない。
  * - loading：資格情報があり、最初の取得が終わっていない。
  * - ready：groups が最新の確認結果。一度引けた後の一時的な
@@ -30,13 +34,14 @@ import {
  * （次に開いた時に引き直す）。
  */
 export type OrinPanelRunsState =
+  | { kind: 'needs-credential' }
   | { kind: 'unavailable' }
   | { kind: 'loading' }
   | { kind: 'ready'; groups: OrinPanelRunGroups };
 
 const RUNS_POLL_MS = 5_000;
 
-let state: OrinPanelRunsState = { kind: 'unavailable' };
+let state: OrinPanelRunsState = { kind: 'loading' };
 const listeners = new Set<(next: OrinPanelRunsState) => void>();
 let pollTimer: number | null = null;
 let fetchInFlight = false;
@@ -51,10 +56,10 @@ function emit(next: OrinPanelRunsState): void {
 async function tick(gen: number): Promise<void> {
   const credential = getSessionCredential('admin').trim();
   if (!credential) {
-    if (state.kind !== 'unavailable') emit({ kind: 'unavailable' });
+    if (state.kind !== 'needs-credential') emit({ kind: 'needs-credential' });
     return;
   }
-  if (state.kind === 'unavailable') emit({ kind: 'loading' });
+  if (state.kind === 'unavailable' || state.kind === 'needs-credential') emit({ kind: 'loading' });
   if (fetchInFlight) return;
   fetchInFlight = true;
   try {
@@ -82,13 +87,14 @@ async function tick(gen: number): Promise<void> {
 
 function subscribeOrinPanelRuns(listener: (next: OrinPanelRunsState) => void): () => void {
   listeners.add(listener);
+  // 購読した瞬間の現在値をまず渡す（再購読時に、前の購読解除で
+  // 残った古い状態ではなく、初期化済みの現在値から始めるため）。
+  listener(state);
   if (listeners.size === 1) {
     generation += 1;
     const gen = generation;
     void tick(gen);
     pollTimer = window.setInterval(() => { void tick(gen); }, RUNS_POLL_MS);
-  } else {
-    listener(state);
   }
   return () => {
     listeners.delete(listener);
@@ -98,7 +104,7 @@ function subscribeOrinPanelRuns(listener: (next: OrinPanelRunsState) => void): (
         window.clearInterval(pollTimer);
         pollTimer = null;
       }
-      state = { kind: 'unavailable' };
+      state = { kind: 'loading' };
     }
   };
 }
@@ -108,7 +114,7 @@ function subscribeOrinPanelRuns(listener: (next: OrinPanelRunsState) => void): (
  * パネルは開いている間、ページは表示されている間だけ active にする。
  */
 export function useOrinPanelRuns(active: boolean): OrinPanelRunsState {
-  const [snapshot, setSnapshot] = useState<OrinPanelRunsState>({ kind: 'unavailable' });
+  const [snapshot, setSnapshot] = useState<OrinPanelRunsState>({ kind: 'loading' });
 
   useEffect(() => {
     if (!active) {
