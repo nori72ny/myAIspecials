@@ -165,7 +165,16 @@ export async function migrateCheckpointsToEncryptionKey(targetKey: CryptoKey): P
   if (!current) return { migrated: false };
 
   const localKey = await loadOrCreateLocalKey();
-  const checkpoints = await decrypt(current, localKey);
+  let checkpoints: CheckpointState[];
+  try {
+    checkpoints = await decrypt(current, localKey);
+  } catch {
+    // Already encrypted with the target key (an earlier migration
+    // completed): nothing to do. A record that neither key can open
+    // still fails the migration here, as before.
+    await decrypt(current, targetKey);
+    return { migrated: false };
+  }
   const migratedRecord = await encrypt(checkpoints, targetKey);
   await writeRecord(migratedRecord, MIGRATION_KEY);
 
@@ -190,6 +199,18 @@ export async function rollbackCheckpointKeyMigration(): Promise<void> {
   const legacy = await readRecord(LEGACY_BACKUP_KEY);
   if (!legacy) return;
   await writeRecord(legacy, RECORD_KEY);
+}
+
+/**
+ * Removes the pre-migration backup record once a passkey migration has
+ * fully succeeded (called by passkeyKeyMigration only, after both stores
+ * report success). The backup is encrypted with the device-local key;
+ * keeping it would leave a weaker-key copy of the checkpoints behind
+ * indefinitely, defeating the migration.
+ */
+export async function clearCheckpointMigrationBackup(): Promise<void> {
+  if (!isBrowser()) return;
+  await deleteRecord(LEGACY_BACKUP_KEY);
 }
 
 export async function clearCheckpointsFromIndexedDB(): Promise<void> {

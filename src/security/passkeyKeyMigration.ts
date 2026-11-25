@@ -1,8 +1,10 @@
 import {
+  clearActiveContextMigrationBackups,
   migrateActiveContextToEncryptionKey,
   rollbackActiveContextKeyMigration,
 } from '../services/activeContextGraph';
 import {
+  clearCheckpointMigrationBackup,
   migrateCheckpointsToEncryptionKey,
   rollbackCheckpointKeyMigration,
 } from '../agent/indexedDbCheckpointStore';
@@ -49,6 +51,15 @@ export async function migrateToPasskeyEncryption(passkeyKey?: CryptoKey): Promis
     activeContextMigrated = activeContextResult.migrated;
 
     setMigrationStatus('complete');
+    // Both stores migrated and verified, so the pre-migration backups —
+    // ciphertexts readable with the device-local key — are removed.
+    // Keeping them would leave a weaker-key copy of every migrated
+    // record behind indefinitely. Cleanup is best-effort: a failure
+    // here does not undo the completed migration.
+    await Promise.allSettled([
+      Promise.resolve().then(() => clearActiveContextMigrationBackups()),
+      clearCheckpointMigrationBackup(),
+    ]);
     return { checkpoints: checkpointsMigrated, activeContext: activeContextMigrated };
   } catch (error) {
     await Promise.allSettled([

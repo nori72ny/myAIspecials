@@ -1522,7 +1522,17 @@ export async function migrateActiveContextToEncryptionKey(targetKey: CryptoKey):
     for (const candidate of candidates) {
       const raw = window.localStorage.getItem(candidate.key);
       if (!raw) continue;
-      const plaintext = await decryptTextWithKey(parsePayload(raw), localKey);
+      let plaintext: string;
+      try {
+        plaintext = await decryptTextWithKey(parsePayload(raw), localKey);
+      } catch {
+        // Already encrypted with the target key (an earlier migration
+        // completed for this record): leave it exactly as it is and do
+        // not stage a backup for it. A record that neither key can open
+        // still fails the migration here, as before.
+        await decryptTextWithKey(parsePayload(raw), targetKey);
+        continue;
+      }
       const encrypted = JSON.stringify(await encryptTextWithKey(plaintext, targetKey));
       await decryptTextWithKey(parsePayload(encrypted), targetKey);
       staged.push({ key: candidate.key, backupKey: candidate.backupKey, encrypted });
@@ -1559,4 +1569,27 @@ export async function rollbackActiveContextKeyMigration(): Promise<void> {
     const backup = window.localStorage.getItem(item.backup);
     if (backup) window.localStorage.setItem(item.active, backup);
   }
+}
+
+/**
+ * Removes the pre-migration backup ciphertexts once a passkey migration
+ * has fully succeeded (called by passkeyKeyMigration only, after both
+ * stores report success). The backups are encrypted with the device-local
+ * key, which stays in IndexedDB for the other stores and as the decrypt
+ * fallback — leaving the backups in place would keep a copy of every
+ * migrated record readable with that weaker key indefinitely, defeating
+ * the migration. Rollback is only meaningful during the migration call
+ * itself, so after success the backups are pure residue.
+ */
+export function clearActiveContextMigrationBackups(): void {
+  ensureBrowser();
+  const doomed: string[] = [];
+  for (let index = 0; index < window.localStorage.length; index += 1) {
+    const key = window.localStorage.key(index);
+    if (!key) continue;
+    for (const target of KEY_MIGRATION_TARGETS) {
+      if (key.startsWith(target.backupPrefix)) doomed.push(key);
+    }
+  }
+  for (const key of doomed) window.localStorage.removeItem(key);
 }
