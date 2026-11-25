@@ -1688,6 +1688,97 @@ export async function executeAttachmentAnalyzer(
     }
   }
 
+  // Diagnostic bundle (K-17 target B, design AGENT_K17_FAILED_STEP_
+  // ARTIFACT_DESIGN_2026-11-24 §2/§5): the artifact this step has
+  // computed from the merge so far, built by exactly the code the
+  // success return below uses. The post-merge gates after this
+  // point — chunk-local coverage, the final coverage verification,
+  // the required-columns check — refuse the step AFTER the bundle
+  // exists; their failures attach the bundle on the result's
+  // diagnostic channel so the rows that were actually produced
+  // survive for diagnosis (which rows are missing, which values
+  // diverge), instead of only the failure message's aggregates.
+  // The attachment changes nothing about the failure itself: ok
+  // stays false, the code and message are byte-identical, and the
+  // bundle never becomes the step's artifact — the executor keeps
+  // it off the dataflow channel, so no later step can consume it.
+  const buildBundleArtifact = (): string => {
+    const content = outputKind === 'rows'
+      ? renderAgentDataRowsCsv(view, merged.rows)
+      : outputKind === 'findings'
+        ? renderFindings(merged.findings, goalInstruction)
+        : merged.textParts.join('\n\n');
+    return JSON.stringify({
+      kind: 'data-analysis',
+      content,
+      outputKind,
+      ...(outputKind === 'rows' ? { rows: merged.rows } : {}),
+      ...(outputKind === 'findings' ? { findings: merged.findings } : {}),
+      // Structured sections ride the bundle only when the plan asked
+      // for them; other runs keep the previous bundle shape.
+      ...(outputKind === 'findings' && structuredJsonKeys.length > 0
+        ? { resources: merged.resources, remediations: merged.remediations }
+        : {}),
+      // Layer-1 audit sections ride the bundle only in audit mode;
+      // the mismatch candidates are computed once, deterministically,
+      // on the step that completes the set — intermediate bundles
+      // carry the table and the map the final step cross-checks.
+      ...(outputKind === 'findings' && auditMode
+        ? {
+            values: merged.values,
+            structure: merged.structure,
+            ...(isFinalStep
+              ? {
+                  candidates: computeAgentDataValueMismatches(merged.values, merged.structure),
+                  // The value table's recorded summary (対策1(d)):
+                  // computed on the same final step as the
+                  // candidates, from the same merged table.
+                  valueTable: summarizeAgentDataValueTable(merged.values, merged.structure),
+                }
+              : {}),
+          }
+        : {}),
+      ...(outputKind === 'rows' && Object.keys(view.aggregates).length > 0 ? { aggregates: view.aggregates } : {}),
+      // BIA inputs (failure diagnosis 2026-11-24, 対策6): when the
+      // set carries a readable Basel parameter table, its parsed
+      // inputs ride the FINAL rows bundle so the capital-calculation
+      // document step assembles its file deterministically from
+      // them. The inputs are the set's own numbers, parsed by a pure
+      // function — the model never sees this block and never
+      // computes the capital. Sets without the table's shape carry
+      // nothing and their bundles stay byte-identical.
+      ...(outputKind === 'rows' && isFinalStep
+        ? (() => {
+            const biaInputs = parseBaselBiaInputs(files);
+            return biaInputs ? { biaInputs } : {};
+          })()
+        : {}),
+      coverage: {
+        totalChunks: view.totalChunks,
+        processedChunks: chunkOffset + range.length,
+        ...(outputKind === 'rows' && !agentDataUsesFileNameKeys(view) ? { keyCount: view.expectedKeys.length } : {}),
+        // Rows discarded under the primary-table contract (案1),
+        // accumulated across the chain so the final bundle keeps the
+        // total observable. Observability only — never a gate.
+        ...(outputKind === 'rows' ? { discardedRows: priorDiscardedRows + discardedRowsThisStep } : {}),
+      },
+      // Execution trace (see the trace note at the chunk loop): the
+      // servings this step's calls actually used and whether the
+      // repair retry ran, read back by the advancer into the step's
+      // live detail. Present only when a serving was recorded.
+      ...(executionServings.length > 0
+        ? { execution: { servings: executionServings, repairRetried: executionRepairRetried } }
+        : {}),
+      chunkRange: { offset: chunkOffset, count: range.length },
+    });
+  };
+  const failWithDiagnosticBundle = (message: string): ToolResult => ({
+    ok: false,
+    tool,
+    message,
+    diagnosticArtifact: buildBundleArtifact(),
+  });
+
   // Chunk-local coverage (Basel segment-2 fix, 案2): a step whose
   // range completes primary-table chunks must account for exactly
   // those chunks' keys and numeric subtotals from its own output.
@@ -1707,7 +1798,7 @@ export async function executeAttachmentAnalyzer(
     if (primaryChunksInRange.length > 0) {
       const localCoverage = verifyAgentDataLocalCoverage(view, primaryChunksInRange, stepPrimaryRows);
       if (localCoverage.ok === false) {
-        return fail(agentDataCoverageFailureMessage('local', localCoverage, { chunkOffset, chunkCount: range.length }) + executionParenthetical());
+        return failWithDiagnosticBundle(agentDataCoverageFailureMessage('local', localCoverage, { chunkOffset, chunkCount: range.length }) + executionParenthetical());
       }
     }
   }
@@ -1724,7 +1815,7 @@ export async function executeAttachmentAnalyzer(
       const processedChunks = priorProcessedChunks === null ? -1 : priorProcessedChunks + range.length;
       const chunkCoverage = verifyAgentDataChunkCoverage(view, processedChunks, merged.rows.length);
       if (chunkCoverage.ok === false) {
-        return fail(`AGENT_DATA_COVERAGE_INSUFFICIENT (対象${chunkCoverage.expectedChunks}チャンク中${Math.max(0, chunkCoverage.processedChunks)}チャンクを処理、行${chunkCoverage.rowCount}件)${executionParenthetical()}`);
+        return failWithDiagnosticBundle(`AGENT_DATA_COVERAGE_INSUFFICIENT (対象${chunkCoverage.expectedChunks}チャンク中${Math.max(0, chunkCoverage.processedChunks)}チャンクを処理、行${chunkCoverage.rowCount}件)${executionParenthetical()}`);
       }
     } else {
       // Deterministic numeric copy (diagnosis 案1) over the
@@ -1734,7 +1825,7 @@ export async function executeAttachmentAnalyzer(
       applyAgentDataNumericCopy(view, merged.rows);
       const coverage = verifyAgentDataCoverage(view, merged.rows);
       if (coverage.ok === false) {
-        return fail(agentDataCoverageFailureMessage('final', coverage) + executionParenthetical());
+        return failWithDiagnosticBundle(agentDataCoverageFailureMessage('final', coverage) + executionParenthetical());
       }
     }
   }
@@ -1751,78 +1842,11 @@ export async function executeAttachmentAnalyzer(
   if (isFinalStep && outputKind === 'rows') {
     const missingColumns = findMissingAgentDataRequiredColumns(view, merged.rows);
     if (missingColumns.length > 0) {
-      return fail(`AGENT_DATA_REQUIRED_COLUMNS_MISSING (columns: ${missingColumns.join(', ')})${executionParenthetical()}`);
+      return failWithDiagnosticBundle(`AGENT_DATA_REQUIRED_COLUMNS_MISSING (columns: ${missingColumns.join(', ')})${executionParenthetical()}`);
     }
   }
 
-  const content = outputKind === 'rows'
-    ? renderAgentDataRowsCsv(view, merged.rows)
-    : outputKind === 'findings'
-      ? renderFindings(merged.findings, goalInstruction)
-      : merged.textParts.join('\n\n');
-  const artifact = JSON.stringify({
-    kind: 'data-analysis',
-    content,
-    outputKind,
-    ...(outputKind === 'rows' ? { rows: merged.rows } : {}),
-    ...(outputKind === 'findings' ? { findings: merged.findings } : {}),
-    // Structured sections ride the bundle only when the plan asked
-    // for them; other runs keep the previous bundle shape.
-    ...(outputKind === 'findings' && structuredJsonKeys.length > 0
-      ? { resources: merged.resources, remediations: merged.remediations }
-      : {}),
-    // Layer-1 audit sections ride the bundle only in audit mode;
-    // the mismatch candidates are computed once, deterministically,
-    // on the step that completes the set — intermediate bundles
-    // carry the table and the map the final step cross-checks.
-    ...(outputKind === 'findings' && auditMode
-      ? {
-          values: merged.values,
-          structure: merged.structure,
-          ...(isFinalStep
-            ? {
-                candidates: computeAgentDataValueMismatches(merged.values, merged.structure),
-                // The value table's recorded summary (対策1(d)):
-                // computed on the same final step as the
-                // candidates, from the same merged table.
-                valueTable: summarizeAgentDataValueTable(merged.values, merged.structure),
-              }
-            : {}),
-        }
-      : {}),
-    ...(outputKind === 'rows' && Object.keys(view.aggregates).length > 0 ? { aggregates: view.aggregates } : {}),
-    // BIA inputs (failure diagnosis 2026-11-24, 対策6): when the
-    // set carries a readable Basel parameter table, its parsed
-    // inputs ride the FINAL rows bundle so the capital-calculation
-    // document step assembles its file deterministically from
-    // them. The inputs are the set's own numbers, parsed by a pure
-    // function — the model never sees this block and never
-    // computes the capital. Sets without the table's shape carry
-    // nothing and their bundles stay byte-identical.
-    ...(outputKind === 'rows' && isFinalStep
-      ? (() => {
-          const biaInputs = parseBaselBiaInputs(files);
-          return biaInputs ? { biaInputs } : {};
-        })()
-      : {}),
-    coverage: {
-      totalChunks: view.totalChunks,
-      processedChunks: chunkOffset + range.length,
-      ...(outputKind === 'rows' && !agentDataUsesFileNameKeys(view) ? { keyCount: view.expectedKeys.length } : {}),
-      // Rows discarded under the primary-table contract (案1),
-      // accumulated across the chain so the final bundle keeps the
-      // total observable. Observability only — never a gate.
-      ...(outputKind === 'rows' ? { discardedRows: priorDiscardedRows + discardedRowsThisStep } : {}),
-    },
-    // Execution trace (see the trace note at the chunk loop): the
-    // servings this step's calls actually used and whether the
-    // repair retry ran, read back by the advancer into the step's
-    // live detail. Present only when a serving was recorded.
-    ...(executionServings.length > 0
-      ? { execution: { servings: executionServings, repairRetried: executionRepairRetried } }
-      : {}),
-    chunkRange: { offset: chunkOffset, count: range.length },
-  });
+  const artifact = buildBundleArtifact();
   return {
     ok: true,
     tool,

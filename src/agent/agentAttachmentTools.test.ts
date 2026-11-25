@@ -178,6 +178,37 @@ describe('attachment_analyzer tool', () => {
     expect(result.message).toContain('対象3件中2件を処理');
   });
 
+  it('attaches the computed bundle on the diagnostic channel when coverage refuses it (K-17, PR-β)', async () => {
+    const { store, setDigest } = await storeWithFruits();
+    const droppingExecutor: AgentModelExecutor = async ({ userText }) => {
+      const lines = userText.split('\n').filter((line) => line.length > 0 && !line.startsWith('【出典:')).slice(1, 3);
+      const rows = lines.map((line) => {
+        const [id, item, amount] = line.split(',');
+        return { id, item, amount };
+      });
+      return { ok: true, text: JSON.stringify({ rows }) };
+    };
+    const result = await toolRegistry.attachment_analyzer.execute(
+      analyzerParams(setDigest),
+      contextFor(store, droppingExecutor),
+    );
+    expect(result.ok).toBe(false);
+    // The failure itself is unchanged: same code-bearing message,
+    // and the bundle is NOT the step's artifact.
+    expect(result.message).toContain('AGENT_DATA_COVERAGE_INSUFFICIENT');
+    expect(result.artifact).toBeUndefined();
+    // The rows the step actually computed survive on the diagnostic
+    // channel, so the missing row is identifiable from the payload
+    // alone — the diagnosis the failure message's aggregates cannot
+    // give.
+    const bundle = JSON.parse(result.diagnosticArtifact ?? '{}') as {
+      kind: string;
+      rows?: Array<Record<string, string>>;
+    };
+    expect(bundle.kind).toBe('data-analysis');
+    expect(bundle.rows?.map((row) => row.id)).toEqual(['A-1', 'A-2']);
+  });
+
   it('allows exactly one repair retry, then fails AGENT_DATA_OUTPUT_INVALID naming the chunk and reason', async () => {
     const { store, setDigest } = await storeWithFruits();
     let calls = 0;
@@ -2407,6 +2438,46 @@ describe('failure diagnosis 2026-11-24 wave 1 (対策3・対策4・対策1(d))',
       expect(result.message).toContain('Loss_Event_Category');
       expect(result.message).toContain('Business_Line');
     }
+  });
+
+  it('attaches the computed bundle on the diagnostic channel when the required-columns gate refuses it (K-17, PR-β)', async () => {
+    const { store, setDigest } = await storeWithTypedFiles(BASEL_FILES);
+    // The production Basel failure shape again: faithful rows, no
+    // derived columns. The gate still refuses — and now the rows it
+    // refused ride the diagnostic channel, so a diagnosis can see
+    // exactly which rows lacked the columns instead of re-deriving
+    // them from the input.
+    const copyExecutor: AgentModelExecutor = async ({ userText }) => {
+      if (frameFileName(userText) === 'classified_events.schema.csv') {
+        return { ok: true, text: JSON.stringify({ rows: [] }) };
+      }
+      return {
+        ok: true,
+        text: JSON.stringify({
+          rows: [
+            { Event_ID: 'OR001', Loss_Amount_CNY: '100' },
+            { Event_ID: 'OR002', Loss_Amount_CNY: '200' },
+          ],
+        }),
+      };
+    };
+    const result = await toolRegistry.attachment_analyzer.execute(
+      analyzerParams(setDigest, {
+        instruction: 'Classify each operational risk event and compute the BIA capital',
+        chunkOffset: 0,
+        chunkCount: 2,
+      }),
+      contextFor(store, copyExecutor),
+    );
+    expect(result.ok).toBe(false);
+    expect(result.artifact).toBeUndefined();
+    const bundle = JSON.parse(result.diagnosticArtifact ?? '{}') as {
+      kind: string;
+      rows?: Array<Record<string, string>>;
+    };
+    expect(bundle.kind).toBe('data-analysis');
+    expect(bundle.rows?.map((row) => row.Event_ID)).toEqual(['OR001', 'OR002']);
+    expect(bundle.rows?.every((row) => !('Loss_Event_Category' in row))).toBe(true);
   });
 
   it('completes when every row carries the schema columns, and names them as mandatory in the instruction (対策4)', async () => {

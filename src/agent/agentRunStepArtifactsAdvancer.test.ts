@@ -8,6 +8,12 @@ import {
 } from './agentRunRecord.js';
 import type { AgentRunConsumptionStore } from './agentOrchestratorV3.js';
 import { InMemoryAgentRunStore } from './agentRunStoreMemory.fixture.js';
+import { InMemoryAgentAttachmentStore } from './agentAttachmentStoreMemory.fixture.js';
+import {
+  computeAgentAttachmentSetDigest,
+  validateAgentAttachmentFileText,
+} from './agentAttachmentRecord.js';
+import type { AgentModelExecutor } from './agentModelCall.js';
 import type { ToolName, ToolParams, ToolResult } from './toolRegistry.js';
 
 /**
@@ -621,5 +627,192 @@ describe('diagnostic retention of verification-failed artifacts (K-17, PR-α)', 
     // artifact would be — never truncated, never stored.
     expect(saved.map((row) => row.stepIndex)).toEqual([0]);
     expect(JSON.stringify(saved)).not.toContain('supersecretvalue');
+  });
+});
+
+describe('diagnostic retention of tool-failure bundles (K-17, PR-β)', () => {
+  const BUNDLE = JSON.stringify({
+    kind: 'data-analysis',
+    content: 'Event_ID,Loss_Amount_CNY\nOR001,100\nOR002,200\nOR004,400',
+    outputKind: 'rows',
+    rows: [
+      { Event_ID: 'OR001', Loss_Amount_CNY: '100' },
+      { Event_ID: 'OR002', Loss_Amount_CNY: '200' },
+      { Event_ID: 'OR004', Loss_Amount_CNY: '400' },
+    ],
+  });
+  const COVERAGE_MESSAGE = 'AGENT_DATA_COVERAGE_INSUFFICIENT (対象4件中3件を処理、未処理1件、重複0件、対象外0件、数値不一致1件)';
+
+  const betaPlan: PlanStepSpec[] = [
+    { toolName: 'attachment_analyzer', params: { outputKind: 'rows', chunkOffset: 0, chunkCount: 1 } },
+    { toolName: 'document_generator', params: { contentFromStep: 0 } },
+  ];
+
+  function makeFailingAnalyzerTool(calls: Array<{ name: ToolName; input: ToolParams }>) {
+    return vi.fn(async (name: ToolName, input: ToolParams): Promise<ToolResult> => {
+      calls.push({ name, input });
+      if (name === 'attachment_analyzer') {
+        return { ok: false, tool: name, message: COVERAGE_MESSAGE, diagnosticArtifact: BUNDLE };
+      }
+      return { ok: true, tool: name, artifact: `artifact:${name}`, message: 'ok' };
+    });
+  }
+
+  it('saves the bundle a failed tool computed, and never lets a consumer resolve it', async () => {
+    let clock = 1_700_000_000_000;
+    const store = new InMemoryAgentRunStore(() => clock);
+    const calls: Array<{ name: ToolName; input: ToolParams }> = [];
+    const runTool = makeFailingAnalyzerTool(calls);
+    const seeded = await seedRun(store, clock, betaPlan);
+
+    const outcome = await advanceAgentRun(
+      {
+        runStore: store,
+        consumptionStore: makeConsumptionStore(),
+        runTool,
+        verifyArtifact: okVerifier,
+        now: () => clock,
+        stepArtifactsEnabled: true,
+      },
+      seeded,
+      'driver-beta-01',
+      { budgetMs: 60_000, leaseSeconds: LEASE_SECONDS },
+    );
+
+    // The failure itself is unchanged: the tool's own code, and no
+    // artifact rides the outcome.
+    expect(outcome).toMatchObject({ kind: 'failed', errorCode: 'AGENT_DATA_COVERAGE_INSUFFICIENT' });
+    expect(outcome).not.toHaveProperty('artifact');
+    // The consumer step never ran: the diagnostic bundle was not
+    // resolved as its contentFromStep input — nor as anything else.
+    // The diagnostic channel is write-only toward the store.
+    expect(calls.map((call) => call.name)).toEqual(['attachment_analyzer']);
+    const record = await store.get(RUN_ID, OWNER);
+    expect(record?.stepsState[0]?.status).toBe('failed');
+    // The bundle is in the store as step 0's row, told apart from a
+    // success row by exactly that failed step state.
+    const saved = await store.listStepArtifacts(RUN_ID);
+    expect(saved.map((row) => row.stepIndex)).toEqual([0]);
+    expect(saved[0]?.artifact).toBe(BUNDLE);
+    expect(saved[0]?.attempt).toBe(record?.stepsState[0]?.attempts);
+  });
+
+  it('saves no tool-failure bundle while persistence is OFF', async () => {
+    let clock = 1_700_000_000_000;
+    const store = new InMemoryAgentRunStore(() => clock);
+    const calls: Array<{ name: ToolName; input: ToolParams }> = [];
+    const runTool = makeFailingAnalyzerTool(calls);
+    const seeded = await seedRun(store, clock, betaPlan);
+
+    const outcome = await advanceAgentRun(
+      {
+        runStore: store,
+        consumptionStore: makeConsumptionStore(),
+        runTool,
+        verifyArtifact: okVerifier,
+        now: () => clock,
+      },
+      seeded,
+      'driver-beta-02',
+      { budgetMs: 60_000, leaseSeconds: LEASE_SECONDS },
+    );
+
+    expect(outcome).toMatchObject({ kind: 'failed', errorCode: 'AGENT_DATA_COVERAGE_INSUFFICIENT' });
+    expect(await store.listStepArtifacts(RUN_ID)).toEqual([]);
+  });
+
+  it('keeps a real analyzer coverage failure diagnosable from the saved row alone (Basel shape)', async () => {
+    let clock = 1_700_000_000_000;
+    const store = new InMemoryAgentRunStore(() => clock);
+    const SET_ID = 'att-12345678-abcd-4ef0-9abc-def012345678';
+    const EVENTS = ['Event_ID,Loss_Amount_CNY', 'OR001,100', 'OR002,200', 'OR003,300', 'OR004,400'].join('\n');
+    const attachmentStore = new InMemoryAgentAttachmentStore();
+    await attachmentStore.createSet({
+      setId: SET_ID,
+      ownerBinding: OWNER,
+      uploadTokenDigest: 'cd'.repeat(32),
+      expiresAt: Date.now() + 3_600_000,
+    });
+    const measured = validateAgentAttachmentFileText(EVENTS);
+    await attachmentStore.addFile(SET_ID, OWNER, {
+      name: 'operational_risk_events.csv',
+      mediaType: 'text/csv',
+      kind: 'text',
+      byteSize: measured.byteSize,
+      charCount: measured.charCount,
+      sha256: measured.sha256,
+      extractedText: EVENTS,
+    });
+    const set = await attachmentStore.getSet(SET_ID, OWNER);
+    if (!set) throw new Error('fixture set missing');
+    const setDigest = computeAgentAttachmentSetDigest(set.files);
+    // The model drops OR003 — the coverage failure shape behind the
+    // production Basel diagnosis (K-17's origin): before PR-β the
+    // merged rows were discarded with the failure and only the
+    // message's aggregates survived.
+    const droppingExecutor: AgentModelExecutor = async ({ userText }) => {
+      const lines = userText
+        .split('\n')
+        .filter((line) => line.length > 0 && !line.startsWith('【出典:') && !line.includes('OR003'));
+      const rows = lines.slice(1).map((line) => {
+        const [Event_ID, Loss_Amount_CNY] = line.split(',');
+        return { Event_ID, Loss_Amount_CNY };
+      });
+      return { ok: true, text: JSON.stringify({ rows }) };
+    };
+    const seeded = await seedRun(store, clock, [
+      {
+        toolName: 'attachment_analyzer',
+        params: {
+          attachmentSetId: SET_ID,
+          setDigest,
+          instruction: '各イベントの損失額を集計してください',
+          outputKind: 'rows',
+          chunkOffset: 0,
+          chunkCount: 1,
+        },
+      },
+      { toolName: 'document_generator', params: { contentFromStep: 0 } },
+    ]);
+
+    const outcome = await advanceAgentRun(
+      {
+        runStore: store,
+        consumptionStore: makeConsumptionStore(),
+        attachmentStore,
+        toolContext: { modelCall: droppingExecutor },
+        verifyArtifact: okVerifier,
+        now: () => clock,
+        stepArtifactsEnabled: true,
+      },
+      seeded,
+      'driver-beta-03',
+      { budgetMs: 60_000, leaseSeconds: LEASE_SECONDS },
+    );
+
+    expect(outcome).toMatchObject({ kind: 'failed', errorCode: 'AGENT_DATA_COVERAGE_INSUFFICIENT' });
+    const record = await store.get(RUN_ID, OWNER);
+    expect(record?.stepsState[0]?.status).toBe('failed');
+    const saved = await store.listStepArtifacts(RUN_ID);
+    expect(saved.map((row) => row.stepIndex)).toEqual([0]);
+
+    // The K-17 acceptance, reconstructed from the saved row alone:
+    // diffing the bundle's rows against the input table names the
+    // row that contributed the whole difference — the missing key
+    // is OR003 and its input amount equals the sum difference.
+    const bundle = JSON.parse(saved[0]?.artifact ?? '{}') as {
+      rows?: Array<{ Event_ID: string; Loss_Amount_CNY: string }>;
+    };
+    const inputRows = EVENTS.split('\n').slice(1).map((line) => {
+      const [id, amount] = line.split(',');
+      return { id, amount: Number(amount) };
+    });
+    const bundleIds = new Set((bundle.rows ?? []).map((row) => row.Event_ID));
+    const missing = inputRows.filter((row) => !bundleIds.has(row.id));
+    const expectedSum = inputRows.reduce((sum, row) => sum + row.amount, 0);
+    const bundleSum = (bundle.rows ?? []).reduce((sum, row) => sum + Number(row.Loss_Amount_CNY), 0);
+    expect(missing.map((row) => row.id)).toEqual(['OR003']);
+    expect(expectedSum - bundleSum).toBe(300);
+    expect(missing[0]?.amount).toBe(expectedSum - bundleSum);
   });
 });

@@ -29,7 +29,27 @@ import {
 
 export type ToolName = 'code_interpreter' | 'document_generator' | 'web_search_grounding' | 'image_prompt_compiler' | 'repository_explorer' | 'file_reader' | 'file_writer' | 'verification_runner' | 'attachment_reader' | 'attachment_analyzer' | 'attachment_reconciler';
 export type ToolParams = Record<string, unknown>;
-export type ToolResult = { ok: boolean; tool: ToolName; artifact?: string; message: string; mutation?: FileMutationCheckpoint };
+export type ToolResult = {
+  ok: boolean;
+  tool: ToolName;
+  artifact?: string;
+  message: string;
+  mutation?: FileMutationCheckpoint;
+  /**
+   * Diagnostic-only payload (K-17 target B, design AGENT_K17_FAILED_
+   * STEP_ARTIFACT_DESIGN_2026-11-24 §5): a payload the tool computed
+   * but could not deliver because it failed its own post-merge gates,
+   * attached to a failure result (ok stays false; code and message
+   * are unchanged). It rides a channel strictly separate from
+   * `artifact`: it is never an input to a later step, never verified,
+   * and never a deliverable. The executor carries it on the record's
+   * own diagnostic channel and the run advancer may persist it as a
+   * diagnostic row — never registered as a step artifact a consumer
+   * can resolve. Meaningful only on failure results; a tool attaches
+   * it only where a computed payload would otherwise be discarded.
+   */
+  diagnosticArtifact?: string;
+};
 export type ToolExecutionContext = {
   codeDelegation?: AgentCodeDelegationPort;
   /**
