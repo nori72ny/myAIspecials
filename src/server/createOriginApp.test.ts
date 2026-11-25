@@ -431,3 +431,40 @@ describe("createOriginApp provider isolation", () => {
   });
 
 });
+
+describe("createOriginApp Orin panel AI news outlet (expansion design §8.4)", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("returns GDELT headlines for the fixed server-side query only", async () => {
+    const fetchSpy = vi.fn(async (input: RequestInfo | URL) => new Response(JSON.stringify({
+      articles: [
+        { url: "https://example.com/ai-news-1", title: "AIの新しい発表", domain: "example.com", seendate: "20251125T030000Z" },
+        { url: "https://example.org/ai-news-2", title: "Another AI headline", domain: "example.org", seendate: "20251125T020000Z" },
+      ],
+    }), { status: 200, headers: { "Content-Type": "application/json" } }));
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const response = await request(createOriginApp({})).get("/api/orin/ai-news");
+    expect(response.status).toBe(200);
+    expect(response.body.ok).toBe(true);
+    expect(response.body.items).toEqual([
+      { title: "AIの新しい発表", url: "https://example.com/ai-news-1", source: "example.com", publishedAt: "2025-11-25T03:00:00Z" },
+      { title: "Another AI headline", url: "https://example.org/ai-news-2", source: "example.org", publishedAt: "2025-11-25T02:00:00Z" },
+    ]);
+    // The only outbound call is GDELT with the fixed topic query —
+    // nothing about a user is ever part of it.
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    const calledUrl = String(fetchSpy.mock.calls[0][0]);
+    expect(calledUrl).toContain("api.gdeltproject.org");
+    expect(decodeURIComponent(calledUrl)).toContain("人工知能");
+  });
+
+  it("fails closed (502, ok:false) when GDELT cannot be reached", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => { throw new Error("network down"); }));
+    const response = await request(createOriginApp({})).get("/api/orin/ai-news");
+    expect(response.status).toBe(502);
+    expect(response.body.ok).toBe(false);
+  });
+});

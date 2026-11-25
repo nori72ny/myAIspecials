@@ -47,6 +47,8 @@ export interface OrinPanelStep {
 
 export interface OrinPanelAgentItem {
   runId: string;
+  /** run の内部状態（射影側で cancelled／expired を落とすために保持する。表示には出さない）。 */
+  status: string;
   title: string;
   group: OrinPanelWorkGroup;
   /** 分類の表示文（例：作業中、計画の確認待ちです）。 */
@@ -214,6 +216,7 @@ export function toOrinPanelAgentItem(run: OrinPanelRun): OrinPanelAgentItem {
   const created = new Date(run.createdAt).getTime();
   return {
     runId: run.runId,
+    status: run.status,
     title: orinPanelGoalSummary(run.goal),
     group,
     statusText: runStatusText(run, group),
@@ -266,4 +269,35 @@ export function orinPanelProgressText(progress: OrinPanelProgress, ja: boolean):
   return ja
     ? `${progress.percent}%（${progress.total}ステップ中 ${progress.done}つ完了）`
     : `${progress.percent}% (${progress.done} of ${progress.total} steps done)`;
+}
+
+/**
+ * 「残っている依頼」への射影（拡張設計
+ * ORIN_PANEL_EXPANSION_DESIGN_2026-11-25 §7）。
+ *
+ * 新規データではなく、作業状況と同じ材料（4分類の節）の
+ * 未完了だけの台帳ビュー。違いは3点：
+ * - 完了を含まない。取り消し（cancelled）と期限切れ（expired）も
+ *   「残っている」ものではないので含まない（作業状況側の
+ *   「止まっています」は従来どおり両者を含む）。
+ * - 並びは対応の要る順：あなたの番（承認待ち）→
+ *   止まっています（held／failed）→ 作業中。
+ *   送信待ちは run ではないため、描画側が送信キューから足す。
+ * - 保持窓を持たない（完了の24時間窓はこの射影には適用されない。
+ *   run はサーバー記録の有効期限まで出し続け、期限切れは
+ *   内部状態が expired になるため上の除外で静かに消える）。
+ * 節内の並び（新しい順）は groupOrinPanelRuns の結果をそのまま使う。
+ */
+export interface OrinPanelRemainingGroups {
+  yourTurn: OrinPanelAgentItem[];
+  stopped: OrinPanelAgentItem[];
+  active: OrinPanelAgentItem[];
+}
+
+export function projectOrinPanelRemaining(groups: OrinPanelRunGroups): OrinPanelRemainingGroups {
+  return {
+    yourTurn: groups.pending,
+    stopped: groups.stopped.filter((item) => item.status !== 'cancelled' && item.status !== 'expired'),
+    active: groups.active,
+  };
 }

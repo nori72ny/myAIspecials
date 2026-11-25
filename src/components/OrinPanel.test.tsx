@@ -2,6 +2,7 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-li
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import OrinPanel, { type OrinPanelProps } from './OrinPanel';
 import { setSessionCredential } from '../security/sessionCredentials';
+import { clearOrinAiNewsCache } from './orinAiNews';
 
 const baseProps: OrinPanelProps = {
   open: true,
@@ -33,22 +34,43 @@ afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
   setSessionCredential('admin', '');
+  clearOrinAiNewsCache();
 });
 
-describe('OrinPanel (panel design 2026-11-24, stage 1)', () => {
-  it('shows the profile header with the unified name "Orin" and both tabs', () => {
+describe('OrinPanel (panel design 2026-11-24, expansion 2026-11-25)', () => {
+  it('shows the profile header with the unified name "Orin" and the two icon tabs', () => {
     renderPanel();
     const panel = screen.getByTestId('origin-orin-panel');
     expect(within(panel).getByTestId('origin-orin-profile-name').textContent).toBe('Orin');
-    expect(within(panel).getByTestId('origin-orin-panel-tab-work')).toBeTruthy();
-    expect(within(panel).getByTestId('origin-orin-panel-tab-features')).toBeTruthy();
+    // タブはアイコンで切り替える（オーナー指示 2026-11-25 17:14）。
+    // 意味は aria-label とツールチップ（title）で伝える。
+    const workTab = within(panel).getByTestId('origin-orin-panel-tab-work');
+    expect(workTab.getAttribute('aria-label')).toBe('作業状況');
+    expect(workTab.getAttribute('title')).toBe('作業状況');
+    expect(workTab.textContent).toBe('');
+    const featuresTab = within(panel).getByTestId('origin-orin-panel-tab-features');
+    expect(featuresTab.getAttribute('aria-label')).toBe('できること');
+    expect(featuresTab.getAttribute('title')).toBe('できること');
+    expect(featuresTab.textContent).toBe('');
+    expect(within(panel).getByTestId('origin-orin-panel-tab-indicator')).toBeTruthy();
   });
 
-  it('marks the panel work-empty so the desktop rail hugs its content (batch 2)', () => {
+  it('slides the tab page from the side of the tab being opened (direction by tab index)', () => {
+    const { container } = renderPanel();
+    fireEvent.click(screen.getByTestId('origin-orin-panel-tab-features'));
+    expect(container.querySelector('.origin-orin-panel__page--from-right')).not.toBeNull();
+    fireEvent.click(screen.getByTestId('origin-orin-panel-tab-work'));
+    expect(container.querySelector('.origin-orin-panel__page--from-left')).not.toBeNull();
+  });
+
+  it('marks the panel work-empty for the sheet treatment below 1024px', () => {
     renderPanel();
-    // While the work tab is empty the rail must not stretch to the
-    // full column height (origin-top-ui.css keys the fit-content
-    // height off this class at min-width: 1024px).
+    // While the work tab is empty, the full-screen form below
+    // 1024px becomes a content-height sheet over the scrim
+    // (origin-top-ui.css keys that treatment off this class).
+    // At 1024px and up the class carries no geometry: the rail
+    // background always spans the full height (owner instruction,
+    // 2026-11-25 — the rail must not look cut off partway down).
     expect(screen.getByTestId('origin-orin-panel').className).toContain('origin-orin-panel--work-empty');
     fireEvent.click(screen.getByTestId('origin-orin-panel-empty-guide'));
     expect(screen.getByTestId('origin-orin-panel').className).not.toContain('origin-orin-panel--work-empty');
@@ -165,10 +187,12 @@ describe('OrinPanel (panel design 2026-11-24, stage 1)', () => {
     fireEvent.click(screen.getByTestId('origin-orin-panel-tab-features'));
     const features = screen.getByTestId('origin-orin-panel-features');
     expect(features.textContent).toContain('チャットで質問する');
-    expect(features.textContent).toContain('使えます');
-    // 資料は「一部使えます」、読み上げは確認できないので「準備中」
-    expect(within(features).getByTestId('origin-orin-panel-feature-documents').textContent).toContain('一部使えます');
-    expect(within(features).getByTestId('origin-orin-panel-feature-read-aloud').textContent).toContain('準備中');
+    // 拡張設計 §6.3：状態ラベルは例外（partial / preparing）だけに付け、
+    // ready の行には付けない（全行への「使えます」反復は廃止）。
+    expect(within(features).getByTestId('origin-orin-panel-feature-status-documents').textContent).toBe('一部使えます');
+    expect(within(features).getByTestId('origin-orin-panel-feature-status-read-aloud').textContent).toBe('準備中');
+    expect(within(features).queryByTestId('origin-orin-panel-feature-status-agent')).toBeNull();
+    expect(within(features).queryByTestId('origin-orin-panel-feature-status-chat')).toBeNull();
     // 準備中の項目はボタンにしない
     expect(within(features).getByTestId('origin-orin-panel-feature-read-aloud').tagName).toBe('DIV');
     expect(within(features).getByTestId('origin-orin-panel-feature-agent').tagName).toBe('BUTTON');

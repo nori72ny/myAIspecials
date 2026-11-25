@@ -33,6 +33,13 @@ describe('orinFeatureCatalog (design §6)', () => {
     }
   });
 
+  it('gives every item exactly one icon from the single Lucide set (expansion design §6.2)', () => {
+    const allowed = new Set(['message-circle', 'search', 'newspaper', 'bot', 'code', 'image', 'file-text', 'volume', 'mic', 'blocks']);
+    for (const item of allItems({ voiceOutput: false, attachments: false })) {
+      expect(allowed.has(item.icon)).toBe(true);
+    }
+  });
+
   it('uses the three honest status labels', () => {
     expect(orinFeatureStatusText('ready', true)).toBe('使えます');
     expect(orinFeatureStatusText('partial', true)).toBe('一部使えます');

@@ -1,4 +1,4 @@
-import { Bot, CodeXml, MessageSquare, PanelLeftClose, Plus, Settings } from 'lucide-react';
+import { Bot, CodeXml, ListTodo, MessageSquare, Newspaper, PanelLeftClose, Plus, Settings } from 'lucide-react';
 import OriginBrandLockup from '../OriginBrandLockup';
 import type { OriginWorkspaceModeV31 } from './OriginWorkspaceModeV31';
 
@@ -6,7 +6,9 @@ import type { OriginWorkspaceModeV31 } from './OriginWorkspaceModeV31';
  * サイドバー（レイアウト設計 2026-11-16 の段階1：シェルの導入）。
  *
  * 置き場所は PersonalEditionApp のシェル階層で、中身は行き先だけに絞る：
- * ブランド／新しい会話／チャット・エージェント・コード／設定。
+ * ブランド／新しい会話／チャット・エージェント・コード／AIニュース・
+ * 残っている依頼／設定。「AIニュース」と「残っている依頼」は
+ * 2026-11-25 のオーナー指示でオリンパネルのタブから移設された。
  * 履歴はまだ入れない（段階2で HistoryDrawer から移す。それまでは現行の
  * ヘッダーの履歴ドロワーをそのまま使う）。「作る」「画像生成」は行き先
  * ではなくチャット内の操作なので置かない（オーナー決定 2026-11-12）。
@@ -34,6 +36,8 @@ const NAV_ITEMS: ReadonlyArray<{
   { mode: 'chat', ja: 'チャット', en: 'Chat', Icon: MessageSquare },
   { mode: 'agent', ja: 'エージェント', en: 'Agent', Icon: Bot },
   { mode: 'coding', ja: 'コード', en: 'Code', Icon: CodeXml },
+  { mode: 'ai-news', ja: 'AIニュース', en: 'AI news', Icon: Newspaper },
+  { mode: 'remaining', ja: '残っている依頼', en: 'Remaining requests', Icon: ListTodo },
 ];
 
 export default function OriginSidebar({

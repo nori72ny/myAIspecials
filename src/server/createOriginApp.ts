@@ -29,6 +29,7 @@ import { createImageGatewayEvalPreflightRouter } from "../creative/imageGatewayE
 import { createMcpManagementRouter, type McpManagementDependencies } from "../mcp/mcpManagementRouter.js";
 import { createOriginVoiceTranscribeRouter } from "../voice/originVoiceTranscribeRouter.js";
 import { voiceOutputEnabled } from "../voice/voiceOutputSwitch.js";
+import { searchGdeltHeadlines } from "../search/originSearchProviders.js";
 
 const FULL_GIT_SHA = /^[0-9a-f]{40}$/i;
 export function resolveOriginReleaseSha(env: NodeJS.ProcessEnv = process.env): string { const candidate = env.VERCEL_GIT_COMMIT_SHA ?? env.ORIGIN_RELEASE_SHA; return candidate && FULL_GIT_SHA.test(candidate) ? candidate.toLowerCase() : "unknown"; }
@@ -128,6 +129,37 @@ export function createOriginApp(
     secretDelivery: "server-only",
     costUsd: 0,
   }));
+  // Orin panel "AIの最新情報" headline layer (expansion design
+  // ORIN_PANEL_EXPANSION_DESIGN_2026-11-25 §8.4): a thin read-only
+  // outlet that asks GDELT (free, no key, already adopted by the
+  // research route) for the latest AI headlines. The query is a
+  // fixed server-side string — nothing about the user (conversation,
+  // requests, identity) is ever sent — and the response carries
+  // only {title, url, source, publishedAt}. Nothing is stored on
+  // either side; the client keeps the result in memory only. No
+  // generation quota is consumed. On failure the panel collapses
+  // just this layer and keeps showing the weekly digest.
+  app.get("/api/orin/ai-news", async (_req, res) => {
+    try {
+      const sources = await searchGdeltHeadlines(
+        "人工知能 OR 生成AI OR 大規模言語モデル OR \"artificial intelligence\" OR \"large language model\"",
+      );
+      res.status(200).json({
+        ok: true,
+        fetchedAt: new Date().toISOString(),
+        items: sources.slice(0, 7).map((source) => ({
+          title: source.title,
+          url: source.url,
+          source: source.domain,
+          ...(source.publishedAt ? { publishedAt: source.publishedAt } : {}),
+        })),
+        freeOnly: true,
+        costUsd: 0,
+      });
+    } catch {
+      res.status(502).json({ ok: false, code: "AI_NEWS_UNAVAILABLE", freeOnly: true, costUsd: 0 });
+    }
+  });
   if (integrations.mcpSession) app.use(integrations.mcpSession);
   if (integrations.mcpAgent) app.use(integrations.mcpAgent);
   app.use(createMcpManagementRouter(integrations.mcp));

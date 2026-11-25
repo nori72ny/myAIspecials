@@ -1,50 +1,66 @@
-import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
-import { ChevronLeft, X } from 'lucide-react';
+import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react';
+import {
+  Blocks,
+  Bot,
+  ChevronLeft,
+  ChevronRight,
+  Code2,
+  FileText,
+  Image as ImageIcon,
+  ListChecks,
+  MessageCircle,
+  Mic,
+  Newspaper,
+  Search,
+  Sparkles,
+  Volume2,
+  X,
+  type LucideIcon,
+} from 'lucide-react';
 import OriginCatState, { ORIGIN_CAT_SEASON_FULL_SRC, resolveOriginCatSeason } from './OriginCatState';
 import type { OriginLanguage } from '../i18n';
-import { getSessionCredential } from '../security/sessionCredentials';
 import {
   getVoiceOutputAvailability,
   subscribeVoiceOutputAvailability,
 } from '../voice/voiceOutputAvailability';
 import {
-  groupOrinPanelRuns,
   orinPanelProgressText,
   orinPanelStepStatusText,
   orinPanelStepTitle,
-  parseOrinPanelRun,
   type OrinPanelAgentItem,
-  type OrinPanelRunGroups,
 } from './orinPanelModel';
 import {
   buildOrinFeatureCatalog,
   orinFeatureStatusText,
   type OrinFeatureAction,
+  type OrinFeatureIcon,
 } from './orinFeatureCatalog';
+import { useOrinPanelRuns } from './useOrinPanelRuns';
 
 /**
- * オリンパネル（第1段、設計 ORIN_PANEL_DESIGN_2026-11-24）。
+ * オリンパネル（第1段：設計 ORIN_PANEL_DESIGN_2026-11-24、
+ * 拡張：ORIN_PANEL_EXPANSION_DESIGN_2026-11-25、構成変更：
+ * オーナー指示 2026-11-25 17:14）。
  *
- * 常駐オリンのタップで開く表示を、旧プロフィールカード
- * （OriginWorkSheet）から発展させたもの。上部はプロフィール
- * ヘッダー（大きなオリン＋名前「Orin」＋ひとこと。名前表記は
- * 2026-11-24 の統括裁定で「Orin」に統一）、その下に
- * 「作業状況」「できること」の2タブを持つ。
+ * 常駐オリンのタップで開く表示。上部はプロフィールヘッダー
+ * （大きなオリン＋名前「Orin」＋ひとこと）、その下に2タブ
+ * （作業状況／できること）を持つ。タブの切り替えはテキスト
+ * ではなくアイコン（Muse アプリの流儀）で、意味は aria-label
+ * とツールチップで伝える。下線インジケーターはアイコンの下を
+ * スライドする（240ms、拡張設計 §3 の曲線を継承）。
+ *
+ * 「残っている依頼」と「AIニュース」は当初このパネルのタブ
+ * だったが、オーナー指示で左サイドバーの項目＋専用ページへ
+ * 移した（OrinRemainingPage / OrinAiNewsPage）。材料の runs
+ * 取得は useOrinPanelRuns でページと共用する。
  *
  * 形態は幅で分ける（CSS の .origin-orin-panel が担う）：
  * 1024px 未満は全画面に切り替わり（上部に「戻る」）、1024px 以上は
  * 右端のレールが本文を押し出す（本文側に padding を付けて確保し、
- * 浮かせて本文を隠す形は採らない＝P4 の教訓）。閉じる操作は
- * オリンの再タップ（トグル）・Esc・「戻る」／×で、閉じたら
- * 起点のオリンのタップ対象へフォーカスを戻す。
- *
- * 作業状況のデータの正は runs 一覧 API（所有者束縛）。管理者
- * 資格情報がある場合だけ一覧が引ける（ブラウザ側の所有者束縛は
- * 設計 §11 U5 が未決で、計画トークンはエージェント画面の中に
- * 閉じている）。一覧が引けない時は断定せず、従来カードと同じ
- * 共有ストア要約（現在の run 1件）に倒す（fail closed）。
- * 取り直しはパネルを開いている間だけ（5秒間隔）で、閉じたら
- * 止める。常駐ポーリングは新設しない。
+ * 浮かせて本文を隠す形は採らない＝P4 の教訓）。レールの背景は
+ * 中身の量によらず画面の下端まで届く（オーナー指示 2026-11-25）。
+ * 閉じる操作はオリンの再タップ（トグル）・Esc・「戻る」／×で、
+ * 閉じたら起点のオリンのタップ対象へフォーカスを戻す。
  */
 
 /** 作業中ステップ列の1件（共有ストア由来の平易なタイトル＋状態）。 */
@@ -80,11 +96,38 @@ export interface OrinPanelProps {
 /** カードに出すオリンの姿の寸法（px）。旧プロフィールカードから継承。 */
 export const ORIN_PANEL_ART_SIZE_PX = 80;
 
-const RUNS_POLL_MS = 5_000;
+/**
+ * パネルが表示する作業状態の材料一式。「残っている依頼」ページ
+ * （PersonalEditionApp 配下）も同じ材料を使うため、App は変化した
+ * 時だけこの形で親へ知らせる（onOrinWorkStateChange）。
+ */
+export interface OrinPanelWorkState {
+  foregroundItems: OrinPanelProps['foregroundItems'];
+  agentFallbackItem: OrinPanelProps['agentFallbackItem'];
+  queuedRequests: OrinPanelProps['queuedRequests'];
+}
 
-type RunsState =
-  | { kind: 'unavailable' }
-  | { kind: 'ready'; groups: OrinPanelRunGroups };
+type OrinPanelTab = 'work' | 'features';
+const ORIN_PANEL_TABS: readonly OrinPanelTab[] = ['work', 'features'];
+
+/** タブのアイコン（線幅・寸法は「できること」の行アイコンと揃える）。 */
+const TAB_ICONS: Record<OrinPanelTab, LucideIcon> = {
+  work: ListChecks,
+  features: Sparkles,
+};
+
+const FEATURE_ICONS: Record<OrinFeatureIcon, LucideIcon> = {
+  'message-circle': MessageCircle,
+  search: Search,
+  newspaper: Newspaper,
+  bot: Bot,
+  code: Code2,
+  image: ImageIcon,
+  'file-text': FileText,
+  volume: Volume2,
+  mic: Mic,
+  blocks: Blocks,
+};
 
 export default function OrinPanel({
   open,
@@ -100,10 +143,16 @@ export default function OrinPanel({
   onOpenCreative,
 }: OrinPanelProps) {
   const ja = language !== 'en';
-  const [tab, setTab] = useState<'work' | 'features'>('work');
-  const [runsState, setRunsState] = useState<RunsState>({ kind: 'unavailable' });
+  const [tab, setTab] = useState<OrinPanelTab>('work');
+  const runsState = useOrinPanelRuns(open);
   const [attachmentsEnabled, setAttachmentsEnabled] = useState(false);
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(new Set());
+  const [indicator, setIndicator] = useState<{ x: number; w: number; ready: boolean }>({ x: 0, w: 0, ready: false });
+  const tabButtonRefs = useRef<Array<HTMLButtonElement | null>>([]);
+  // ページ切り替えの方向は、タブを選んだ瞬間にインデックス比較で
+  // 確定させて state に持つ（描画のたびに ref を書き換える方式だと、
+  // 切り替え直後の再描画で方向が反転してしまうため）。
+  const [pageDirection, setPageDirection] = useState<'from-right' | 'from-left'>('from-right');
   const voiceOutput = useSyncExternalStore(
     subscribeVoiceOutputAvailability,
     getVoiceOutputAvailability,
@@ -135,7 +184,10 @@ export default function OrinPanel({
 
   // 開くたびに「作業状況」タブから始める。
   useEffect(() => {
-    if (open) setTab('work');
+    if (open) {
+      setTab('work');
+      setPageDirection('from-right');
+    }
   }, [open ]);
 
   // できることタブのヘルス連動（添付の可否）は開いた時に1回だけ
@@ -153,47 +205,31 @@ export default function OrinPanel({
     return () => controller.abort();
   }, [open ]);
 
-  // runs 一覧の取り直し：作業状況タブを開いている間だけ。
-  // 資格情報が無い場合は一覧を引かず、共有ストアの要約に倒す。
+  // タブバーの下線インジケーターの位置：選択中タブのボタンを
+  // 実測し、内側 8px ずつ寄せた幅で transform で滑らせる
+  // （240ms の曲線は CSS 側、拡張設計 §3.1 を継承）。
+  const tabIndex = ORIN_PANEL_TABS.indexOf(tab);
+  const measureIndicator = () => {
+    const button = tabButtonRefs.current[tabIndex];
+    if (!button) return;
+    setIndicator({ x: button.offsetLeft + 8, w: Math.max(0, button.offsetWidth - 16), ready: true });
+  };
+  useLayoutEffect(() => {
+    if (!open) return;
+    measureIndicator();
+    // セルフホストフォントの読み込み後に文字幅が変わるため、確定後にも測り直す。
+    let live = true;
+    document.fonts?.ready.then(() => { if (live) measureIndicator(); }).catch(() => { /* 測定は初期値で継続 */ });
+    return () => { live = false; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, tab, language]);
   useEffect(() => {
-    if (!open || tab !== 'work') return;
-    const credential = getSessionCredential('admin').trim();
-    if (!credential) {
-      setRunsState({ kind: 'unavailable' });
-      return;
-    }
-    let cancelled = false;
-    const controller = new AbortController();
-    const load = async () => {
-      try {
-        const response = await fetch('/api/agent/v3/runs?limit=50', {
-          headers: { Authorization: `Bearer ${credential}` },
-          cache: 'no-store',
-          signal: controller.signal,
-        });
-        const data = await response.json() as { ok?: unknown; runs?: unknown };
-        if (cancelled || controller.signal.aborted) return;
-        if (!response.ok || data.ok !== true || !Array.isArray(data.runs)) {
-          // 一度も引けていない時だけ「引けない」に倒す。引けた後の
-          // 一時的な失敗では、最後に確認できた状態を保つ（§4.4）。
-          setRunsState((current) => (current.kind === 'ready' ? current : { kind: 'unavailable' }));
-          return;
-        }
-        const runs = data.runs.map(parseOrinPanelRun).filter((run) => run !== null);
-        setRunsState({ kind: 'ready', groups: groupOrinPanelRuns(runs, Date.now()) });
-      } catch {
-        if (cancelled || controller.signal.aborted) return;
-        setRunsState((current) => (current.kind === 'ready' ? current : { kind: 'unavailable' }));
-      }
-    };
-    void load();
-    const timer = window.setInterval(() => { void load(); }, RUNS_POLL_MS);
-    return () => {
-      cancelled = true;
-      controller.abort();
-      window.clearInterval(timer);
-    };
-  }, [open, tab ]);
+    if (!open) return;
+    const onResize = () => measureIndicator();
+    window.addEventListener('resize', onResize);
+    return () => window.removeEventListener('resize', onResize);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, tab, language]);
 
   if (!open) return null;
   const season = resolveOriginCatSeason(new Date());
@@ -222,6 +258,21 @@ export default function OrinPanel({
     return true; // chat はこの画面そのもの（閉じるだけ）
   };
 
+  const agentItemSteps = (item: OrinPanelAgentItem) => item.steps.map((step) => ({
+    title: orinPanelStepTitle(step.toolName, ja),
+    status: step.status,
+  }));
+  const startedMeta = (item: OrinPanelAgentItem) => (item.startedHint ? (ja ? item.startedHint.ja : item.startedHint.en) : undefined);
+  const fallbackProgressText = (): string | undefined => {
+    if (!agentFallbackItem) return undefined;
+    const doneCount = agentFallbackItem.steps?.filter((step) => step.status === 'completed').length ?? 0;
+    const total = agentFallbackItem.totalSteps;
+    if (total <= 0) return undefined;
+    return ja
+      ? `${Math.floor((doneCount / total) * 100)}%（${total}ステップ中 ${doneCount}つ完了）`
+      : `${Math.floor((doneCount / total) * 100)}% (${doneCount} of ${total} steps done)`;
+  };
+
   // ---- 作業状況の節の組み立て ----
   interface PanelRow {
     id: string;
@@ -244,23 +295,19 @@ export default function OrinPanel({
         id: item.runId,
         title: item.title,
         statusText: ja ? item.statusText.ja : item.statusText.en,
-        meta: item.startedHint ? (ja ? item.startedHint.ja : item.startedHint.en) : undefined,
+        meta: startedMeta(item),
         progressText: item.progress ? orinPanelProgressText(item.progress, ja) : undefined,
-        steps: item.steps.map((step) => ({ title: orinPanelStepTitle(step.toolName, ja), status: step.status })),
+        steps: agentItemSteps(item),
         agentLink: true,
         pulsing: true,
       });
     }
   } else if (agentFallbackItem) {
-    const doneCount = agentFallbackItem.steps?.filter((step) => step.status === 'completed').length ?? 0;
-    const total = agentFallbackItem.totalSteps;
     activeRows.push({
       id: 'agent-fallback',
       title: agentFallbackItem.title,
       statusText: ja ? '作業中' : 'Working',
-      progressText: total > 0
-        ? (ja ? `${Math.floor((doneCount / total) * 100)}%（${total}ステップ中 ${doneCount}つ完了）` : `${Math.floor((doneCount / total) * 100)}% (${doneCount} of ${total} steps done)`)
-        : undefined,
+      progressText: fallbackProgressText(),
       steps: agentFallbackItem.steps,
       agentLink: true,
       pulsing: true,
@@ -273,8 +320,8 @@ export default function OrinPanel({
         id: item.runId,
         title: item.title,
         statusText: ja ? item.statusText.ja : item.statusText.en,
-        meta: item.startedHint ? (ja ? item.startedHint.ja : item.startedHint.en) : undefined,
-        steps: item.steps.map((step) => ({ title: orinPanelStepTitle(step.toolName, ja), status: step.status })),
+        meta: startedMeta(item),
+        steps: agentItemSteps(item),
         agentLink: true,
         pulsing: false,
       });
@@ -289,9 +336,9 @@ export default function OrinPanel({
       title: item.title,
       statusText: ja ? item.statusText.ja : item.statusText.en,
       note: item.note ? (ja ? item.note.ja : item.note.en) : undefined,
-      meta: item.startedHint ? (ja ? item.startedHint.ja : item.startedHint.en) : undefined,
+      meta: startedMeta(item),
       progressText: item.progress ? orinPanelProgressText(item.progress, ja) : undefined,
-      steps: item.steps.map((step) => ({ title: orinPanelStepTitle(step.toolName, ja), status: step.status })),
+      steps: agentItemSteps(item),
       agentLink: true,
       pulsing: false,
     }))
@@ -303,9 +350,9 @@ export default function OrinPanel({
         id: item.runId,
         title: item.title,
         statusText: ja ? item.statusText.ja : item.statusText.en,
-        meta: item.startedHint ? (ja ? item.startedHint.ja : item.startedHint.en) : undefined,
+        meta: startedMeta(item),
         progressText: item.progress ? orinPanelProgressText(item.progress, ja) : undefined,
-        steps: item.steps.map((step) => ({ title: orinPanelStepTitle(step.toolName, ja), status: step.status })),
+        steps: agentItemSteps(item),
         agentLink: true,
         pulsing: false,
       });
@@ -343,26 +390,33 @@ export default function OrinPanel({
     attachments: attachmentsEnabled,
   });
 
+  const renderSectionTitle = (label: string, count: number) => (
+    <h3 className="origin-orin-panel__section-title">
+      {label}
+      <span className="origin-orin-panel__section-count">{ja ? `（${count}件）` : ` (${count})`}</span>
+    </h3>
+  );
+
   const renderRow = (row: PanelRow) => {
     const isExpanded = expanded.has(row.id);
     const hasSteps = Boolean(row.steps && row.steps.length > 0);
     return (
       <li key={row.id} className="origin-orin-panel__row">
-        <div className="flex min-h-11 items-center gap-2 px-1 text-sm">
+        <div className="origin-orin-panel__row-head">
           <span
             aria-hidden="true"
-            className={`h-2 w-2 shrink-0 rounded-full ${row.pulsing ? 'animate-pulse bg-[var(--accent-primary)]' : 'bg-[var(--text-secondary)]'}`}
+            className={`origin-orin-panel__row-dot ${row.pulsing ? 'is-pulsing' : ''}`}
           />
-          <span className="min-w-0 flex-1 truncate font-semibold">{row.title}</span>
-          {row.meta && <span className="origin-muted shrink-0 text-[13px]">{row.meta}</span>}
-          <span className="origin-muted shrink-0 text-[13px]">{row.statusText}</span>
+          <span className="origin-orin-panel__row-title">{row.title}</span>
+          {row.meta && <span className="origin-orin-panel__row-meta">{row.meta}</span>}
         </div>
+        <p className="origin-orin-panel__row-sub">{row.statusText}</p>
         {row.progressText && (
-          <p data-testid="origin-orin-panel-progress" className="m-0 px-1 pl-5 text-[13px] font-semibold text-[var(--accent-primary)]">{row.progressText}</p>
+          <p data-testid="origin-orin-panel-progress" className="origin-orin-panel__row-progress">{row.progressText}</p>
         )}
-        {row.note && <p className="m-0 px-1 pl-5 text-[13px] leading-5 origin-muted">{row.note}</p>}
+        {row.note && <p className="origin-orin-panel__row-note">{row.note}</p>}
         {(hasSteps || (row.agentLink && onOpenAgent)) && (
-          <div className="flex flex-wrap gap-2 px-1 pl-5 pb-1">
+          <div className="origin-orin-panel__row-actions">
             {hasSteps && (
               <button
                 type="button"
@@ -386,22 +440,32 @@ export default function OrinPanel({
           </div>
         )}
         {hasSteps && isExpanded && (
-          <ol data-testid="origin-orin-panel-steps" className="m-0 mb-1 grid list-none gap-0.5 p-0 pl-6 pr-3">
+          <ol data-testid="origin-orin-panel-steps" className="origin-orin-panel__steps">
             {row.steps!.map((step, stepIndex) => (
-              <li key={`${stepIndex}-${step.title}`} className="flex min-h-8 items-center gap-2 text-sm">
-                <span aria-hidden="true" className="origin-muted shrink-0">{stepIndex + 1}.</span>
+              <li key={`${stepIndex}-${step.title}`} className="origin-orin-panel__step">
+                <span aria-hidden="true" className="origin-orin-panel__step-index">{stepIndex + 1}.</span>
                 <span
                   aria-hidden="true"
-                  className={`h-1.5 w-1.5 shrink-0 rounded-full ${step.status === 'running' ? 'animate-pulse bg-[var(--accent-primary)]' : step.status === 'completed' ? 'bg-[var(--text-secondary)]' : 'bg-[var(--border-default)]'}`}
+                  className={`origin-orin-panel__step-dot ${step.status === 'running' ? 'is-running' : step.status === 'completed' ? 'is-done' : ''}`}
                 />
-                <span className="min-w-0 flex-1 truncate font-semibold">{step.title}</span>
-                <span className="origin-muted shrink-0">{orinPanelStepStatusText(step.status, ja)}</span>
+                <span className="origin-orin-panel__step-title">{step.title}</span>
+                <span className="origin-orin-panel__step-status">{orinPanelStepStatusText(step.status, ja)}</span>
               </li>
             ))}
           </ol>
         )}
       </li>
     );
+  };
+
+  const tabLabels: Record<OrinPanelTab, string> = {
+    work: ja ? '作業状況' : 'Work status',
+    features: ja ? 'できること' : 'What I can do',
+  };
+  // ページ切り替えの方向はタブのインデックス比較で決める（拡張設計 §3.3）。
+  const selectTab = (next: OrinPanelTab) => {
+    setPageDirection(ORIN_PANEL_TABS.indexOf(next) >= tabIndex ? 'from-right' : 'from-left');
+    setTab(next);
   };
 
   return (
@@ -433,7 +497,7 @@ export default function OrinPanel({
             <OriginCatState state="idle" size={ORIN_PANEL_ART_SIZE_PX} />
           </span>
           <h2 data-testid="origin-orin-profile-name" className="m-0 mt-3 text-xl font-bold">Orin</h2>
-          <p data-testid="origin-orin-profile-intro" className="m-0 mt-2 max-w-xs text-sm leading-6">
+          <p data-testid="origin-orin-profile-intro" className="m-0 mt-2 max-w-xs text-sm leading-[1.6]">
             {ja
               ? 'こんにちは、オリンです。調べものや資料づくりなど、やりたいことを伝えてください。'
               : "Hi, I'm Orin. Tell me what you'd like to do — looking things up, making documents, and more."}
@@ -454,86 +518,106 @@ export default function OrinPanel({
             </figure>
           )}
         </div>
-        <div className="origin-orin-panel__tabs" role="tablist" aria-label={ja ? 'オリンのパネル' : "Orin's panel"}>
-          <button
-            type="button"
-            role="tab"
-            aria-selected={tab === 'work'}
-            data-testid="origin-orin-panel-tab-work"
-            onClick={() => setTab('work')}
-            className={`origin-orin-panel__tab ${tab === 'work' ? 'is-selected' : ''}`}
-          >
-            {ja ? '作業状況' : 'Work status'}
-          </button>
-          <button
-            type="button"
-            role="tab"
-            aria-selected={tab === 'features'}
-            data-testid="origin-orin-panel-tab-features"
-            onClick={() => setTab('features')}
-            className={`origin-orin-panel__tab ${tab === 'features' ? 'is-selected' : ''}`}
-          >
-            {ja ? 'できること' : 'What I can do'}
-          </button>
+        <div className="origin-orin-panel__tabs">
+          <div className="origin-orin-panel__tabs-inner" role="tablist" aria-label={ja ? 'オリンのパネル' : "Orin's panel"}>
+            {ORIN_PANEL_TABS.map((tabId, index) => {
+              const TabIcon = TAB_ICONS[tabId];
+              return (
+                <button
+                  key={tabId}
+                  type="button"
+                  role="tab"
+                  ref={(el) => { tabButtonRefs.current[index] = el; }}
+                  aria-selected={tab === tabId}
+                  aria-label={tabLabels[tabId]}
+                  title={tabLabels[tabId]}
+                  data-testid={`origin-orin-panel-tab-${tabId}`}
+                  onClick={() => selectTab(tabId)}
+                  className={`origin-orin-panel__tab ${tab === tabId ? 'is-selected' : ''}`}
+                >
+                  <TabIcon aria-hidden="true" size={20} strokeWidth={1.8} />
+                </button>
+              );
+            })}
+            <span
+              aria-hidden="true"
+              data-testid="origin-orin-panel-tab-indicator"
+              className={`origin-orin-panel__tab-indicator ${indicator.ready ? 'is-ready' : ''}`}
+              style={{ transform: `translateX(${indicator.x}px)`, width: `${indicator.w}px` }}
+            />
+          </div>
         </div>
         {/* Tab page wrapper (tab-switch motion, 2026-11-25): keyed
             by the active tab so a switch remounts the page and the
             CSS slide/fade replays, entering from the side of the
-            tab being opened. The profile block above stays outside
-            this element, so Orin never moves on a switch. */}
+            tab being opened (direction from the tab index order).
+            The profile block above stays outside this element, so
+            Orin never moves on a switch. */}
         <div
           key={tab}
-          className={`origin-orin-panel__page ${tab === 'features' ? 'origin-orin-panel__page--from-right' : 'origin-orin-panel__page--from-left'}`}
+          className={`origin-orin-panel__page origin-orin-panel__page--${pageDirection}`}
         >
-        {tab === 'work' ? (
+        {tab === 'work' && (
           <div data-testid="origin-orin-panel-work">
             {totalRows === 0 ? (
               <>
-                <p data-testid="origin-orin-panel-empty" className="m-0 pt-6 pb-2 text-center text-sm origin-muted">
+                <p data-testid="origin-orin-panel-empty" className="origin-orin-panel__empty-line">
                   {ja ? 'いまは作業していません' : 'Nothing is in progress right now.'}
                 </p>
                 <button
                   type="button"
                   data-testid="origin-orin-panel-empty-guide"
                   className="origin-orin-panel__empty-guide"
-                  onClick={() => setTab('features')}
+                  onClick={() => selectTab('features')}
                 >
                   {ja ? 'できることを見る' : 'See what Orin can do'}
                 </button>
               </>
             ) : (
               sections.map((section) => (section.rows.length > 0 ? (
-                <section key={section.key} className="mt-4">
-                  <h3 className="m-0 text-sm font-black">
-                    {section.label}
-                    <span className="origin-muted ml-2 text-[13px] font-semibold">{ja ? `${section.rows.length}件` : `${section.rows.length}`}</span>
-                  </h3>
-                  <ul className="m-0 mt-1 grid list-none gap-1 p-0">
+                <section key={section.key} className="origin-orin-panel__section">
+                  {renderSectionTitle(section.label, section.rows.length)}
+                  <ul className="origin-orin-panel__rows">
                     {section.rows.map(renderRow)}
                   </ul>
                 </section>
               ) : null))
             )}
           </div>
-        ) : (
+        )}
+        {tab === 'features' && (
           <div data-testid="origin-orin-panel-features">
             {catalog.map((group) => (
-              <section key={group.id} className="mt-4">
-                <h3 className="m-0 px-3 text-sm font-black">{ja ? group.title.ja : group.title.en}</h3>
-                <ul className="m-0 mt-1 grid list-none gap-1 p-0">
+              <section key={group.id} className="origin-orin-panel__group">
+                <h3 className="origin-orin-panel__section-title">{ja ? group.title.ja : group.title.en}</h3>
+                <ul className="origin-orin-panel__rows">
                   {group.items.map((item) => {
                     const actionable = item.status !== 'preparing' && item.action && featureActionAvailable(item.action);
+                    const Icon = FEATURE_ICONS[item.icon];
                     const body = (
                       <>
-                        <span className="flex min-w-0 items-center gap-2">
-                          <span className="min-w-0 flex-1 truncate font-semibold">{ja ? item.name.ja : item.name.en}</span>
-                          <span className={`origin-orin-panel__chip ${item.status === 'preparing' ? 'is-preparing' : item.status === 'partial' ? 'is-partial' : ''}`}>
-                            {orinFeatureStatusText(item.status, ja)}
+                        <span className={`origin-orin-panel__feature-icon ${item.status === 'preparing' ? 'is-preparing' : ''}`}>
+                          <Icon aria-hidden="true" size={20} strokeWidth={1.8} />
+                        </span>
+                        <span className="origin-orin-panel__feature-body">
+                          <span className="origin-orin-panel__feature-name">
+                            {ja ? item.name.ja : item.name.en}
+                            {item.status !== 'ready' && (
+                              <span
+                                data-testid={`origin-orin-panel-feature-status-${item.id}`}
+                                className={`origin-orin-panel__feature-label ${item.status === 'partial' ? 'is-partial' : 'is-preparing'}`}
+                              >
+                                {orinFeatureStatusText(item.status, ja)}
+                              </span>
+                            )}
+                          </span>
+                          <span className="origin-orin-panel__feature-desc">
+                            {ja ? item.description.ja : item.description.en}
                           </span>
                         </span>
-                        <span className="origin-muted mt-0.5 block text-[13px] leading-5">
-                          {ja ? item.description.ja : item.description.en}
-                        </span>
+                        {actionable && (
+                          <ChevronRight aria-hidden="true" size={16} className="origin-orin-panel__feature-chevron" />
+                        )}
                       </>
                     );
                     return (
@@ -543,12 +627,17 @@ export default function OrinPanel({
                             type="button"
                             data-testid={`origin-orin-panel-feature-${item.id}`}
                             onClick={() => openFeature(item.action!)}
-                            className="origin-secondary-button block w-full px-3 py-2 text-left text-sm"
+                            className="origin-orin-panel__feature-row"
                           >
                             {body}
                           </button>
                         ) : (
-                          <div data-testid={`origin-orin-panel-feature-${item.id}`} className="px-3 py-2 text-sm">{body}</div>
+                          <div
+                            data-testid={`origin-orin-panel-feature-${item.id}`}
+                            className={`origin-orin-panel__feature-row is-static ${item.status === 'preparing' ? 'is-preparing' : ''}`}
+                          >
+                            {body}
+                          </div>
                         )}
                       </li>
                     );

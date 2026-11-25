@@ -327,6 +327,20 @@ describe('PersonalEditionApp sidebar shell (layout stage 1)', () => {
     expect(screen.getByTestId('sidebar-nav-agent').getAttribute('aria-current')).toBe('page');
   });
 
+  it('navigates to the AI news and remaining-requests pages from the sidebar', async () => {
+    render(<PersonalEditionApp />);
+
+    fireEvent.click(screen.getByTestId('sidebar-nav-ai-news'));
+    expect(await screen.findByTestId('origin-ai-news-page')).toBeTruthy();
+    expect(window.location.search).toBe('?workspace=ai-news');
+    expect(screen.getByTestId('sidebar-nav-ai-news').getAttribute('aria-current')).toBe('page');
+
+    fireEvent.click(screen.getByTestId('sidebar-nav-remaining'));
+    expect(await screen.findByTestId('origin-remaining-page')).toBeTruthy();
+    expect(window.location.search).toBe('?workspace=remaining');
+    expect(screen.getByTestId('sidebar-nav-remaining').getAttribute('aria-current')).toBe('page');
+  });
+
   it('starts a new conversation through the existing reset signal path', () => {
     render(<PersonalEditionApp />);
     expect(latestAppProps().resetSignal).toBe(0);
