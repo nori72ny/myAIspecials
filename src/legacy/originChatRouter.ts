@@ -11,6 +11,7 @@ import { buildOriginAgentWorkPlan, type OriginAgentWorkPlan } from "../lib/orche
 import { createOriginCapabilityGuide, isOriginCapabilityQuestion } from "../lib/orchestration/OriginCapabilityGuide.js";
 import { originAnswerQualityInstruction, resolveOriginAnswerQualityPolicy } from "../lib/orchestration/OriginAnswerQualityPolicy.js";
 import { applyOriginBusinessPlanningAuditGate } from "../lib/orchestration/OriginBusinessPlanningAudit.js";
+import { logOriginBusinessPlanningPremiseRecordsShadow } from "../lib/orchestration/OriginBusinessPlanningPremiseRecords.js";
 import { applyOriginPublicationGate, publicationGateFiringKinds } from "../lib/orchestration/OriginPublicationGate.js";
 import { applyOriginDateWeekdayVerificationGate } from "../lib/orchestration/OriginDateWeekdayVerification.js";
 import { resolveOriginAgentWorkPlan, type OriginResolvedWorkPlan } from "../lib/orchestration/OriginServiceRegistry.js";
@@ -1731,6 +1732,17 @@ export function createOriginChatRouter(options: OriginChatRouterOptions = {}) {
         env,
         now: new Date(now()),
         language: /[ぁ-んァ-ヶ一-龠]/.test(lastUserMessage) ? "ja" : "en",
+      });
+      // Premise-records verification, wave 2 stage 0 (shadow): the
+      // records-based counterpart of the audit gate, sharing only this
+      // connection point. It observes the same pre-gate text the gate
+      // audited, logs counts and codes only, and never alters delivery
+      // in either audit mode.
+      logOriginBusinessPlanningPremiseRecordsShadow({
+        requestId,
+        profile: answerQualityPolicy.businessPlanning,
+        answerText: assertionGate.text,
+        requestText: lastUserMessage,
       });
       // Date/weekday verification: deterministically check the
       // answer's date+weekday pairs and any relative-date (base ± N

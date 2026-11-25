@@ -14,6 +14,7 @@ import {
   resolveOriginBusinessPlanningAuditMode,
   type OriginBusinessPlanningAuditGateOutcome,
 } from "../lib/orchestration/OriginBusinessPlanningAudit.js";
+import { logOriginBusinessPlanningPremiseRecordsShadow } from "../lib/orchestration/OriginBusinessPlanningPremiseRecords.js";
 import { resolveOriginAgentWorkPlan, type OriginResolvedWorkPlan } from "../lib/orchestration/OriginServiceRegistry.js";
 import {
   applyOriginPublicationGate,
@@ -650,6 +651,11 @@ export function createOriginStreamingChatRouter(options: OriginStreamingChatRout
       // skipped to avoid counting the same answer twice.
       if (!deckRecordsPlan && !deckRequested && !assertionGateReplaced && !auditGateArmed) {
         logOriginBusinessPlanningAuditShadow({ requestId, profile: answerQualityPolicy.businessPlanning, answerText: adoptedResult.text, requestText: lastUserMessage });
+        // Premise-records verification, wave 2 stage 0 (shadow): the
+        // records-based counterpart of the audit above, sharing only
+        // this connection point. Log-only — counts and codes, never
+        // text — and the delivered stream is never altered by it.
+        logOriginBusinessPlanningPremiseRecordsShadow({ requestId, profile: answerQualityPolicy.businessPlanning, answerText: adoptedResult.text, requestText: lastUserMessage });
       }
       // Publication gate, stage 1 shadow: scan the delivered direct
       // answer for evidence-required claim shapes and check its statute
