@@ -405,7 +405,7 @@ export default function OrinPanel({
   };
 
   return (
-    <div className="origin-orin-panel" data-testid="origin-orin-panel">
+    <div className={`origin-orin-panel${tab === 'work' && totalRows === 0 ? ' origin-orin-panel--work-empty' : ''}`} data-testid="origin-orin-panel">
       <div className="origin-orin-panel__topbar">
         <button
           type="button"

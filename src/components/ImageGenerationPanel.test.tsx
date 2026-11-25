@@ -62,6 +62,21 @@ describe('ImageGenerationPanel', () => {
     expect((screen.getByTestId('origin-image-generate-submit') as HTMLButtonElement).disabled).toBe(false);
   });
 
+  it('gives Advanced settings a disclosure chevron and locks the prompt resize (batch 2)', () => {
+    render(<ImageGenerationPanel language="ja" onClose={() => undefined} onGenerate={() => undefined} />);
+    const advanced = screen.getByTestId('origin-image-advanced-settings');
+    // The flex summary suppresses the native disclosure marker, so
+    // the chevron is the open/close affordance (rotated while open
+    // by the [open] rule in index.css, same pattern as the settings
+    // technical-information disclosure).
+    expect(advanced.querySelector('summary')?.querySelector('svg.origin-image-advanced-settings__chevron')).toBeTruthy();
+    // The prompt field's size is fixed by the sheet layout; the
+    // native resize grip is disabled like on the other surfaces.
+    const prompt = screen.getByTestId('origin-image-prompt');
+    expect(prompt.className).toContain('resize-none');
+    expect(prompt.className).not.toContain('resize-y');
+  });
+
   it('submits the prompt with the default 1:1 / 1024px size without opening Advanced settings', () => {
     const onGenerate = vi.fn();
     render(<ImageGenerationPanel language="ja" onClose={() => undefined} onGenerate={onGenerate} />);

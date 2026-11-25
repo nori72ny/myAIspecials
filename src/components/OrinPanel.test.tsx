@@ -44,6 +44,16 @@ describe('OrinPanel (panel design 2026-11-24, stage 1)', () => {
     expect(within(panel).getByTestId('origin-orin-panel-tab-features')).toBeTruthy();
   });
 
+  it('marks the panel work-empty so the desktop rail hugs its content (batch 2)', () => {
+    renderPanel();
+    // While the work tab is empty the rail must not stretch to the
+    // full column height (origin-top-ui.css keys the fit-content
+    // height off this class at min-width: 1024px).
+    expect(screen.getByTestId('origin-orin-panel').className).toContain('origin-orin-panel--work-empty');
+    fireEvent.click(screen.getByTestId('origin-orin-panel-empty-guide'));
+    expect(screen.getByTestId('origin-orin-panel').className).not.toContain('origin-orin-panel--work-empty');
+  });
+
   it('guides from the empty work state into the features tab (K-23)', () => {
     renderPanel();
     fireEvent.click(screen.getByTestId('origin-orin-panel-empty-guide'));

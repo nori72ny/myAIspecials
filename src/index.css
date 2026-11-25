@@ -613,22 +613,40 @@
   text-decoration: none;
 }
 .origin-skip-link:focus-visible {
-  /* External evaluation fix (2026-11-25): the focused link used to
-     land on the header's top-left corner and cover the brand lockup
-     and the sidebar toggle (measured overlap 36px). It now appears
-     directly below the 60px header, clear of every header control. */
-  top: calc(max(1rem, env(safe-area-inset-top)) + 3.75rem);
+  /* External evaluation fix batch 2 (2026-11-25): the batch-1
+     position (directly below the header) still covered the Orin
+     presence and most of its name tag — at 390px the link spanned
+     the presence row's left 215px and the tag's left 22px, leaving
+     only "rin" visible. The link now reveals as a full-width bar
+     at the very top of the screen, and the shell below yields the
+     bar's height (next rule), so the header, the presence and the
+     tag all slide down instead of being covered. The bar is 44px
+     tall (0.625rem vertical padding around the 0.875rem line) plus
+     any safe-area inset, which the shell padding mirrors. */
+  top: 0;
+  left: 0;
+  right: 0;
+  padding-top: calc(0.625rem + env(safe-area-inset-top, 0px));
+  border-radius: 0;
+  text-align: center;
   outline: 2px solid var(--text-primary);
-  outline-offset: 2px;
+  outline-offset: -2px;
+}
+.origin-personal-shell:has(.origin-skip-link:focus-visible) {
+  padding-top: calc(2.75rem + env(safe-area-inset-top, 0px));
 }
 
-/* Settings scroll region (external evaluation fix, 2026-11-25):
-   rows scrolled into view (keyboard focus, the coding-key guidance)
-   used to stop flush against the dialog header and read as tucked
-   under it. The scroll padding keeps a 24px breathing room — the
-   region's own 20px padding plus 4px — at the stop position. */
+/* Settings scroll region (external evaluation fix, 2026-11-25;
+   batch 2 revision, 2026-11-25): the dialog header is now a sticky
+   bar inside the region (SettingsModalLegacy), so the scroll
+   padding is the bar's measured height — rows revealed by keyboard
+   focus or scrollIntoView stop with their top edge exactly below
+   the bar instead of sliding under it. (The batch-1 value, 24px,
+   only covered reveal stops while the header was a sibling; it
+   could not affect where a free scroll position lands, which is
+   why the header itself moved inside.) */
 [data-testid="settings-scroll-region"] {
-  scroll-padding-top: 24px;
+  scroll-padding-top: 83px;
 }
 
 /* Release-identity disclosure chevron (external evaluation fix,
@@ -641,6 +659,18 @@
   transition: transform 160ms ease;
 }
 [data-testid="release-identity"][open] .release-identity__chevron {
+  transform: rotate(90deg);
+}
+
+/* Image advanced-settings disclosure chevron (external evaluation
+   fix batch 2, 2026-11-25): the same pattern as the release-identity
+   chevron above — the flex summary suppresses the native disclosure
+   marker, so the section read as a plain heading with no open/close
+   affordance. The chevron restores it and rotates while open. */
+[data-testid="origin-image-advanced-settings"] .origin-image-advanced-settings__chevron {
+  transition: transform 160ms ease;
+}
+[data-testid="origin-image-advanced-settings"][open] .origin-image-advanced-settings__chevron {
   transform: rotate(90deg);
 }
 
