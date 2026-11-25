@@ -1340,13 +1340,50 @@ const AGENT_GOAL_CJK_PATTERN = /[\u3040-\u30ff\u3400-\u9fff\uf900-\ufaff]/;
 
 /**
  * Whether the goal text is written in a CJK language — the
- * deterministic language switch for the layer-3 rendering labels
- * (design §2 C-4). The finding texts themselves are the model's,
- * written in the goal's language because the goal rides the
- * analyzer instruction; only the fixed labels are chosen here.
+ * fallback deterministic language switch for the layer-3 rendering
+ * labels (design §2 C-4), used when the goal carries no explicit
+ * output-language directive (see agentGoalDirectedOutputLanguage).
+ * The finding texts themselves are the model's, written in the
+ * goal's language because the goal rides the analyzer instruction;
+ * only the fixed labels are chosen here.
  */
 export function agentGoalUsesCjk(goal: string): boolean {
   return AGENT_GOAL_CJK_PATTERN.test(goal);
+}
+
+const AGENT_GOAL_ENGLISH_DIRECTIVE_PATTERN = /\bin english\b|英語で(?:書|作|作成|記述|出力|回答|まとめ|お願い)|用英文|以英文|英文(?:撰写|写作|书写|输出|编写)/i;
+const AGENT_GOAL_JAPANESE_DIRECTIVE_PATTERN = /\bin japanese\b|日本語で(?:書|作|作成|記述|出力|回答|まとめ|お願い)|用日文|以日文|日文(?:撰写|写作|书写|输出|编写)/i;
+
+/**
+ * The output language a goal explicitly directs, when it directs
+ * exactly one (D5). Directive-shaped phrases — "Write in English",
+ * 「英語で書いてください」, 「用英文撰写」 — name the language the
+ * deliverable, fixed structure labels included, must be written
+ * in. Only these closed shapes count: a bare mention of a language
+ * (「英語の文書を要約して」) directs nothing, and a goal directing
+ * both languages is undecided — both return undefined and the
+ * caller falls back to the CJK check.
+ */
+export function agentGoalDirectedOutputLanguage(goal: string): 'english' | 'japanese' | undefined {
+  const english = AGENT_GOAL_ENGLISH_DIRECTIVE_PATTERN.test(goal);
+  const japanese = AGENT_GOAL_JAPANESE_DIRECTIVE_PATTERN.test(goal);
+  if (english === japanese) return undefined;
+  return english ? 'english' : 'japanese';
+}
+
+/**
+ * Whether the layer-3 rendering labels are Japanese. An explicit
+ * output-language directive decides first (D5): a goal can carry
+ * CJK material — quoted source text, a Japanese harness preamble —
+ * while explicitly directing another language's output, and the
+ * CJK check alone rendered Japanese labels for exactly that goal
+ * in production (an English audit whose headings came out
+ * Japanese). Without a directive, the CJK check decides, unchanged.
+ */
+function agentGoalRendersJapaneseLabels(goal: string): boolean {
+  const directed = agentGoalDirectedOutputLanguage(goal);
+  if (directed !== undefined) return directed === 'japanese';
+  return agentGoalUsesCjk(goal);
 }
 
 function renderFindingPair(finding: AgentDataFinding, index: number, japanese: boolean): string {
@@ -1375,7 +1412,7 @@ function renderFindingPair(finding: AgentDataFinding, index: number, japanese: b
  * bundle's text is byte-identical to the pre-measure rendering.
  */
 function renderFindings(findings: readonly AgentDataFinding[], goal = ''): string {
-  const japanese = agentGoalUsesCjk(goal);
+  const japanese = agentGoalRendersJapaneseLabels(goal);
   const hasPairs = findings.some((finding) => Boolean(finding.explanation));
   let pairIndex = 0;
   const segments = findings.map((finding) => {
@@ -1548,19 +1585,44 @@ export async function executeAttachmentAnalyzer(
   // whose executor reports no serving (an injected double)
   // contributes nothing, so a step with no recorded serving
   // carries neither carrier and its messages stay byte-identical
-  // to before this trace existed.
+  // to before this trace existed. A failed dispatch contributes
+  // the servings of the attempts it actually exercised (see
+  // noteExecutionServing), so a provider failure is traced in the
+  // same shape as any later failure (D8).
   const executionServings: { providerId: string; modelId?: string }[] = [];
   let executionRepairRetried = false;
-  const noteExecutionServing = (result: AgentModelCallResult): void => {
-    if (!result.ok || !result.serving) return;
-    const { providerId } = result.serving;
-    if (typeof providerId !== 'string' || !ANALYZER_ATTEMPT_PROVIDER_ID_PATTERN.test(providerId)) return;
-    const modelId = typeof result.serving.modelId === 'string' && ANALYZER_ATTEMPT_MODEL_ID_PATTERN.test(result.serving.modelId)
-      ? result.serving.modelId
+  const recordExecutionServing = (providerIdRaw: unknown, modelIdRaw: unknown): void => {
+    if (typeof providerIdRaw !== 'string' || !ANALYZER_ATTEMPT_PROVIDER_ID_PATTERN.test(providerIdRaw)) return;
+    const modelId = typeof modelIdRaw === 'string' && ANALYZER_ATTEMPT_MODEL_ID_PATTERN.test(modelIdRaw)
+      ? modelIdRaw
       : undefined;
-    if (executionServings.some((serving) => serving.providerId === providerId && serving.modelId === modelId)) return;
+    if (executionServings.some((serving) => serving.providerId === providerIdRaw && serving.modelId === modelId)) return;
     if (executionServings.length >= ANALYZER_EXECUTION_SERVINGS_MAX) return;
-    executionServings.push({ providerId, ...(modelId ? { modelId } : {}) });
+    executionServings.push({ providerId: providerIdRaw, ...(modelId ? { modelId } : {}) });
+  };
+  const noteExecutionServing = (result: AgentModelCallResult): void => {
+    if (result.ok === false) {
+      // A dispatch that failed at the provider still exercised its
+      // routes (D8): the attempts it actually dispatched join the
+      // trace under the same whitelist the attempts segment applies
+      // (a malformed entry or an unknown outcome contributes
+      // nothing; a skipped route was never dispatched and is not a
+      // serving). A step that dies on its first dispatch — the
+      // production Basel shape, one invalid response before
+      // anything succeeded — therefore carries an execution record
+      // in the same shape as a step that fails later, instead of
+      // the step record falling back to the attempts segment alone.
+      // A failure carrying no attempt evidence (a plan-level
+      // refusal, an injected double) contributes nothing, exactly
+      // as before.
+      for (const attempt of result.providerAttempts ?? []) {
+        if (!attempt || typeof attempt !== 'object') continue;
+        if (!ANALYZER_ATTEMPT_OUTCOMES.has(attempt.outcome) || attempt.outcome === 'skipped') continue;
+        recordExecutionServing(attempt.providerId, attempt.modelId);
+      }
+      return;
+    }
+    if (result.serving) recordExecutionServing(result.serving.providerId, result.serving.modelId);
   };
   const executionParenthetical = (): string => (executionServings.length === 0
     ? ''
