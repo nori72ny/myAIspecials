@@ -121,7 +121,7 @@ describe('PersonalEditionApp single-surface wrapper', () => {
     expect(window.location.search).toBe('');
   });
 
-  it('does not reopen the previous workspace on a fresh load, even when the URL still carries it', () => {
+  it('does not reopen a retired workspace value on a fresh load', () => {
     window.history.replaceState(null, '', '/?workspace=creative');
     render(<PersonalEditionApp />);
     expect(screen.getByTestId('mock-origin-app')).toBeTruthy();
@@ -129,10 +129,33 @@ describe('PersonalEditionApp single-surface wrapper', () => {
     expect(screen.queryByRole('region', { name: 'Workspace tool header' })).toBeNull();
   });
 
-  it('starts on chat at load and follows browser history without restoring a permanent mode bar', async () => {
+  it('restores only the sidebar pages from the URL on a fresh load (a reload keeps the open page)', async () => {
+    // 再読み込みで URL の ?workspace= と表示が食い違う欠陥の固定
+    // （2026-11-25 本番チェック）。復元するのはサイドバーの専用
+    // ページ（ai-news / remaining）だけ。作業画面（agent / coding）は
+    // オーナー指示 2026-11-09 のとおりチャットから始める。
+    window.history.replaceState(null, '', '/?workspace=ai-news');
+    render(<PersonalEditionApp />);
+    expect(await screen.findByTestId('origin-ai-news-page')).toBeTruthy();
+    expect(screen.getByTestId('sidebar-nav-ai-news').getAttribute('aria-current')).toBe('page');
+    cleanup();
+
+    window.history.replaceState(null, '', '/?workspace=remaining');
+    render(<PersonalEditionApp />);
+    expect(await screen.findByTestId('origin-remaining-page')).toBeTruthy();
+    expect(screen.getByTestId('sidebar-nav-remaining').getAttribute('aria-current')).toBe('page');
+    cleanup();
+
+    window.history.replaceState(null, '', '/?workspace=agent');
+    render(<PersonalEditionApp />);
+    expect(screen.getByTestId('mock-origin-app')).toBeTruthy();
+    expect(screen.queryByRole('region', { name: 'Workspace tool header' })).toBeNull();
+  });
+
+  it('starts on chat at load for a retired value and follows browser history without restoring a permanent mode bar', async () => {
     window.history.replaceState(null, '', '/?workspace=research');
     render(<PersonalEditionApp />);
-    // 新規ロードでは URL の ?workspace= を復元せず、必ずチャットから始める。
+    // ?workspace=research は廃止済みの値のため、チャットに着地する。
     expect(screen.getByTestId('mock-origin-app')).toBeTruthy();
     expect(screen.queryByRole('region', { name: 'Workspace tool header' })).toBeNull();
 

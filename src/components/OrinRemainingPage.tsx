@@ -20,7 +20,12 @@ import type { OrinPanelProps } from './OrinPanel';
  * （エージェントのステップ）がある時だけ付け、承認待ちには付けない。
  * 材料（前景の作業・送信キュー）はチャット画面と同じものを
  * PersonalEditionApp 経由で受け取る。runs の取得はパネルと共用の
- * useOrinPanelRuns（このページを開いている間だけ取り直す）。
+ * useOrinPanelRuns（共有ストア。このページを開いている間だけ取り直す）。
+ *
+ * runs が引けない時（unavailable）は「残っている依頼はありません」
+ * とは言わない（0件なのか分からないのかを混同しない）。取得中は
+ * 読み込み中を出し、引けなければその旨を出す。前景・送信待ちの
+ * 行は材料がある限り出し、runs 由来の行が欠けている可能性を注記する。
  */
 export interface OrinRemainingPageProps {
   language: OriginLanguage;
@@ -165,7 +170,22 @@ export default function OrinRemainingPage({
           ? 'まだ終わっていない依頼の一覧です。対応が必要なものから順に並んでいます。'
           : 'Requests that are not finished yet, in the order they need your attention.'}
       </p>
-      {totalRows === 0 ? (
+      {totalRows === 0 && runsState.kind === 'loading' ? (
+        <div className="origin-orin-panel__empty-block">
+          <p data-testid="origin-remaining-loading" className="origin-orin-panel__empty-line">
+            {ja ? '読み込んでいます' : 'Loading…'}
+          </p>
+        </div>
+      ) : totalRows === 0 && runsState.kind === 'unavailable' ? (
+        <div className="origin-orin-panel__empty-block">
+          <p data-testid="origin-remaining-unavailable" className="origin-orin-panel__empty-line">
+            {ja ? '依頼の状況を読み込めませんでした' : 'Could not load the status of your requests.'}
+          </p>
+          <p className="origin-orin-panel__empty-sub">
+            {ja ? '少し時間をおいて、開き直してください' : 'Please wait a moment and open this page again.'}
+          </p>
+        </div>
+      ) : totalRows === 0 ? (
         <div className="origin-orin-panel__empty-block">
           <p data-testid="origin-remaining-empty" className="origin-orin-panel__empty-line">
             {ja ? '残っている依頼はありません' : 'No requests are left unfinished.'}
@@ -175,17 +195,24 @@ export default function OrinRemainingPage({
           </p>
         </div>
       ) : (
-        sections.map((section) => (section.rows.length > 0 ? (
-          <section key={section.key} className="origin-orin-panel__section">
-            <h2 className="origin-orin-panel__section-title">
-              {section.label}
-              <span className="origin-orin-panel__section-count">{ja ? `（${section.rows.length}件）` : ` (${section.rows.length})`}</span>
-            </h2>
-            <ul className="origin-orin-panel__rows">
-              {section.rows.map(renderRow)}
-            </ul>
-          </section>
-        ) : null))
+        <>
+          {runsState.kind === 'unavailable' && (
+            <p data-testid="origin-remaining-unavailable-note" className="origin-orin-panel__row-sub">
+              {ja ? 'エージェントの依頼は読み込めませんでした' : 'Agent requests could not be loaded.'}
+            </p>
+          )}
+          {sections.map((section) => (section.rows.length > 0 ? (
+            <section key={section.key} className="origin-orin-panel__section">
+              <h2 className="origin-orin-panel__section-title">
+                {section.label}
+                <span className="origin-orin-panel__section-count">{ja ? `（${section.rows.length}件）` : ` (${section.rows.length})`}</span>
+              </h2>
+              <ul className="origin-orin-panel__rows">
+                {section.rows.map(renderRow)}
+              </ul>
+            </section>
+          ) : null))}
+        </>
       )}
     </div>
   );

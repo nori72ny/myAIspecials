@@ -467,4 +467,22 @@ describe("createOriginApp Orin panel AI news outlet (expansion design §8.4)", (
     expect(response.status).toBe(502);
     expect(response.body.ok).toBe(false);
   });
+
+  it("keeps the failure reason in the 502 body so the cause stays diagnosable", async () => {
+    // The old handler swallowed every failure into the same generic
+    // body, which is why the production failure could not be told
+    // apart (timeout vs rate limit vs network). The reason code now
+    // travels with the response (and is logged server-side).
+    vi.stubGlobal("fetch", vi.fn(async () => { throw new Error("network down"); }));
+    const response = await request(createOriginApp({})).get("/api/orin/ai-news");
+    expect(response.status).toBe(502);
+    expect(response.body).toMatchObject({ ok: false, code: "AI_NEWS_UNAVAILABLE", reason: "network" });
+  });
+
+  it("reports an upstream HTTP status (e.g. GDELT rate limit) in the 502 body", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => new Response("server error", { status: 500 })));
+    const response = await request(createOriginApp({})).get("/api/orin/ai-news");
+    expect(response.status).toBe(502);
+    expect(response.body).toMatchObject({ ok: false, code: "AI_NEWS_UNAVAILABLE", reason: "http", upstreamStatus: 500 });
+  });
 });

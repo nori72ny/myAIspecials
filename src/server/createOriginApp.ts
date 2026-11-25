@@ -29,7 +29,7 @@ import { createImageGatewayEvalPreflightRouter } from "../creative/imageGatewayE
 import { createMcpManagementRouter, type McpManagementDependencies } from "../mcp/mcpManagementRouter.js";
 import { createOriginVoiceTranscribeRouter } from "../voice/originVoiceTranscribeRouter.js";
 import { voiceOutputEnabled } from "../voice/voiceOutputSwitch.js";
-import { searchGdeltHeadlines } from "../search/originSearchProviders.js";
+import { createOrinAiNewsService, OrinAiNewsUnavailableError, type OrinAiNewsFailure } from "./orinAiNews.js";
 
 const FULL_GIT_SHA = /^[0-9a-f]{40}$/i;
 export function resolveOriginReleaseSha(env: NodeJS.ProcessEnv = process.env): string { const candidate = env.VERCEL_GIT_COMMIT_SHA ?? env.ORIGIN_RELEASE_SHA; return candidate && FULL_GIT_SHA.test(candidate) ? candidate.toLowerCase() : "unknown"; }
@@ -139,25 +139,45 @@ export function createOriginApp(
   // either side; the client keeps the result in memory only. No
   // generation quota is consumed. On failure the panel collapses
   // just this layer and keeps showing the weekly digest.
+  //
+  // The fetch goes through the ai-news service (orinAiNews.ts),
+  // which exists because the direct call failed every time in
+  // production: the search layer's 5-second default timeout is far
+  // below GDELT's real response time from shared egress IPs, its
+  // per-IP rate limit (one request per 5 seconds) answers 429
+  // under that same sharing, and the old handler swallowed every
+  // failure without a trace. The service uses a longer timeout,
+  // one rate-limit-aware retry, an in-memory-only cache with
+  // request coalescing, and reports the failure reason so it is
+  // logged here (bounded fields only, the same discipline as the
+  // function-init failure log in api/index.ts) and returned to the
+  // client in the 502 body.
+  const aiNewsService = createOrinAiNewsService({
+    onFailure: (failure) => {
+      console.error("[origin-ai-news] headline fetch failed", failure);
+    },
+  });
   app.get("/api/orin/ai-news", async (_req, res) => {
     try {
-      const sources = await searchGdeltHeadlines(
-        "人工知能 OR 生成AI OR 大規模言語モデル OR \"artificial intelligence\" OR \"large language model\"",
-      );
+      const result = await aiNewsService.getHeadlines();
       res.status(200).json({
         ok: true,
-        fetchedAt: new Date().toISOString(),
-        items: sources.slice(0, 7).map((source) => ({
-          title: source.title,
-          url: source.url,
-          source: source.domain,
-          ...(source.publishedAt ? { publishedAt: source.publishedAt } : {}),
-        })),
+        fetchedAt: result.fetchedAt,
+        items: result.items,
+        ...(result.stale ? { stale: true } : {}),
         freeOnly: true,
         costUsd: 0,
       });
-    } catch {
-      res.status(502).json({ ok: false, code: "AI_NEWS_UNAVAILABLE", freeOnly: true, costUsd: 0 });
+    } catch (error) {
+      const failure: OrinAiNewsFailure = error instanceof OrinAiNewsUnavailableError ? error.failure : { code: "unknown" };
+      res.status(502).json({
+        ok: false,
+        code: "AI_NEWS_UNAVAILABLE",
+        reason: failure.code,
+        ...(failure.status ? { upstreamStatus: failure.status } : {}),
+        freeOnly: true,
+        costUsd: 0,
+      });
     }
   });
   if (integrations.mcpSession) app.use(integrations.mcpSession);

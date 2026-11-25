@@ -55,11 +55,17 @@ const PersonalEditionApp = React.memo(function PersonalEditionApp({
   resetSignal = 0,
 }: PersonalEditionAppProps) {
   const [messages, setMessages] = useState<ConversationMessage[]>(() => parentMessages ?? []);
-  // 新規ロードでは URL に前回のワークスペース（?workspace=…）が残って
-  // いても復元せず、必ずチャットのトップ画面から始める
-  // （オーナー指示 2026-11-09）。セッション内の移動と popstate の
-  // 同期では従来どおり workspaceLocation を使う。
-  const [workspace, setWorkspace] = useState<OriginWorkspaceModeV31>('chat');
+  // 新規ロードの初期表示：作業画面（agent / coding 等）は従来どおり
+  // チャットから始める（オーナー指示 2026-11-09、E2E が固定）。
+  // ただしサイドバーの専用ページ（AIニュース／残っている依頼）だけは
+  // URL から復元する — その方式のままだと、専用ページを再読み込み
+  // したときに URL は ?workspace=ai-news のまま表示だけトップに
+  // 戻る不整合が出たため（2026-11-25 本番チェックで実測）。
+  // popstate の同期では従来どおり workspaceLocation が正本。
+  const [workspace, setWorkspace] = useState<OriginWorkspaceModeV31>(() => {
+    const initial = workspaceLocation();
+    return initial === 'ai-news' || initial === 'remaining' ? initial : 'chat';
+  });
   const [codingInitialGoal, setCodingInitialGoal] = useState('');
   // 「作る」は専用画面ではなく、会話のそばに開くパネルになった
   // （画面構成の移行・第3段）。null = 閉じている、文字列 = その依頼で開く。
