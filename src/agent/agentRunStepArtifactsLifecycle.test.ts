@@ -15,10 +15,14 @@ import { PostgresAgentRunStore, type AgentRunSqlExecutor } from './supabaseAgent
 // has passed (PR-1) OR once the run has been terminal for longer than
 // the 24-hour grace — whichever comes first. Live runs (including
 // held and recovered-to-queued runs) never lose artifacts to the
-// terminal rule. The semantic matrix runs against the in-memory
-// store; the Postgres statement shape is pinned with a recorder and
-// the SQL itself is verified against a real Postgres (PGlite) before
-// this PR is reported, per the 42P08 lesson.
+// terminal rule. One exception (K-17 PR-γ, design
+// AGENT_K17_FAILED_STEP_ARTIFACT_DESIGN_2026-11-24 §4): a diagnostic
+// row of a run that terminated as failed is exempt from the terminal
+// grace and is judged by its own expiry alone. The semantic matrix
+// runs against the in-memory store; the Postgres statement shape is
+// pinned with a recorder and the SQL itself is verified against a
+// real Postgres (PGlite) before this PR is reported, per the 42P08
+// lesson.
 
 const fingerprint = 'b'.repeat(64);
 const ownerBinding = 'a'.repeat(64);
@@ -89,6 +93,16 @@ describe('step artifact terminal retention (in-memory)', () => {
   it('applies the terminal rule to failed and cancelled runs too', async () => {
     let current = T0;
     const failedStore = await storeWithArtifact(() => current, 'run-12345678-abcd');
+    // The failed run's row belongs to a step that completed (a
+    // success row in a run that failed later): K-17's grace
+    // exemption covers only a failed run's diagnostic rows, so the
+    // terminal rule still applies to this row.
+    await failedStore.updateProgress('run-12345678-abcd', driverId, {
+      stepsState: [
+        { id: 'task-1', status: 'completed', attempts: 1 },
+        { id: 'task-2', status: 'queued', attempts: 0 },
+      ],
+    });
     await failedStore.finish('run-12345678-abcd', driverId, 'failed');
     const cancelledStore = await storeWithArtifact(() => current, 'run-87654321-dcba');
     await cancelledStore.finish('run-87654321-dcba', driverId, 'cancelled');
@@ -130,6 +144,46 @@ describe('step artifact terminal retention (in-memory)', () => {
     const recovered = await store.recoverStale('run-12345678-abcd');
     expect(recovered?.status).toBe('queued');
     current = T0 + 48 * 60 * 60 * 1000;
+    await expect(store.sweepExpiredArtifacts()).resolves.toBe(0);
+    expect(await store.listStepArtifacts('run-12345678-abcd')).toHaveLength(1);
+  });
+
+  it('exempts a failed run\'s diagnostic rows from the terminal grace: they are judged by their own expiry alone', async () => {
+    let current = T0;
+    const store = await storeWithArtifact(() => current, 'run-12345678-abcd');
+    // A second row for step 1; the step states make step 0 a success
+    // row and step 1 the failed step's diagnostic row.
+    await store.updateProgress('run-12345678-abcd', driverId, { artifacts: [artifactInput({ stepIndex: 1 })] });
+    await store.updateProgress('run-12345678-abcd', driverId, {
+      stepsState: [
+        { id: 'task-1', status: 'completed', attempts: 1 },
+        { id: 'task-2', status: 'failed', attempts: 1 },
+      ],
+    });
+    await store.finish('run-12345678-abcd', driverId, 'failed');
+
+    // At the grace boundary the success row is reclaimed, while the
+    // diagnostic row survives — and stays listable, because its own
+    // expiry is the run's 7-day TTL.
+    current = T0 + AGENT_RUN_ARTIFACT_TERMINAL_GRACE_MS;
+    await expect(store.sweepExpiredArtifacts()).resolves.toBe(1);
+    const remaining = await store.listStepArtifacts('run-12345678-abcd');
+    expect(remaining.map((row) => row.stepIndex)).toEqual([1]);
+
+    // The diagnostic row is reclaimed only once its own expiry (the
+    // run's TTL) passes, not before.
+    current = T0 + SEVEN_DAYS_MS - 1;
+    await expect(store.sweepExpiredArtifacts()).resolves.toBe(0);
+    current = T0 + SEVEN_DAYS_MS;
+    await expect(store.sweepExpiredArtifacts()).resolves.toBe(1);
+    await expect(store.sweepExpiredArtifacts()).resolves.toBe(0);
+  });
+
+  it('treats a failed run\'s row without any recorded step state as diagnostic', async () => {
+    let current = T0;
+    const store = await storeWithArtifact(() => current, 'run-12345678-abcd');
+    await store.finish('run-12345678-abcd', driverId, 'failed');
+    current = T0 + AGENT_RUN_ARTIFACT_TERMINAL_GRACE_MS + 1;
     await expect(store.sweepExpiredArtifacts()).resolves.toBe(0);
     expect(await store.listStepArtifacts('run-12345678-abcd')).toHaveLength(1);
   });
@@ -180,6 +234,12 @@ describe('postgres step artifact lifecycle statements', () => {
     expect(text).toContain('left join public.origin_agent_runs r on r.run_id = a.run_id');
     expect(text).toContain("r.status in ('completed', 'failed', 'cancelled', 'expired')");
     expect(text).toContain("r.updated_at <= clock_timestamp() - interval '24 hours'");
+    // K-17: diagnostic rows of failed runs are carved out of the
+    // terminal rule by the same steps_state derivation the read side
+    // applies — a step entry that is missing or not completed marks
+    // the row diagnostic.
+    expect(text).toContain("not (r.status = 'failed'");
+    expect(text).toContain("coalesce(r.steps_state -> a.step_index ->> 'status', '') <> 'completed'");
     expect(text).toContain('order by a.expires_at asc limit $1');
     expect(values).toEqual([50]);
     await expect(store.sweepExpiredArtifacts(0)).rejects.toThrow('AGENT_RUN_ARTIFACT_CLEANUP_LIMIT_INVALID');

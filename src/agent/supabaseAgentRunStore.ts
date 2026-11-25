@@ -602,14 +602,23 @@ export class PostgresAgentRunStore implements AgentRunStore {
     // run's updated_at is its terminal transition time, because
     // terminal rows never transition again). The left join keeps
     // orphan rows (impossible while the FK cascade holds) on the
-    // expiry rule alone.
+    // expiry rule alone. One exception (K-17, design
+    // AGENT_K17_FAILED_STEP_ARTIFACT_DESIGN_2026-11-24 §4): a
+    // diagnostic row of a run that terminated as failed — the step at
+    // the row's index in the run's steps_state is not completed, the
+    // same derivation the read side applies to the parsed record — is
+    // exempt from the terminal grace and is judged by its own expiry
+    // alone. A missing step entry reads as not completed, exactly as
+    // in the TypeScript derivation.
     const result = await this.database.query(
       `with due as (
          select a.ctid from public.origin_agent_run_artifacts a
          left join public.origin_agent_runs r on r.run_id = a.run_id
          where a.expires_at <= clock_timestamp()
             or (r.status in ('completed', 'failed', 'cancelled', 'expired')
-                and r.updated_at <= clock_timestamp() - interval '24 hours')
+                and r.updated_at <= clock_timestamp() - interval '24 hours'
+                and not (r.status = 'failed'
+                         and coalesce(r.steps_state -> a.step_index ->> 'status', '') <> 'completed'))
          order by a.expires_at asc limit $1
        )
        delete from public.origin_agent_run_artifacts a

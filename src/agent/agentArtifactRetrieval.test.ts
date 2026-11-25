@@ -8,6 +8,7 @@ import { createAgentOrchestratorV3Router, type AgentRunConsumptionStore } from '
 import {
   computeAgentRunStepFingerprint,
   type AgentRunPlanStep,
+  type AgentRunStepState,
   type PutAgentRunStepArtifactInput,
 } from './agentRunRecord.js';
 import { InMemoryAgentRunStore } from './agentRunStoreMemory.fixture.js';
@@ -71,7 +72,17 @@ function artifactInput(stepIndex: number, artifact: string): PutAgentRunStepArti
   };
 }
 
-async function seededStore(now: () => number, ownerBinding = OPERATOR_BINDING, runId = RUN_ID) {
+async function seededStore(
+  now: () => number,
+  ownerBinding = OPERATOR_BINDING,
+  runId = RUN_ID,
+  // The rows seeded through this helper stand for steps that
+  // completed (the advancer writes a step's artifact in the same
+  // progress write as its step state, so a real row's state is
+  // always recorded). K-17's kind derivation reads these states;
+  // the diagnostic-row tests below pass their own.
+  stepsState: AgentRunStepState[] = plan.map((_, index) => ({ id: `task-${index + 1}`, status: 'completed', attempts: 1 })),
+) {
   const store = new InMemoryAgentRunStore(now);
   const created = await store.create({
     runId,
@@ -80,6 +91,7 @@ async function seededStore(now: () => number, ownerBinding = OPERATOR_BINDING, r
     status: 'queued',
     plan,
     planDigest: 'c'.repeat(64),
+    stepsState,
     expiresAt: now() + 3_600_000,
   }, now());
   expect(created?.status).toBe('queued');
@@ -229,6 +241,46 @@ describe('artifact retrieval routes (R-1)', () => {
     expect(res.body.code).toBe('AGENT_RUN_NOT_FOUND');
     const entity = await asOperator(request(appFor(store)).get(`/api/agent/v3/runs/${RUN_ID}/artifacts/2`));
     expect(entity.status).toBe(404);
+  });
+});
+
+describe('diagnostic rows in the retrieval list (K-17 PR-γ)', () => {
+  it('never presents a failed document step\'s row as the deliverable, and still serves it from the entity route', async () => {
+    const stepsState: AgentRunStepState[] = [
+      { id: 'task-1', status: 'completed', attempts: 1 },
+      { id: 'task-2', status: 'completed', attempts: 1 },
+      { id: 'task-3', status: 'failed', attempts: 1 },
+    ];
+    const store = await seededStore(() => T0, OPERATOR_BINDING, RUN_ID, stepsState);
+    await store.updateProgress(RUN_ID, DRIVER, {
+      artifacts: [artifactInput(0, 'extracted attachment text'), artifactInput(2, markdownEnvelope)],
+    });
+    const app = appFor(store);
+    const list = await asOperator(request(app).get(`/api/agent/v3/runs/${RUN_ID}/artifacts`));
+    expect(list.status).toBe(200);
+    expect(list.body.artifacts.map((entry: { stepIndex: number; kind: string }) => [entry.stepIndex, entry.kind]))
+      .toEqual([[0, 'intermediate'], [2, 'failed-diagnostic']]);
+    // The entity route still returns the diagnostic row verbatim:
+    // diagnosis is its purpose.
+    const entity = await asOperator(request(app).get(`/api/agent/v3/runs/${RUN_ID}/artifacts/2`));
+    expect(entity.status).toBe(200);
+    expect(entity.text).toBe(markdownEnvelope);
+  });
+
+  it('marks a failed intermediate step\'s row diagnostic while a completed final document step stays the deliverable', async () => {
+    const stepsState: AgentRunStepState[] = [
+      { id: 'task-1', status: 'completed', attempts: 1 },
+      { id: 'task-2', status: 'failed', attempts: 1 },
+      { id: 'task-3', status: 'completed', attempts: 1 },
+    ];
+    const store = await seededStore(() => T0, OPERATOR_BINDING, RUN_ID, stepsState);
+    await store.updateProgress(RUN_ID, DRIVER, {
+      artifacts: [artifactInput(1, 'partial bundle'), artifactInput(2, markdownEnvelope)],
+    });
+    const res = await asOperator(request(appFor(store)).get(`/api/agent/v3/runs/${RUN_ID}/artifacts`));
+    expect(res.status).toBe(200);
+    expect(res.body.artifacts.map((entry: { stepIndex: number; kind: string }) => [entry.stepIndex, entry.kind]))
+      .toEqual([[1, 'failed-diagnostic'], [2, 'deliverable']]);
   });
 });
 

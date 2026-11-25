@@ -231,6 +231,22 @@ export function isAgentRunTerminalStatus(status: AgentRunRecordStatus): boolean 
   return AGENT_RUN_TERMINAL_STATUSES.has(status);
 }
 
+/**
+ * Whether the recorded state of the plan step at `stepIndex` is
+ * completed (K-17 read-side derivation, design
+ * AGENT_K17_FAILED_STEP_ARTIFACT_DESIGN_2026-11-24 §3): a persisted
+ * step-artifact row carries no success/failure marker of its own (no
+ * schema change), so readers derive the distinction from the run's
+ * stepsState — a row whose step state is completed is a success row,
+ * and any other row (failed, blocked, still queued, or without a
+ * recorded state) is a diagnostic row. The advancer writes a step's
+ * artifact in the same fenced progress write as its step state, so
+ * a real row's state always reflects the outcome that produced it.
+ */
+export function isAgentRunStepStateCompleted(stepsState: readonly AgentRunStepState[], stepIndex: number): boolean {
+  return stepsState[stepIndex]?.status === 'completed';
+}
+
 export function canTransitionAgentRunStatus(from: AgentRunRecordStatus, to: AgentRunRecordStatus): boolean {
   return AGENT_RUN_STATUS_TRANSITIONS[from].includes(to);
 }
@@ -878,10 +894,18 @@ export interface AgentRunStore {
    * passed, or when the run has been in a terminal status for longer
    * than AGENT_RUN_ARTIFACT_TERMINAL_GRACE_MS (design §4.6) — a
    * terminal run's updatedAt is its terminal transition time, because
-   * terminal rows never transition again. Wired into the piggyback
-   * evaluation (PR-3); deleting a run row also removes its artifacts
-   * by cascade. Reads never depend on the sweep: listStepArtifacts
-   * already hides rows past their own expiry.
+   * terminal rows never transition again. One exception (K-17,
+   * design AGENT_K17_FAILED_STEP_ARTIFACT_DESIGN_2026-11-24 §4): a
+   * diagnostic row of a run that terminated as failed — a row whose
+   * step state is not completed, by the same stepsState derivation
+   * the read side uses — is exempt from the terminal grace and is
+   * judged by its own expiry alone, so failure diagnosis survives
+   * until the run record itself expires. Success rows of a failed
+   * run, and every row of any other terminal run, keep the grace.
+   * Wired into the piggyback evaluation (PR-3); deleting a run row
+   * also removes its artifacts by cascade. Reads never depend on the
+   * sweep: listStepArtifacts already hides rows past their own
+   * expiry.
    */
   sweepExpiredArtifacts(limit?: number): Promise<number>;
 }

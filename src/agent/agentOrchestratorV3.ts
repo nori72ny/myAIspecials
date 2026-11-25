@@ -23,6 +23,7 @@ import {
   agentRunPlanAttachmentSetId,
   agentStepArtifactsEnabled,
   isAgentRunRecordStatus,
+  isAgentRunStepStateCompleted,
   MAX_AGENT_RUN_PLAN_STEPS,
   MAX_AGENT_RUN_TTL_MS,
   normalizeAgentRunHold,
@@ -1025,20 +1026,28 @@ export function createAgentOrchestratorV3Router(env: NodeJS.ProcessEnv = process
    * One persisted step artifact as the retrieval list reports it
    * (design §3.3): identity and storage measurements always, the
    * document envelope's declared metadata when the stored body is an
-   * envelope, and the deliverable/intermediate distinction derived
-   * from the stored plan — the final step is the deliverable exactly
-   * when it is the document_generator, the same rule the advancer's
-   * persistence selectivity applies. The body itself is never part
-   * of a list entry.
+   * envelope, and the kind derived from the stored plan and the
+   * recorded step states (K-17, design
+   * AGENT_K17_FAILED_STEP_ARTIFACT_DESIGN_2026-11-24 §3): the row is
+   * the deliverable exactly when it is the final step, that step is
+   * the document_generator, and its recorded state is completed —
+   * the same plan rule the advancer's persistence selectivity
+   * applies, with completion now required, so a failed document
+   * step's output is never presented as the deliverable. A row whose
+   * step state is not completed is a diagnostic row
+   * ('failed-diagnostic'): it stays listed and retrievable through
+   * the entity route, because diagnosis is its purpose. The body
+   * itself is never part of a list entry.
    */
   const artifactListEntryView = (record: AgentRunRecord, row: AgentRunStepArtifact) => {
     const envelope = documentEnvelopeView(row.artifact);
     const plan = record.plan ?? [];
     const finalIndex = plan.length - 1;
-    const deliverable = finalIndex >= 0 && row.stepIndex === finalIndex && plan[finalIndex].toolName === 'document_generator';
+    const stepCompleted = isAgentRunStepStateCompleted(record.stepsState, row.stepIndex);
+    const deliverable = stepCompleted && finalIndex >= 0 && row.stepIndex === finalIndex && plan[finalIndex].toolName === 'document_generator';
     return {
       stepIndex: row.stepIndex,
-      kind: deliverable ? 'deliverable' : 'intermediate',
+      kind: !stepCompleted ? 'failed-diagnostic' : deliverable ? 'deliverable' : 'intermediate',
       attempt: row.attempt,
       format: envelope?.format ?? null,
       filename: envelope?.filename ?? null,
