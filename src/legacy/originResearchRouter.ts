@@ -13,7 +13,7 @@ import {
   isGroundedResearchSynthesisRetryEnabled,
   type QuoteFirstAdoptionContext,
 } from "../research/groundedResearchSynthesisV12.js";
-import { buildQuoteFirstContractInstruction, buildQuoteFirstRegistry, buildQuoteFirstRegistrySection, resolveQuoteFirstMode } from "../research/groundedResearchQuoteFirst.js";
+import { buildQuoteFirstContractInstruction, buildQuoteFirstRegistry, buildQuoteFirstRegistrySection, describeQuoteFirstEngagement, resolveQuoteFirstMode } from "../research/groundedResearchQuoteFirst.js";
 import { executeGroundedResearchRecordsSynthesis, isGroundedResearchRecordsEnabled, RECORDS_PACKET_EXCERPT_CHARS } from "../research/groundedResearchRecordsV13.js";
 import { isRefinementOfPreviousAnswer, originClientPolicy, screenConversationForSend, type OriginChatBody, validateOriginChatMessages } from "./originChatValidation.js";
 import { isSelfContainedCodeTaskRequest, resolveOriginCodeTaskRoutingMode } from "./originChatResponsePolicy.js";
@@ -560,6 +560,20 @@ export function createOriginResearchRouter(options: OriginResearchRouterOptions 
             quoteFirstRegistry && quoteFirstRegistry.entries.length > 0 && quoteFirstMode !== "off"
               ? { mode: quoteFirstMode, registry: quoteFirstRegistry }
               : undefined;
+          if (quoteFirstRegistry) {
+            // Quote-first engagement (shadow observation protocol,
+            // SEARCH_RELIABILITY_95_PLAN_2026-11-24 §4 item 2): same
+            // line as the chat router — counts and codes only, before
+            // execution, so armed-but-not-engaged requests (empty
+            // registry) and pre-adoption failures stay on record as
+            // the observation's denominator.
+            const quoteFirstEngagement = describeQuoteFirstEngagement(quoteFirstMode, quoteFirstRegistry);
+            if (quoteFirstEngagement) {
+              console.info("[origin-research] research synthesis quote-first engagement", {
+                ...quoteFirstEngagement,
+              });
+            }
+          }
           const synthesisRequest: OriginProviderExecutionRequest = {
             plan: { ...synthesisPlan.plan, timeoutMs: Math.min(synthesisPlan.plan.timeoutMs, MAX_PROVIDER_ATTEMPT_TIMEOUT_MS) },
             messages: [{

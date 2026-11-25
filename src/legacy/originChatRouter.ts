@@ -35,7 +35,7 @@ import {
   type OriginResearchLanding,
 } from "../research/groundedResearchOutcome.js";
 import { adoptGroundedResearchSynthesis, buildGroundedResearchSynthesisInstruction, buildGroundedResearchSynthesisPrompt, diagnoseGroundedResearchSynthesisUnits, executeGroundedResearchSynthesisWithRetry, isGroundedResearchSynthesisRetryEnabled, type QuoteFirstAdoptionContext } from "../research/groundedResearchSynthesisV12.js";
-import { buildQuoteFirstContractInstruction, buildQuoteFirstRegistry, buildQuoteFirstRegistrySection, resolveQuoteFirstMode } from "../research/groundedResearchQuoteFirst.js";
+import { buildQuoteFirstContractInstruction, buildQuoteFirstRegistry, buildQuoteFirstRegistrySection, describeQuoteFirstEngagement, resolveQuoteFirstMode } from "../research/groundedResearchQuoteFirst.js";
 import { buildGroundedResearchEvidenceCards } from "../research/groundedResearchEvidenceCards.js";
 import { classifyDirectAnswerVerificationTarget, classifyResearchAnswerVerificationTarget, resolveOriginAnswerVerificationEffectiveMode, runOriginAnswerVerificationShadow, verifyOriginAnswerCrossRoute, type OriginAnswerVerificationDailyUsageReader, type OriginAnswerVerificationSource } from "./originAnswerVerification.js";
 import { planOriginPremiseGuard, resolveOriginIntentPremiseGuardEffectiveMode, runOriginIntentPremiseGuardShadow } from "./originIntentPremiseGuard.js";
@@ -948,6 +948,24 @@ export function createOriginChatRouter(options: OriginChatRouterOptions = {}) {
               quoteFirstRegistry && quoteFirstRegistry.entries.length > 0 && quoteFirstMode !== "off"
                 ? { mode: quoteFirstMode, registry: quoteFirstRegistry }
                 : undefined;
+            if (quoteFirstRegistry) {
+              // Quote-first engagement (shadow observation protocol,
+              // SEARCH_RELIABILITY_95_PLAN_2026-11-24 §4 item 2):
+              // counts and codes only, emitted before execution so
+              // every armed request is on record — including the
+              // not-engaged population (empty registry: the packet
+              // held no answer-bearing sentence) and requests whose
+              // synthesis later fails before adoption. Without this
+              // line the binding report below has no denominator and
+              // the activation judgement cannot be made from logs.
+              const quoteFirstEngagement = describeQuoteFirstEngagement(quoteFirstMode, quoteFirstRegistry);
+              if (quoteFirstEngagement) {
+                console.info("[origin-chat] research synthesis quote-first engagement", {
+                  requestId,
+                  ...quoteFirstEngagement,
+                });
+              }
+            }
             const synthesisRequest: OriginProviderExecutionRequest = {
               plan: { ...synthesisPlan.plan, timeoutMs: Math.min(synthesisPlan.plan.timeoutMs, MAX_PROVIDER_ATTEMPT_TIMEOUT_MS) },
               messages: [{

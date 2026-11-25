@@ -5,6 +5,7 @@ import {
   buildQuoteFirstContractInstruction,
   buildQuoteFirstRegistry,
   buildQuoteFirstRegistrySection,
+  describeQuoteFirstEngagement,
   parseQuoteFirstScaffold,
   resolveQuoteFirstMode,
   type QuoteFirstRegistry,
@@ -154,6 +155,39 @@ describe("buildQuoteFirstRegistry", () => {
       F03_QUESTION,
     );
     expect(registry.entries).toEqual([]);
+  });
+});
+
+describe("describeQuoteFirstEngagement", () => {
+  it("is undefined when the mode is off, so off requests stay out of the observation entirely", () => {
+    const registry = buildQuoteFirstRegistry(f03Sources, F03_QUESTION);
+    expect(describeQuoteFirstEngagement("off", registry)).toBeUndefined();
+  });
+
+  it("records an armed request whose registry is empty as not engaged (the material-side population)", () => {
+    const registry = buildQuoteFirstRegistry(
+      [source({ title: "会社概要", url: "https://example.jp/about", excerpt: "ホーム 会社概要 アクセス 採用情報" })],
+      F03_QUESTION,
+    );
+    expect(describeQuoteFirstEngagement("shadow", registry)).toEqual({
+      quoteFirstMode: "shadow",
+      quoteFirstEngaged: false,
+      quoteFirstRegistryQuotes: 0,
+      quoteFirstRegistrySources: 0,
+    });
+  });
+
+  it("counts registry sentences and their distinct sources for an engaged request", () => {
+    const registry = buildQuoteFirstRegistry(gapSources, GAP_QUESTION);
+    const engagement = describeQuoteFirstEngagement("enforce", registry);
+    expect(engagement?.quoteFirstMode).toBe("enforce");
+    expect(engagement?.quoteFirstEngaged).toBe(true);
+    expect(engagement?.quoteFirstRegistryQuotes).toBe(registry.entries.length);
+    expect(engagement?.quoteFirstRegistrySources).toBe(
+      new Set(registry.entries.map((entry) => entry.sourceIndex)).size,
+    );
+    expect(engagement?.quoteFirstRegistrySources).toBeGreaterThanOrEqual(1);
+    expect(engagement?.quoteFirstRegistrySources).toBeLessThanOrEqual(2);
   });
 });
 
