@@ -9,14 +9,17 @@ import {
   DEFAULT_ORIGIN_GROQ_FREE_MODEL_CATALOG,
   ORIGIN_GROQ_FREE_MODEL_ID,
 } from "../lib/orchestration/OriginGroqFreeModelCatalog.js";
-import type {
-  OriginProviderExecutionRequest,
-  OriginProviderExecutionResult,
+import {
+  OriginProviderError,
+  type OriginProviderExecutionRequest,
+  type OriginProviderExecutionResult,
 } from "./originProviderClient.js";
+import { GROUNDED_RESEARCH_SYNTHESIS_RETRY_TIME_GATE_MS } from "../research/groundedResearchSynthesisV12.js";
 import {
   assertGroundedResearchRecordsZeroCost,
   createGroundedResearchRecordsRetryExecutor,
   createGroundedResearchRecordsRetryExecutorWithDetail,
+  createGroundedResearchSynthesisProviderRetryExecutor,
   identifyGroundedResearchServingRoute,
 } from "./originRecordsRetryRoute.js";
 
@@ -466,5 +469,126 @@ describe("assertGroundedResearchRecordsZeroCost", () => {
   it("rejects a bare route-1 result that fails the standing assertion", () => {
     const result = bareResult("OpenRouter", 1, "some/other-model", "adaptive-primary");
     expect(() => assertGroundedResearchRecordsZeroCost(result, PRIMARY_MODEL)).toThrow();
+  });
+});
+
+describe("createGroundedResearchSynthesisProviderRetryExecutor (K-06 plan A)", () => {
+  function rateLimitedError(
+    attempts?: { providerId: string; outcome: "availability-error" | "failed" | "skipped" }[],
+  ): OriginProviderError {
+    return new OriginProviderError("PROVIDER_RATE_LIMITED", "internal", 429, true, undefined, {
+      failoverAttempts: (attempts ?? []).map((attempt) => ({
+        providerId: attempt.providerId,
+        modelId: "m",
+        outcome: attempt.outcome,
+        errorCode: "PROVIDER_RATE_LIMITED" as const,
+        transportRequestCount: attempt.outcome === "skipped" ? 0 : 1,
+      })),
+    });
+  }
+
+  it("skips non-provider errors and integrity failure codes without executing", async () => {
+    const cloudflareExecute = vi.fn(async () => bareResult("Cloudflare", 2, ORIGIN_CLOUDFLARE_WORKERS_AI_FREE_MODEL, "verified-free-failover"));
+    const retry = createGroundedResearchSynthesisProviderRetryExecutor({
+      env: CF_ENV,
+      nowMs: CF_NOW_MS,
+      cloudflareExecute: cloudflareExecute as never,
+    });
+    expect(await retry(REQUEST, new Error("boom"), 0)).toEqual({ kind: "skipped", skipDetail: "not-provider-failure" });
+    expect(await retry(REQUEST, new OriginProviderError("PROVIDER_COST_UNVERIFIED", "internal", 500, false), 0))
+      .toEqual({ kind: "skipped", skipDetail: "not-provider-failure" });
+    expect(cloudflareExecute).not.toHaveBeenCalled();
+  });
+
+  it("skips when the standing 50-second synthesis time gate has passed", async () => {
+    const cloudflareExecute = vi.fn(async () => bareResult("Cloudflare", 2, ORIGIN_CLOUDFLARE_WORKERS_AI_FREE_MODEL, "verified-free-failover"));
+    const retry = createGroundedResearchSynthesisProviderRetryExecutor({
+      env: CF_ENV,
+      nowMs: CF_NOW_MS,
+      cloudflareExecute: cloudflareExecute as never,
+    });
+    expect(await retry(REQUEST, rateLimitedError(), GROUNDED_RESEARCH_SYNTHESIS_RETRY_TIME_GATE_MS + 1))
+      .toEqual({ kind: "skipped", skipDetail: "time-budget" });
+    expect(cloudflareExecute).not.toHaveBeenCalled();
+  });
+
+  it("executes on route 2 when the failed dispatch only executed route 1", async () => {
+    const cfResult = bareResult("Cloudflare", 2, ORIGIN_CLOUDFLARE_WORKERS_AI_FREE_MODEL, "verified-free-failover");
+    const cloudflareExecute = vi.fn(async () => cfResult);
+    const groqExecute = vi.fn(async () => { throw new Error("must not run"); });
+    const retry = createGroundedResearchSynthesisProviderRetryExecutor({
+      env: CF_ENV,
+      nowMs: CF_NOW_MS,
+      cloudflareExecute: cloudflareExecute as never,
+      groqExecute: groqExecute as never,
+    });
+    const outcome = await retry(REQUEST, rateLimitedError([
+      { providerId: "openrouter-free", outcome: "availability-error" },
+    ]), 1_000);
+    expect(outcome).toEqual({ kind: "executed", result: cfResult, route: 2 });
+    expect(groqExecute).not.toHaveBeenCalled();
+  });
+
+  it("a route the dispatch only SKIPPED stays a candidate", async () => {
+    const cfResult = bareResult("Cloudflare", 2, ORIGIN_CLOUDFLARE_WORKERS_AI_FREE_MODEL, "verified-free-failover");
+    const cloudflareExecute = vi.fn(async () => cfResult);
+    const retry = createGroundedResearchSynthesisProviderRetryExecutor({
+      env: CF_ENV,
+      nowMs: CF_NOW_MS,
+      cloudflareExecute: cloudflareExecute as never,
+    });
+    const outcome = await retry(REQUEST, rateLimitedError([
+      { providerId: "openrouter-free", outcome: "failed" },
+      { providerId: "cloudflare-workers-ai-free", outcome: "skipped" },
+    ]), 1_000);
+    expect(outcome).toEqual({ kind: "executed", result: cfResult, route: 2 });
+  });
+
+  it("advances to route 3 when routes 1 and 2 were both executed", async () => {
+    const groqResult = bareResult("Groq", 3, ORIGIN_GROQ_FREE_MODEL_ID, "verified-free-failover");
+    const groqExecute = vi.fn(async () => groqResult);
+    const cloudflareExecute = vi.fn(async () => { throw new Error("must not run"); });
+    const retry = createGroundedResearchSynthesisProviderRetryExecutor({
+      env: GROQ_ENV,
+      nowMs: GROQ_NOW_MS,
+      cloudflareExecute: cloudflareExecute as never,
+      groqExecute: groqExecute as never,
+    });
+    const outcome = await retry(REQUEST, rateLimitedError([
+      { providerId: "openrouter-free", outcome: "availability-error" },
+      { providerId: "cloudflare-workers-ai-free", outcome: "availability-error" },
+    ]), 1_000);
+    expect(outcome).toEqual({ kind: "executed", result: groqResult, route: 3 });
+    expect(cloudflareExecute).not.toHaveBeenCalled();
+  });
+
+  it("reports all-routes-attempted when every route already executed", async () => {
+    const retry = createGroundedResearchSynthesisProviderRetryExecutor({
+      env: { ...CF_ENV, ...GROQ_ENV },
+      nowMs: CF_NOW_MS,
+      cloudflareExecute: vi.fn(async () => { throw new Error("must not run"); }) as never,
+      groqExecute: vi.fn(async () => { throw new Error("must not run"); }) as never,
+    });
+    const outcome = await retry(REQUEST, rateLimitedError([
+      { providerId: "openrouter-free", outcome: "failed" },
+      { providerId: "cloudflare-workers-ai-free", outcome: "failed" },
+      { providerId: "groq-free", outcome: "availability-error" },
+    ]), 1_000);
+    expect(outcome).toEqual({ kind: "skipped", skipDetail: "all-routes-attempted" });
+  });
+
+  it("falls through unconfigured candidates and reports the last stage", async () => {
+    const retry = createGroundedResearchSynthesisProviderRetryExecutor({ env: {}, nowMs: CF_NOW_MS });
+    const outcome = await retry(REQUEST, rateLimitedError(), 1_000);
+    expect(outcome).toEqual({ kind: "skipped", skipDetail: "groq-not-configured" });
+  });
+
+  it("propagates a candidate execution error (the router contains it)", async () => {
+    const retry = createGroundedResearchSynthesisProviderRetryExecutor({
+      env: CF_ENV,
+      nowMs: CF_NOW_MS,
+      cloudflareExecute: vi.fn(async () => { throw new OriginProviderError("PROVIDER_UNAVAILABLE", "internal", 503, true); }) as never,
+    });
+    await expect(retry(REQUEST, rateLimitedError(), 1_000)).rejects.toBeInstanceOf(OriginProviderError);
   });
 });

@@ -32,11 +32,13 @@ import {
 } from "../lib/orchestration/OriginExecutionPolicy.js";
 import type { OriginCloudflareFreeModelEvidence } from "../lib/orchestration/OriginCloudflareFreeModelCatalog.js";
 import type { OriginGroqFreeModelEvidence } from "../lib/orchestration/OriginGroqFreeModelCatalog.js";
-import type {
-  OriginFetch,
-  OriginProviderExecutionRequest,
-  OriginProviderExecutionResult,
+import {
+  OriginProviderError,
+  type OriginFetch,
+  type OriginProviderExecutionRequest,
+  type OriginProviderExecutionResult,
 } from "./originProviderClient.js";
+import { GROUNDED_RESEARCH_SYNTHESIS_RETRY_TIME_GATE_MS } from "../research/groundedResearchSynthesisV12.js";
 import {
   assertOriginCloudflareExecutionResult,
   executeOriginCloudflareProvider,
@@ -138,21 +140,23 @@ type GroundedResearchRecordsRetryDerivation =
   | { kind: "skipped"; skipDetail: GroundedResearchRecordsRetrySkipDetail };
 
 /**
- * The derivation both executor factories share: identify the serving
- * route, derive the NEXT route's plan, and execute the same request
- * on that route. Each early exit names its stage (R-PR-8d) instead of
- * collapsing into a bare null; execution errors propagate to the
- * caller, which contains them in the retry layer (design §10).
+ * Execute the same request directly on one failover route (2 =
+ * Cloudflare, 3 = Groq): derive that route's plan from the request's
+ * plan and run the route's own executor, mirroring the dispatcher's
+ * route runners. Configuration and plan failures return a named skip
+ * (R-PR-8d vocabulary) instead of spending an execution; execution
+ * errors propagate to the caller, which contains them in its retry
+ * layer. Shared by the records derivation below (which advances one
+ * route past the serving route) and by the synthesis provider-
+ * failure retry (which picks the first route the failed dispatch
+ * did not already execute).
  */
-async function deriveGroundedResearchRecordsRetryExecution(
+async function executeGroundedResearchRetryRoute(
   deps: GroundedResearchRecordsRetryRouteDeps,
   request: OriginProviderExecutionRequest,
-  firstResult: OriginProviderExecutionResult,
+  route: 2 | 3,
 ): Promise<GroundedResearchRecordsRetryDerivation> {
-  const route = identifyGroundedResearchServingRoute(firstResult);
-  if (route === null) return { kind: "skipped", skipDetail: "route-unidentifiable" };
-  if (route === 3) return { kind: "skipped", skipDetail: "final-route" };
-  if (route === 1) {
+  if (route === 2) {
     if (!isOriginCloudflareFailoverEnabled(deps.env)) {
       return { kind: "skipped", skipDetail: "cloudflare-not-enabled" };
     }
@@ -194,6 +198,24 @@ async function deriveGroundedResearchRecordsRetryExecution(
     { catalog: deps.groqCatalog, nowMs: deps.nowMs },
   );
   return { kind: "executed", result };
+}
+
+/**
+ * The derivation both executor factories share: identify the serving
+ * route, derive the NEXT route's plan, and execute the same request
+ * on that route. Each early exit names its stage (R-PR-8d) instead of
+ * collapsing into a bare null; execution errors propagate to the
+ * caller, which contains them in the retry layer (design §10).
+ */
+async function deriveGroundedResearchRecordsRetryExecution(
+  deps: GroundedResearchRecordsRetryRouteDeps,
+  request: OriginProviderExecutionRequest,
+  firstResult: OriginProviderExecutionResult,
+): Promise<GroundedResearchRecordsRetryDerivation> {
+  const route = identifyGroundedResearchServingRoute(firstResult);
+  if (route === null) return { kind: "skipped", skipDetail: "route-unidentifiable" };
+  if (route === 3) return { kind: "skipped", skipDetail: "final-route" };
+  return executeGroundedResearchRetryRoute(deps, request, route === 1 ? 2 : 3);
 }
 
 /**
@@ -268,4 +290,111 @@ export function assertGroundedResearchRecordsZeroCost(
     }
   }
   assertOriginZeroCostExecutionResultWithFailover(result, expectedPrimaryModel);
+}
+
+// ---------------------------------------------------------------------------
+// Provider-failure retry for the TEXT synthesis path (K-06 案A,
+// SOURCES_ONLY_FALLBACK_DIAGNOSIS_2026-11-25 §案A-2)
+// ---------------------------------------------------------------------------
+
+/**
+ * Why the synthesis provider-failure retry did not execute: the
+ * standing route-derivation stages (R-PR-8d vocabulary), plus the
+ * retry's own gates. Codes only — safe for logs and routing records.
+ */
+export type GroundedResearchSynthesisProviderRetrySkipDetail =
+  | "not-provider-failure"
+  | "time-budget"
+  | "all-routes-attempted"
+  | GroundedResearchRecordsRetrySkipDetail;
+
+export type GroundedResearchSynthesisProviderRetryOutcome =
+  | { kind: "executed"; result: OriginProviderExecutionResult; route: 2 | 3 }
+  | { kind: "skipped"; skipDetail: GroundedResearchSynthesisProviderRetrySkipDetail };
+
+/**
+ * The retry executor the chat router wires for the text synthesis
+ * path: given the synthesis request, the error the initial execution
+ * threw, and the elapsed grounded time, execute the request once on
+ * a route the failed dispatch did not already execute — or report
+ * why not. Execution errors propagate; the router contains them in
+ * the retry layer and keeps the initial failure as the outcome.
+ */
+export type GroundedResearchSynthesisProviderRetryExecutor = (
+  request: OriginProviderExecutionRequest,
+  error: unknown,
+  elapsedMs: number,
+) => Promise<GroundedResearchSynthesisProviderRetryOutcome>;
+
+/**
+ * Provider failures the retry exists for (diagnosis §2.1): rate
+ * limiting, timeouts, unavailability, and invalid responses — the
+ * availability family the failover dispatcher itself retries across
+ * routes. Integrity failures (cost / routing / policy codes) are
+ * never retried: another route cannot cure them, and the standing
+ * fail-closed handling must see the original error.
+ */
+const SYNTHESIS_PROVIDER_RETRY_ERROR_CODES: ReadonlySet<string> = new Set([
+  "PROVIDER_RATE_LIMITED",
+  "PROVIDER_TIMEOUT",
+  "PROVIDER_UNAVAILABLE",
+  "PROVIDER_INVALID_RESPONSE",
+]);
+
+function routeForFailoverAttemptProvider(providerId: string): GroundedResearchServingRoute | null {
+  if (providerId === ORIGIN_OPENROUTER_FREE_PROVIDER_ID) return 1;
+  if (providerId === ORIGIN_CLOUDFLARE_WORKERS_AI_FREE_PROVIDER_ID) return 2;
+  if (providerId === ORIGIN_GROQ_FREE_PROVIDER_ID) return 3;
+  return null;
+}
+
+/**
+ * Builds the text-path synthesis provider-failure retry (K-06 案A).
+ *
+ * The text synthesis runs through the failover dispatcher, so by the
+ * time it throws, the dispatcher has usually already consumed every
+ * configured route — re-running the same dispatch would only repeat
+ * the failure. The retry therefore mirrors the records path's fresh
+ * retry (design §10): it executes the SAME request directly on a
+ * route the failed dispatch did not execute, at most once, inside
+ * the standing 50-second synthesis time gate. Which routes were
+ * executed is read from the thrown error's failover-attempt evidence
+ * (the dispatcher attaches it to the terminal error); an attempt
+ * recorded as "skipped" never executed and does not consume its
+ * route. Route 1 is never a candidate: it is the primary the
+ * dispatcher starts from (and is stopped by standing disposition),
+ * so a retry there would be a same-route repeat, not the
+ * different-route retry the diagnosis prescribes. A candidate whose
+ * route is not configured or whose plan cannot be derived falls
+ * through to the next candidate; a candidate that executes and
+ * fails ends the retry (its error propagates and the router keeps
+ * the initial failure).
+ */
+export function createGroundedResearchSynthesisProviderRetryExecutor(
+  deps: GroundedResearchRecordsRetryRouteDeps,
+): GroundedResearchSynthesisProviderRetryExecutor {
+  return async (request, error, elapsedMs) => {
+    if (!(error instanceof OriginProviderError) || !SYNTHESIS_PROVIDER_RETRY_ERROR_CODES.has(error.code)) {
+      return { kind: "skipped", skipDetail: "not-provider-failure" };
+    }
+    if (elapsedMs > GROUNDED_RESEARCH_SYNTHESIS_RETRY_TIME_GATE_MS) {
+      return { kind: "skipped", skipDetail: "time-budget" };
+    }
+    const executedRoutes = new Set<GroundedResearchServingRoute>();
+    for (const attempt of error.diagnostic?.failoverAttempts ?? []) {
+      if (attempt.outcome === "skipped" || attempt.outcome === "succeeded") continue;
+      const route = routeForFailoverAttemptProvider(attempt.providerId);
+      if (route !== null) executedRoutes.add(route);
+    }
+    let skipDetail: GroundedResearchSynthesisProviderRetrySkipDetail = "all-routes-attempted";
+    for (const candidate of [2, 3] as const) {
+      if (executedRoutes.has(candidate)) continue;
+      const derivation = await executeGroundedResearchRetryRoute(deps, request, candidate);
+      if (derivation.kind === "executed") {
+        return { kind: "executed", result: derivation.result, route: candidate };
+      }
+      skipDetail = derivation.skipDetail;
+    }
+    return { kind: "skipped", skipDetail };
+  };
 }

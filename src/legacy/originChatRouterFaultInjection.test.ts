@@ -5,6 +5,7 @@ import { DEFAULT_ORIGIN_FREE_MODEL_CATALOG } from "../lib/orchestration/OriginFr
 import { buildGroundedResearchAbstainAnswer } from "../research/groundedResearchOutcome";
 import { createOriginChatRouter, type OriginChatExecutor, type OriginResearchExecutor } from "./originChatRouter";
 import { OriginProviderError, type OriginProviderErrorCode } from "./originProviderClient";
+import type { GroundedResearchSynthesisProviderRetryExecutor } from "./originRecordsRetryRoute";
 import type { OriginResearchResult, OriginResearchSource } from "./originResearchSource";
 import { createOriginResearchRouter, type OriginResearchSynthesisExecutor } from "./originResearchRouter";
 
@@ -367,5 +368,124 @@ describe("fault injection: research router (extractive tier)", () => {
     expect(response.body.message.length).toBeGreaterThan(0);
     expect(response.body.research.status).toBe("unavailable");
     expect(synthesis).not.toHaveBeenCalled();
+  });
+});
+
+describe("fault injection: K-06 plan A (provider retry + deterministic reconstruction)", () => {
+  const RETRY_VALID_TEXT = [
+    "首相官邸のページでは高市早苗が内閣総理大臣として示されています [S1](https://www.kantei.go.jp/jp/104/actions/index.html)",
+    "記者会見も行われました [S2](https://www.nhk.or.jp/politics/articles/1.html)",
+  ].join("\n");
+
+  function createPlanAChatApp(
+    research: OriginResearchExecutor,
+    researchSynthesis: OriginChatExecutor,
+    researchSynthesisProviderRetry?: GroundedResearchSynthesisProviderRetryExecutor,
+  ) {
+    const app = express();
+    app.use(express.json());
+    app.use(createOriginChatRouter({
+      env: { OPENROUTER_API_KEY: "synthetic-test-key" },
+      execute: vi.fn().mockResolvedValue(executionResult) as unknown as OriginChatExecutor,
+      research,
+      researchSynthesis,
+      researchSynthesisProviderRetry,
+      now: (() => { let current = 1_000; return () => { current += 25; return current; }; })(),
+      catalogNow: () => verifiedCatalogTime,
+      createRequestId: () => "origin-fault-injection-plan-a",
+    }));
+    return app;
+  }
+
+  it("adopts the synthesis when the provider-failure retry succeeds on another route (429 → retry → adopted)", async () => {
+    const synthesis = vi.fn().mockRejectedValue(
+      new OriginProviderError("PROVIDER_RATE_LIMITED", "internal", 429, true),
+    ) as unknown as OriginChatExecutor;
+    const providerRetry = vi.fn().mockResolvedValue({
+      kind: "executed",
+      route: 3,
+      result: { ...executionResult, text: RETRY_VALID_TEXT },
+    }) as unknown as GroundedResearchSynthesisProviderRetryExecutor;
+    const response = await request(createPlanAChatApp(researchOk, synthesis, providerRetry))
+      .post("/api/chat")
+      .send({ messages: [{ role: "user", content: "今日の公開情報を調査してください" }] });
+    expect(response.status).toBe(200);
+    // The retried execution's text goes through the unchanged
+    // adoption gate and is delivered as the tier-T0 answer.
+    expect(response.body.content).toBe(RETRY_VALID_TEXT);
+    expect(response.body.routing.synthesisStatus).toBe("citation-validated");
+    expect(response.body.routing.researchTier).toBe("T0");
+    expect(response.body.routing.synthesisProviderRetried).toBe(true);
+    expect(response.body.routing.synthesisProviderRetryRoute).toBe(3);
+    // Exactly one initial execution and one retry execution.
+    expect(synthesis).toHaveBeenCalledTimes(1);
+    expect(providerRetry).toHaveBeenCalledTimes(1);
+    const retryError = (providerRetry as unknown as ReturnType<typeof vi.fn>).mock.calls[0][1] as OriginProviderError;
+    expect(retryError).toBeInstanceOf(OriginProviderError);
+    expect(retryError.code).toBe("PROVIDER_RATE_LIMITED");
+  });
+
+  it("answers with verbatim source sentences only when synthesis is rejected and the reconstruction establishes", async () => {
+    const vegaSources: OriginResearchSource[] = [
+      {
+        title: "新型スマートフォン Vega X1 発表",
+        url: "https://example.com/vega-x1",
+        excerpt: "Vega X1は2026年12月4日に発売されます。価格は税込89,800円です。",
+        sourceType: "web-search",
+        domain: "example.com",
+        rank: 1,
+        evidenceLevel: "page-verified",
+        retrievedAt: "2026-11-14T03:00:00.000Z",
+        freshness: "recent",
+      },
+      {
+        title: "Vega X1 価格まとめ",
+        url: "https://example.net/vega",
+        excerpt: "Vega X1の価格は89,800円と発表されています。",
+        sourceType: "web-search",
+        domain: "example.net",
+        rank: 2,
+        evidenceLevel: "page-verified",
+        retrievedAt: "2026-11-14T03:00:00.000Z",
+        freshness: "recent",
+      },
+    ];
+    const research = vi.fn().mockResolvedValue({
+      ok: true,
+      searchProvider: "Tavily",
+      sources: vegaSources,
+    }) as unknown as OriginResearchExecutor;
+    // An empty synthesis is a citation-validation rejection
+    // (EMPTY_SYNTHESIS), never a provider failure: the provider
+    // retry layer must not fire, and the feedback retry excludes it.
+    const synthesis = vi.fn().mockResolvedValue({ ...executionResult, text: "" }) as unknown as OriginChatExecutor;
+    const providerRetry = vi.fn() as unknown as GroundedResearchSynthesisProviderRetryExecutor;
+    const response = await request(createPlanAChatApp(research, synthesis, providerRetry))
+      .post("/api/chat")
+      .send({ messages: [{ role: "user", content: "Vega X1の価格と発売日を調査してください" }] });
+    expect(response.status).toBe(200);
+    expect(response.body.routing.synthesisStatus).toBe("citation-validation-failed");
+    expect(providerRetry).not.toHaveBeenCalled();
+    // The reconstruction replaces the sources-only template: the
+    // sources' own sentences, verbatim, each cited to its source —
+    // and no failure lead.
+    expect(response.body.routing.researchReconstruction).toBe("packet-sentences");
+    expect(response.body.content).toContain("「価格は税込89,800円です。」 [S1](https://example.com/vega-x1)");
+    expect(response.body.content).toContain("「Vega X1の価格は89,800円と発表されています。」 [S2](https://example.net/vega)");
+    expect(response.body.content).not.toContain(FALLBACK_LEAD);
+    // The landing stays the honest tier-T3 / PARTIAL.
+    expect(response.body.routing.researchTier).toBe("T3");
+    expect(response.body.routing.researchOutcome).toBe("PARTIAL");
+  });
+
+  it("keeps the standing sources-only template when the reconstruction does not establish", async () => {
+    const synthesis = vi.fn().mockResolvedValue({ ...executionResult, text: "" }) as unknown as OriginChatExecutor;
+    const response = await request(createPlanAChatApp(researchOk, synthesis))
+      .post("/api/chat")
+      .send({ messages: [{ role: "user", content: "今日の公開情報を調査してください" }] });
+    expect(response.status).toBe(200);
+    expect(response.body.routing.synthesisStatus).toBe("citation-validation-failed");
+    expect(response.body.routing.researchReconstruction).toBeUndefined();
+    expectSourceListFallback(response.body);
   });
 });
