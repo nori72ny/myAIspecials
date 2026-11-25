@@ -91,6 +91,18 @@ function noteGuardBlock(blocks: GuardBlock[] | undefined, sentence: string, kind
   blocks.push({ ...(kind ? { kind } : {}), categories });
 }
 
+/** Records a drop on the explicit (A-1) path for the ingestion outcome:
+ * the owner personally asked for this content to be remembered and it was
+ * stopped, by the §3.3 topic rules and/or the §9.2 guard. Unlike §5.3
+ * notices, the record is kept even when the guard matched nothing (a
+ * rule-only drop of an explicit request is still something the caller may
+ * need to surface); the categories are whatever the guard found. */
+function noteExplicitBlock(blocks: GuardBlock[] | undefined, sentence: string, kind?: OriginMemoryKind): void {
+  if (!blocks) return;
+  const { categories } = checkPersonalMemoryText(sentence);
+  blocks.push({ ...(kind ? { kind } : {}), categories });
+}
+
 const MAX_USER_CHARS = 4_000;
 const MAX_ANSWER_CHARS = 6_000;
 const MAX_MEMORY_TEXT_CHARS = 120; // design §3.2: a distilled short sentence
@@ -150,7 +162,10 @@ function hasStage2Topic(sentence: string): boolean {
 }
 
 // Statements about third parties are not memorized (2026-11-09 §3.2).
-const THIRD_PARTY_SUBJECT = /(?:彼|彼女|上司|同僚|部長|課長|先生|母|父|兄|姉|弟|妹|友人|友達|あの人|その人|相手)(?:は|が)/;
+// Family members are third parties too: "息子は5歳です" is a statement
+// about the son, not an attribute of the owner, and must not land in the
+// owner's facts (owner brain stage 1 follow-up, 2026-11-25).
+const THIRD_PARTY_SUBJECT = /(?:彼|彼女|上司|同僚|部長|課長|先生|母|父|兄|姉|弟|妹|息子|娘|妻|夫|子供|子ども|祖父|祖母|孫|友人|友達|あの人|その人|相手)(?:は|が)/;
 
 function isBlockedSentence(sentence: string): boolean {
   return hasStage2Topic(sentence) || checkPersonalMemoryText(sentence).blocked;
@@ -201,7 +216,8 @@ const DECISION_PATTERNS: readonly RegExp[] = [
 
 const PREFERENCE_PATTERNS: readonly RegExp[] = [
   /でお願い(?:します)?/,
-  /(?:は|が)(?:苦手|嫌い|好き)/,
+  /(?:は|が)(?:苦手|嫌い|好き|得意)/,
+  /(?:好きなのは|好きなものは|好きなことは)/,
   /(?:にしてほしい|してほしいです)/,
   /(?:結論から|結論を先に|先に結論|短くまとめ|簡潔に|箇条書き|表ではなく|表は使わず|文章で|表で)/,
   /\bprefer\b/i,
@@ -222,6 +238,17 @@ const FACT_PATTERNS: readonly RegExp[] = [
   /(?:を担当しています|を担当している|で働いています|で働いている|に勤めています|に勤めている|を使っています|を使っている|を扱っています|を扱っている|を飼っています|を飼っている)/,
   /(?:自宅に|家に).{0,12}(?:はありません|はない|がありません|がない)/,
   /(?:締め切り|期限)は/,
+  // Plain self-descriptions the owner states without a 私は opener
+  // (owner brain stage 1 follow-up, 2026-11-25): goals, hobbies, family
+  // composition, specialty and age are all tier-1 attributes (2026-11-16
+  // classification). Residence is deliberately NOT here: where the owner
+  // lives belongs to the stage-2 address layer, not this store.
+  /(?:目標は|目標が)/,
+  /(?:趣味は|趣味が)/,
+  /(?:家族は|家族構成は)/,
+  /(?:専門は|専門が|専門分野は|得意分野は)/,
+  /(?:の仕事をしています|の仕事をしている)/,
+  /(?:年齢は|\d{1,3}\s*歳(?:です|になりました|になります))/,
 ];
 
 const DECLARATIVE_ENDING = /(?:ます|です|だ|である|する|した|たい)[。．]?\s*$/;
@@ -324,7 +351,7 @@ function extractCommitmentCandidates(answerText: string, now: number, guardBlock
 
 // --- User-side extraction (A-1 + B) ----------------------------------------------
 
-function extractUserCandidates(userText: string, guardBlocks?: GuardBlock[]): MemoryCandidate[] {
+function extractUserCandidates(userText: string, guardBlocks?: GuardBlock[], explicitBlocks?: GuardBlock[]): MemoryCandidate[] {
   const sentences = splitSentences(userText);
   const used = new Set<number>();
   const candidates: MemoryCandidate[] = [];
@@ -342,6 +369,7 @@ function extractUserCandidates(userText: string, guardBlocks?: GuardBlock[]): Me
       // The owner explicitly asked for this to be remembered and the
       // guard stopped it — exactly the case §5.3 wants surfaced.
       noteGuardBlock(guardBlocks, sentence, classifyKind(sentence) ?? undefined);
+      noteExplicitBlock(explicitBlocks, sentence, classifyKind(sentence) ?? undefined);
       return;
     }
     // K-24: a question that merely carries a continuation marker
@@ -370,6 +398,7 @@ function extractUserCandidates(userText: string, guardBlocks?: GuardBlock[]): Me
         if (isImperativeRequestForm(neighbor)) return;
         if (isBlockedSentence(neighbor)) {
           noteGuardBlock(guardBlocks, neighbor, classifyKind(neighbor) ?? undefined);
+          noteExplicitBlock(explicitBlocks, neighbor, classifyKind(neighbor) ?? undefined);
           return;
         }
         content = neighbor;
@@ -442,10 +471,11 @@ async function saveCandidates(
   // Always provided by the entry point: the §5.3 accumulator is part of
   // this function's contract, not an optional extra.
   guardBlocks: GuardBlock[],
-): Promise<void> {
-  if (!candidates.length) return;
+): Promise<number> {
+  if (!candidates.length) return 0;
   const userId = resolveActiveContextUserId();
   const now = Date.now();
+  let savedCount = 0;
   for (const candidate of candidates) {
     const item: OriginMemoryItem = {
       id: crypto.randomUUID(),
@@ -472,35 +502,62 @@ async function saveCandidates(
     // accumulated as a §5.3 notice with the categories recomputed over
     // the same union the store checked.
     const result = await upsertMemoryItem(userId, item).catch(() => undefined);
+    if (result?.saved) savedCount += 1;
     if (result && !result.saved && result.reason === 'blocked-sensitive-content') {
       const { categories } = checkPersonalMemoryTexts([item.text, item.detail ?? '', item.source.quote]);
       if (categories.length) guardBlocks.push({ kind: candidate.kind, categories });
     }
   }
+  return savedCount;
 }
+
+/** What one ingested turn did, for callers that surface memory feedback.
+ * The chat call site stays fire-and-forget (design §5.2); this outcome is
+ * the programmatic surface for it — and for any future in-chat notice —
+ * to tell the owner, in plain terms, when something they personally
+ * asked ORIGIN to remember was not saved, and why (owner brain stage 1
+ * follow-up, 2026-11-25). The blocked text itself is never included. */
+export interface IngestionOutcome {
+  /** Items actually stored by this turn (duplicates of an existing
+   * statement count as stored — the statement is in the store). */
+  savedCount: number;
+  /** True when an explicit (A-1) remember request was dropped by the
+   * §3.3 topic rules and/or the §9.2 guard. */
+  explicitRequestBlocked: boolean;
+  /** §9.2 guard categories matched by the dropped explicit content;
+   * empty when only the §3.3 topic rules matched. */
+  explicitBlockedCategories: PersonalMemoryBlockCategory[];
+}
+
+const EMPTY_OUTCOME: IngestionOutcome = Object.freeze({
+  savedCount: 0,
+  explicitRequestBlocked: false,
+  explicitBlockedCategories: [],
+});
 
 /**
  * Entry point called by App.tsx after a chat turn completes and the answer
  * has been delivered, for both the streaming and the JSON response paths.
  * Never throws and never performs network requests.
  */
-export async function ingestCompletedChatTurn(turn: CompletedChatTurn): Promise<void> {
+export async function ingestCompletedChatTurn(turn: CompletedChatTurn): Promise<IngestionOutcome> {
   try {
     // Master toggle (design §7.2/§7.4, wired in PR P1-3): while the owner
     // has "覚えている内容を、回答に活かす" off, conversation extraction
     // stops entirely. Stored items are kept untouched and resume when the
     // toggle is turned back on.
-    if (!readPersonalizationEnabled()) return;
+    if (!readPersonalizationEnabled()) return EMPTY_OUTCOME;
     const userText = cleanText(typeof turn?.userText === 'string' ? turn.userText : '', MAX_USER_CHARS);
     const answerText = cleanText(typeof turn?.answerText === 'string' ? turn.answerText : '', MAX_ANSWER_CHARS);
-    if (!userText && !answerText) return;
+    if (!userText && !answerText) return EMPTY_OUTCOME;
     const now = Date.now();
     const guardBlocks: GuardBlock[] = [];
+    const explicitBlocks: GuardBlock[] = [];
     const candidates = [
-      ...(userText ? extractUserCandidates(userText, guardBlocks) : []),
+      ...(userText ? extractUserCandidates(userText, guardBlocks, explicitBlocks) : []),
       ...(answerText ? extractCommitmentCandidates(answerText, now, guardBlocks) : []),
     ];
-    await saveCandidates(candidates, turn ?? {}, guardBlocks);
+    const savedCount = await saveCandidates(candidates, turn ?? {}, guardBlocks);
     // §5.3: persist the turn's block notices for the management screen.
     // Recording is best-effort like everything else in this path — a
     // failure here must not affect the turn or the saved items.
@@ -510,9 +567,15 @@ export async function ingestCompletedChatTurn(turn: CompletedChatTurn): Promise<
         guardBlocks.map((block) => ({ ...block, at: now })),
       ).catch(() => undefined);
     }
+    return {
+      savedCount,
+      explicitRequestBlocked: explicitBlocks.length > 0,
+      explicitBlockedCategories: Array.from(new Set(explicitBlocks.flatMap((block) => block.categories))),
+    };
   } catch {
     // Fail-safe by design: local memory is optional and must never surface
     // an error in chat.
+    return EMPTY_OUTCOME;
   }
 }
 

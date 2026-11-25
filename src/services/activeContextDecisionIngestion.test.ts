@@ -606,10 +606,15 @@ describe('network and installation behavior', () => {
 // --- Fail-safe ------------------------------------------------------------------------------
 
 describe('fail-safe behavior', () => {
+  // The entry point used to resolve to undefined; since the 2026-11-25
+  // outcome surface it resolves to the empty outcome instead — the
+  // fail-safe contract (never rejects, never throws) is unchanged.
+  const EMPTY = { savedCount: 0, explicitRequestBlocked: false, explicitBlockedCategories: [] };
+
   it('resolves quietly on empty or malformed turns', async () => {
     const { ingestion } = await loadModules();
-    await expect(ingestion.ingestCompletedChatTurn({ userText: '', answerText: '' })).resolves.toBeUndefined();
-    await expect(ingestion.ingestCompletedChatTurn({} as never)).resolves.toBeUndefined();
+    await expect(ingestion.ingestCompletedChatTurn({ userText: '', answerText: '' })).resolves.toEqual(EMPTY);
+    await expect(ingestion.ingestCompletedChatTurn({} as never)).resolves.toEqual(EMPTY);
   });
 
   it('resolves quietly when storage is unavailable', async () => {
@@ -618,7 +623,7 @@ describe('fail-safe behavior', () => {
     await expect(ingestion.ingestCompletedChatTurn({
       userText: '覚えておいて、私は自宅にPCを持っていません',
       answerText: PLAIN_ANSWER,
-    })).resolves.toBeUndefined();
+    })).resolves.toEqual(EMPTY);
   });
 });
 
@@ -685,5 +690,82 @@ describe('personalization master toggle gate', () => {
     const items = await storedItems(graph);
     expect(items).toHaveLength(1);
     expect(items[0].text).toContain('自宅にPCを持っていません');
+  });
+});
+
+// --- Plain self-descriptions and the ingestion outcome (2026-11-25) ------------
+//
+// Owner brain stage 1 follow-up: the owner teaches ORIGIN by simply
+// stating things ("目標は…", "趣味は…", "45歳です") without a 私は opener
+// or a remember phrase. Those plain statements are tier-1 attributes and
+// must be captured, while statements about family members stay out
+// (2026-11-09 §3.2), and an explicitly requested memory that the guard
+// stops must be visible in the returned outcome so the owner can be told
+// plainly that it was not saved.
+
+describe('plain self-description extraction', () => {
+  it.each([
+    ['目標は来年、独立することです', 'fact'],
+    ['趣味はキャンプです', 'fact'],
+    ['家族は4人です', 'fact'],
+    ['45歳です', 'fact'],
+    ['営業の仕事をしています', 'fact'],
+    ['専門は人事制度の設計です', 'fact'],
+    ['データ分析が得意です', 'preference'],
+  ])('extracts %s as a %s', async (userText, kind) => {
+    const { graph, ingestion } = await loadModules();
+    const outcome = await ingestion.ingestCompletedChatTurn({ userText, answerText: PLAIN_ANSWER });
+    const items = await storedItems(graph);
+    expect(items).toHaveLength(1);
+    expect(items[0].kind).toBe(kind);
+    expect(items[0].origin).toBe('inferred');
+    expect(outcome.savedCount).toBe(1);
+    expect(outcome.explicitRequestBlocked).toBe(false);
+  });
+
+  it.each([
+    '息子は5歳です',
+    '娘は20歳になりました',
+    '妻は看護師です',
+  ])('does not memorize a statement about a family member: %s', async (userText) => {
+    const { graph, ingestion } = await loadModules();
+    await ingestion.ingestCompletedChatTurn({ userText, answerText: PLAIN_ANSWER });
+    expect(await storedItems(graph)).toHaveLength(0);
+  });
+});
+
+describe('ingestion outcome', () => {
+  it('reports an explicitly requested card number as blocked, with the guard category', async () => {
+    const { graph, ingestion } = await loadModules();
+    const outcome = await ingestion.ingestCompletedChatTurn({
+      userText: 'カード番号は1234-5678-9012-3456です。覚えておいてください',
+      answerText: PLAIN_ANSWER,
+    });
+    expect(await storedItems(graph)).toHaveLength(0);
+    expect(outcome.savedCount).toBe(0);
+    expect(outcome.explicitRequestBlocked).toBe(true);
+    expect(outcome.explicitBlockedCategories).toContain('payment-card');
+  });
+
+  it('reports a successful explicit memory as saved, not blocked', async () => {
+    const { ingestion } = await loadModules();
+    const outcome = await ingestion.ingestCompletedChatTurn({
+      userText: '覚えておいて、私は自宅にPCを持っていません',
+      answerText: PLAIN_ANSWER,
+    });
+    expect(outcome.savedCount).toBe(1);
+    expect(outcome.explicitRequestBlocked).toBe(false);
+    expect(outcome.explicitBlockedCategories).toEqual([]);
+  });
+
+  it('does not flag inferred blocks as explicit: a stated phone number is dropped silently for the outcome', async () => {
+    const { graph, ingestion } = await loadModules();
+    const outcome = await ingestion.ingestCompletedChatTurn({
+      userText: '私の電話番号は090-1234-5678です',
+      answerText: PLAIN_ANSWER,
+    });
+    expect(await storedItems(graph)).toHaveLength(0);
+    expect(outcome.savedCount).toBe(0);
+    expect(outcome.explicitRequestBlocked).toBe(false);
   });
 });

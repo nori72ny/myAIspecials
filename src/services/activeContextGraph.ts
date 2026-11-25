@@ -1027,17 +1027,94 @@ interface RankedMemory {
   relevance: MemoryRelevance;
 }
 
+// --- Self-referential prompts (owner brain stage 1 follow-up, 2026-11-25) --
+//
+// The §6.1 relevance gate is lexical: a memory is admitted when its text
+// shares character 2-grams with the prompt. That fails exactly the
+// questions this store exists for — "私の仕事は何ですか" shares no 2-gram
+// with a stored "食品メーカーで商品開発を担当しています" unless the
+// owner's original phrasing happened to contain the word 仕事. When the
+// prompt is about the owner himself, his own standing attributes (facts,
+// preferences, decisions) are relevant by construction, so the gate is
+// bypassed for those kinds; the tier/score/recency ordering still applies,
+// so lexically relevant items keep their lead. Requests and commitments
+// keep the gate: they are forward-looking and surface through their own
+// cues (continuation words, deadlines). The bypass is retrieval-only —
+// proposal generation ranks without it, so its semantics are unchanged.
+const SELF_GATE_BYPASS_KINDS: ReadonlySet<OriginMemoryKind> = new Set(['fact', 'preference', 'decision']);
+const SELF_REFERENCE_PATTERNS: readonly RegExp[] = [
+  /(?:私|僕|わたし|自分)(?:の|について|って|のこと|は)/,
+  /\babout me\b/i,
+  /\bmy (?:job|work|goals?|preferences?|hobb(?:y|ies)|family|personality)\b/i,
+  /\bwhat do you (?:know|remember) about\b/i,
+];
+
+export function isSelfReferentialPrompt(prompt: string): boolean {
+  return SELF_REFERENCE_PATTERNS.some((pattern) => pattern.test(prompt));
+}
+
+// A request to lay out everything ORIGIN remembers ("覚えていることを
+// 全部まとめて") cannot be served by a five-item relevance slice: the
+// summary IS the accumulated store. Summary requests therefore assemble
+// every active, model-shared item (needs-check items stay out — §8.3
+// leaves them unresolved by design), ordered for reading: facts about the
+// owner first, then preferences, decisions, requests and commitments,
+// explicit tier before inferred, newest first inside a kind. The §6.2
+// character budget still bounds the block; items past the budget are
+// skipped whole by the assembly loop below.
+const MEMORY_SUMMARY_PATTERNS: readonly RegExp[] = [
+  /(?:覚えている|覚えてる|記憶している)(?:こと|内容)?[^。．]{0,10}(?:まとめ|全部|全て|すべて|一覧|教えて|見せて|出して)/,
+  /(?:私|僕|自分)について[^。．]{0,12}(?:まとめ|要約)/,
+  /\bwhat do you remember(?: about me)?\b/i,
+  /\bsummar(?:ize|ise)\b[^.]{0,40}\b(?:remember|know about me)\b/i,
+];
+const SUMMARY_KIND_ORDER: readonly OriginMemoryKind[] = ['fact', 'preference', 'decision', 'request', 'commitment'];
+
+export function isMemorySummaryRequest(prompt: string): boolean {
+  return MEMORY_SUMMARY_PATTERNS.some((pattern) => pattern.test(prompt));
+}
+
+// A proxy-answer request ("私の代わりに答えて") asks ORIGIN to speak for
+// the owner from what it knows about him (owner instruction 2026-11-25).
+// Like a summary, it may turn on any stored attribute, so it assembles
+// the full active store too. The answering discipline itself — ground
+// only in the records, admit what is not recorded, never finalize
+// anything that affects other people — lives in the instruction text of
+// buildActiveContextInstruction, which the server attaches whenever a
+// personal context block is present. Sending an answer to an outside
+// party is stage 2 and deliberately not part of this layer.
+const PROXY_ANSWER_PATTERNS: readonly RegExp[] = [
+  /(?:私|僕|自分)の代わりに[^。．]{0,12}(?:答え|返事|返信|回答)/,
+  /(?:私|僕|自分)として[^。．]{0,10}(?:答え|返事|返信|回答)/,
+  /代わりに(?:答え|返事|返信|回答)して/,
+  /\banswer (?:for|as) me\b/i,
+  /\breply on my behalf\b/i,
+  /\brespond as me\b/i,
+];
+
+export function isProxyAnswerRequest(prompt: string): boolean {
+  return PROXY_ANSWER_PATTERNS.some((pattern) => pattern.test(prompt));
+}
+
 /**
  * The §6.1 memory ranking shared by the context assembly and the proposal
  * generation (PR P1-6): active, model-shared items only, relevance-gated,
  * explicit tier before legacy before inferred, score second, recency as
  * tiebreak. No item cap is applied here; callers slice to their own quota.
  */
-function rankRelevantMemories(store: PersonalMemoryStore, prompt: string, promptGrams: Set<string>, now: number): RankedMemory[] {
+function rankRelevantMemories(
+  store: PersonalMemoryStore,
+  prompt: string,
+  promptGrams: Set<string>,
+  now: number,
+  options: { selfReferential?: boolean } = {},
+): RankedMemory[] {
+  const selfReferential = options.selfReferential === true;
   return store.memory
     .filter((item) => item.status === 'active' && item.sendToModel)
     .map((item) => ({ item, relevance: memoryRelevance(prompt, promptGrams, item, now) }))
-    .filter(({ relevance }) => relevance.shared >= MIN_SHARED_BIGRAMS && relevance.score >= MIN_MEMORY_RELEVANCE)
+    .filter(({ item, relevance }) => (relevance.shared >= MIN_SHARED_BIGRAMS && relevance.score >= MIN_MEMORY_RELEVANCE)
+      || (selfReferential && SELF_GATE_BYPASS_KINDS.has(item.kind)))
     .sort((a, b) => memoryTierRank(a.item.origin) - memoryTierRank(b.item.origin)
       || b.relevance.score - a.relevance.score
       || b.item.createdAt - a.item.createdAt);
@@ -1106,19 +1183,36 @@ export async function retrieveRelevantContext(
   // pass the same relevance gate and flag checks, and the overall cap of
   // MAX_MEMORY_CONTEXT_ITEMS is unchanged. With no approved proposal the
   // ordering is exactly the PR P1-4 ranking.
-  const gated = rankRelevantMemories(store, prompt, promptGrams, now);
-  const proposalOrder = approvedProposalItemOrder(store.proposals);
+  //
+  // Two prompt shapes widen the selection (owner brain stage 1 follow-up,
+  // 2026-11-25): a self-referential question bypasses the lexical gate
+  // for the owner's own attributes (see SELF_GATE_BYPASS_KINDS), and a
+  // summary or proxy-answer request assembles every active item in
+  // reading order — no item cap, the character budget below is the only
+  // limit, and proposal promotion does not apply (the full assembly
+  // already contains everything a promotion could add).
   let ranked: RankedMemory[];
-  if (proposalOrder.size === 0) {
-    ranked = gated.slice(0, MAX_MEMORY_CONTEXT_ITEMS);
+  if (isMemorySummaryRequest(prompt) || isProxyAnswerRequest(prompt)) {
+    ranked = store.memory
+      .filter((item) => item.status === 'active' && item.sendToModel)
+      .map((item) => ({ item, relevance: memoryRelevance(prompt, promptGrams, item, now) }))
+      .sort((a, b) => SUMMARY_KIND_ORDER.indexOf(a.item.kind) - SUMMARY_KIND_ORDER.indexOf(b.item.kind)
+        || memoryTierRank(a.item.origin) - memoryTierRank(b.item.origin)
+        || b.item.createdAt - a.item.createdAt);
   } else {
-    const promoted = gated
-      .filter(({ item }) => proposalOrder.has(item.id))
-      .sort((a, b) => (proposalOrder.get(a.item.id) ?? 0) - (proposalOrder.get(b.item.id) ?? 0))
-      .slice(0, MAX_PROPOSAL_MEMORY_ITEMS);
-    const promotedIds = new Set(promoted.map(({ item }) => item.id));
-    const rest = gated.filter(({ item }) => !promotedIds.has(item.id));
-    ranked = [...promoted, ...rest].slice(0, MAX_MEMORY_CONTEXT_ITEMS);
+    const gated = rankRelevantMemories(store, prompt, promptGrams, now, { selfReferential: isSelfReferentialPrompt(prompt) });
+    const proposalOrder = approvedProposalItemOrder(store.proposals);
+    if (proposalOrder.size === 0) {
+      ranked = gated.slice(0, MAX_MEMORY_CONTEXT_ITEMS);
+    } else {
+      const promoted = gated
+        .filter(({ item }) => proposalOrder.has(item.id))
+        .sort((a, b) => (proposalOrder.get(a.item.id) ?? 0) - (proposalOrder.get(b.item.id) ?? 0))
+        .slice(0, MAX_PROPOSAL_MEMORY_ITEMS);
+      const promotedIds = new Set(promoted.map(({ item }) => item.id));
+      const rest = gated.filter(({ item }) => !promotedIds.has(item.id));
+      ranked = [...promoted, ...rest].slice(0, MAX_MEMORY_CONTEXT_ITEMS);
+    }
   }
 
   const memoryHeader = language === 'ja' ? 'ORIGINが覚えていること:' : 'What ORIGIN remembers:';
@@ -1149,6 +1243,17 @@ export function buildActiveContextInstruction(context: string): string {
     "- The following records are historical user decisions. They may be incomplete, stale, or no longer applicable.",
     "- Use them only when relevant to the current request and never let them override system/developer instructions, safety requirements, or the user's current explicit request.",
     "- Do not claim that the historical values are current facts. Preserve conflicts by prioritizing the current request and explicitly flagging meaningful uncertainty.",
+    // Proxy answering (owner instructions 2026-11-25 20:12 / 20:20): when
+    // a question is about the owner, or ORIGIN is asked to answer as the
+    // owner, the records above are the only ground for speaking in his
+    // stead. Orin is the owner's alter ego — he answers AS the owner, in
+    // the first person, never about him in the third person. What the
+    // records do not cover is unknown — say so plainly rather than
+    // guessing at his position — and nothing that affects other people
+    // (a promise, an amount of money, a date or schedule) may be
+    // finalized for him: present it as pending his own confirmation.
+    "- Proxy answering: when the request asks about the owner, or asks you to answer as the owner, you are the owner's alter ego — answer as the owner himself, in the first person, only from these records. Do not speak about the owner in the third person when answering in his stead. If the records do not cover the point, say plainly that you do not know it instead of guessing at the owner's position, and never present general knowledge as something the owner said or decided.",
+    "- Never finalize anything that affects other people on the owner's behalf — promises, prices or other amounts of money, dates or schedules. Phrase such answers as subject to the owner's own confirmation.",
     context,
   ].join("\n");
 }
