@@ -55,11 +55,15 @@ const PersonalEditionApp = React.memo(function PersonalEditionApp({
   resetSignal = 0,
 }: PersonalEditionAppProps) {
   const [messages, setMessages] = useState<ConversationMessage[]>(() => parentMessages ?? []);
-  // 新規ロードでは URL に前回のワークスペース（?workspace=…）が残って
-  // いても復元せず、必ずチャットのトップ画面から始める
-  // （オーナー指示 2026-11-09）。セッション内の移動と popstate の
-  // 同期では従来どおり workspaceLocation を使う。
-  const [workspace, setWorkspace] = useState<OriginWorkspaceModeV31>('chat');
+  // 初期表示は URL の ?workspace= から復元する（popstate の同期と
+  // 同じ workspaceLocation が正本）。以前は新規ロードでは復元せず
+  // 必ずチャットから始めていた（2026-11-09）が、その方式では
+  // サイドバーで開いた専用ページ（AIニュース等）を再読み込みすると
+  // URL は ?workspace=ai-news のまま表示だけトップに戻る不整合が
+  // 出た（2026-11-25 本番チェックで実測）。廃止済みの値
+  // （creative / research 等）は workspaceLocation がチャットへ
+  // 着地させるため、その場合だけ従来どおりチャットから始まる。
+  const [workspace, setWorkspace] = useState<OriginWorkspaceModeV31>(() => workspaceLocation());
   const [codingInitialGoal, setCodingInitialGoal] = useState('');
   // 「作る」は専用画面ではなく、会話のそばに開くパネルになった
   // （画面構成の移行・第3段）。null = 閉じている、文字列 = その依頼で開く。
