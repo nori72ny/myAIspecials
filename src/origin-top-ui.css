@@ -1132,6 +1132,13 @@
   flex: 1;
   min-height: 0;
   overflow-y: auto;
+  /* Tab-switch stability (owner instruction, 2026-11-25): the two
+     tabs differ in content height, so the vertical scrollbar comes
+     and goes and the centred profile (Orin included) used to shift
+     sideways by half the scrollbar width on every switch. The
+     gutter is now always reserved, so the content width — and
+     Orin's position — is identical on both tabs. */
+  scrollbar-gutter: stable;
   padding: 20px 16px calc(16px + env(safe-area-inset-bottom, 0px));
 }
 .origin-orin-panel__tabs {
@@ -1165,6 +1172,40 @@
   font-weight: 600;
   cursor: pointer;
   -webkit-tap-highlight-color: transparent;
+  /* The selected pill eases between tabs instead of snapping
+     (tab-switch motion, 2026-11-25; the global reduced-motion
+     rule in index.css collapses this duration). */
+  transition: background-color 160ms ease, color 160ms ease;
+}
+/* Tab page motion (owner instruction, 2026-11-25): switching tabs
+   remounts the page (keyed by tab in OrinPanel.tsx) and the new
+   page settles with a short directional slide + fade — from the
+   right when moving to the right-hand tab, from the left when
+   coming back. Speed, smoothness and restraint are modelled on
+   the Muse app's tab switching (owner-designated reference,
+   2026-11-25): 220ms on a soft ease-out curve, 8px of travel.
+   The profile above the tabs is outside the page element and
+   never moves. prefers-reduced-motion removes the motion
+   entirely (the global rule in index.css also collapses
+   animation durations). */
+.origin-orin-panel__page {
+  animation: origin-orin-panel-page-from-left 220ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+.origin-orin-panel__page--from-right {
+  animation-name: origin-orin-panel-page-from-right;
+}
+@keyframes origin-orin-panel-page-from-left {
+  from { opacity: 0; transform: translateX(-8px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+@keyframes origin-orin-panel-page-from-right {
+  from { opacity: 0; transform: translateX(8px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .origin-orin-panel__page {
+    animation: none;
+  }
 }
 .origin-orin-panel__tab.is-selected {
   background: var(--bg-surface-muted);
@@ -1214,6 +1255,35 @@
 .origin-orin-panel__empty-guide:hover {
   background: var(--bg-surface-muted);
 }
+/* Empty work tab below 1024px (external evaluation fix batch 3,
+   2026-11-25): the full-screen form left the panel's lower half
+   blank below the empty-state guide (measured 425px of 844px at
+   390px wide and 605px of 1024px at 768px). While the work tab is
+   empty, the sheet (top bar + content) hugs its content height
+   and the rest of the panel becomes the shared scrim backdrop,
+   so the blank reads as a backdrop rather than an unfinished
+   screen. The panel still covers the screen, so the area below
+   the sheet stays non-interactive exactly as before. With work
+   present the modifier is absent and the full-screen form is
+   unchanged. The -webkit- backdrop-filter declaration comes
+   first, per the scrim spec in index.css. */
+@media (max-width: 1023.98px) {
+  .origin-orin-panel--work-empty {
+    background: var(--scrim);
+    -webkit-backdrop-filter: blur(3px);
+    backdrop-filter: blur(3px);
+  }
+  .origin-orin-panel--work-empty .origin-orin-panel__topbar,
+  .origin-orin-panel--work-empty .origin-orin-panel__scroll {
+    background: var(--bg-primary);
+  }
+  .origin-orin-panel--work-empty .origin-orin-panel__scroll {
+    flex: none;
+    max-height: calc(100dvh - 52px);
+    border-bottom: 1px solid var(--border-default);
+    box-shadow: var(--shadow-2);
+  }
+}
 @media (min-width: 1024px) {
   .origin-orin-panel {
     position: absolute;
@@ -1232,6 +1302,17 @@
      switch spec and keep their geometry. */
   .origin-orin-panel--work-empty {
     bottom: auto;
+    /* Batch 3 (2026-11-25): the content-height rail ended with
+       only its left border stopping mid-screen and the surface
+       running on into the empty area below, which read as a
+       cut-off column (measured bottom edge at 382px of an 800px
+       viewport, border-bottom-width 0). A bottom border, a
+       rounded inner corner and the shared card shadow close the
+       shape, so the rail reads as a finished card at the same
+       content height. */
+    border-bottom: 1px solid var(--border-default);
+    border-bottom-left-radius: 16px;
+    box-shadow: var(--shadow-2);
   }
   .origin-orin-panel__topbar {
     display: none;
