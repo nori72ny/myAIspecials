@@ -334,9 +334,17 @@ export interface OrinFloatingPresenceProps {
   hidden?: boolean;
   /** タップ時の一回性の「喜ぶ」動きの合図（App 側で数える）。 */
   joySignal?: number;
+  /**
+   * オリンが声で話している間（音声再生中）。円盤に「話している」
+   * 雰囲気の小さな上下動を付ける（VC-3 の段階1、2026-11-25）。
+   * 言葉に合わせた口の動きは段階2で、現行の絵素材には口の
+   * レイヤーが無く、合成音声の境界イベントもブラウザ間で
+   * 安定しないため、ここではジェスチャーに留める。
+   */
+  speaking?: boolean;
 }
 
-export default function OrinFloatingPresence({ text, active = false, state, language, onOpenWorkSheet, hidden = false, joySignal = 0 }: OrinFloatingPresenceProps) {
+export default function OrinFloatingPresence({ text, active = false, state, language, onOpenWorkSheet, hidden = false, joySignal = 0, speaking = false }: OrinFloatingPresenceProps) {
   const reduced = usePrefersReducedMotion();
   const [pillText, setPillText] = useState<string | null>(null);
   const [pillRevealed, setPillRevealed] = useState(false);
@@ -412,7 +420,7 @@ export default function OrinFloatingPresence({ text, active = false, state, lang
         aria-label={ja ? 'Orin（いまの作業を表示）' : 'Orin (Show current work)'}
       >
         <span className="origin-orin-presence__unit">
-          <span key={joySignal} className={`origin-orin-presence__disc inline-flex${joySignal > 0 ? ' origin-cat-joy' : ''}`}>
+          <span key={joySignal} className={`origin-orin-presence__disc inline-flex${joySignal > 0 ? ' origin-cat-joy' : ''}${speaking && !reduced ? ' is-speaking' : ''}`} data-speaking={speaking ? 'true' : undefined}>
             <OriginCatState state={state} size={catSize} breathing={breathing} />
           </span>
           <span className="origin-orin-presence__name" data-testid="origin-orin-presence-name">Orin</span>

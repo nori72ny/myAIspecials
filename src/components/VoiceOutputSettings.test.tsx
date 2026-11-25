@@ -10,6 +10,7 @@ import {
   type SpeechUtteranceLike,
   type SpeechVoiceLike,
 } from '../voice/voiceSpeech';
+import { VOICE_CONVERSATION_TONE_STORAGE_KEY } from '../voice/voiceConversationTone';
 
 // Component tests for the "Orin's voice" settings section (VC-1): the
 // section exists only when the server switch proved on, lists the
@@ -112,6 +113,21 @@ describe('VoiceOutputSettings', () => {
 
     fireEvent.click(screen.getByTestId('orin-voice-preview-button'));
     expect(screen.getByTestId('orin-voice-preview-button').textContent).toContain('試しに聞く');
+  });
+
+  it('offers the four conversation tone patterns and persists the choice on the device', async () => {
+    await act(async () => { await refreshVoiceOutputAvailability(healthFetch(true)); });
+    render(<VoiceOutputSettings language="ja" />);
+    expect(screen.getByTestId('orin-voice-tone-strong').textContent).toContain('強い口調');
+    expect(screen.getByTestId('orin-voice-tone-gentle').textContent).toContain('優しい口調');
+    expect(screen.getByTestId('orin-voice-tone-polite').textContent).toContain('丁寧な口調');
+    expect(screen.getByTestId('orin-voice-tone-everyday').textContent).toContain('日常の口調');
+    expect(screen.getByTestId('orin-voice-tone-everyday').getAttribute('aria-checked')).toBe('true');
+
+    fireEvent.click(screen.getByTestId('orin-voice-tone-gentle'));
+    expect(window.localStorage.getItem(VOICE_CONVERSATION_TONE_STORAGE_KEY)).toBe('gentle');
+    expect(screen.getByTestId('orin-voice-tone-gentle').getAttribute('aria-checked')).toBe('true');
+    expect(screen.getByTestId('orin-voice-tone-everyday').getAttribute('aria-checked')).toBe('false');
   });
 
   it('says so plainly when the device has no Japanese voice', async () => {

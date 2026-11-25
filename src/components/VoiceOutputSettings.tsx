@@ -11,6 +11,12 @@ import {
   VOICE_PREVIEW_PLAYBACK_ID,
   type OrinVoiceOption,
 } from '../voice/voiceSpeech';
+import {
+  getStoredVoiceConversationTone,
+  setStoredVoiceConversationTone,
+  VOICE_CONVERSATION_TONES,
+  type VoiceConversationTone,
+} from '../voice/voiceConversationTone';
 
 interface Props {
   language: OriginLanguage;
@@ -42,6 +48,12 @@ export default function VoiceOutputSettings({ language }: Props) {
   );
   const [voices, setVoices] = useState<OrinVoiceOption[]>(() => voiceSpeech.listJapaneseVoices());
   const [selectedURI, setSelectedURI] = useState<string | null>(() => voiceSpeech.getSelectedVoiceURI());
+  const [tone, setTone] = useState<VoiceConversationTone>(() => getStoredVoiceConversationTone());
+
+  const selectTone = (next: VoiceConversationTone) => {
+    setStoredVoiceConversationTone(next);
+    setTone(next);
+  };
 
   // Device voice catalogues often arrive after first paint
   // (voiceschanged); keep the list current while the section is open.
@@ -137,6 +149,37 @@ export default function VoiceOutputSettings({ language }: Props) {
           </button>
         </>
       )}
+      <div>
+        <h4 id="orin-voice-tone-heading" className="text-sm font-bold">
+          {ja ? '会話の口調' : 'Conversation tone'}
+        </h4>
+        <p className="origin-muted mt-1 text-[13px] leading-5">
+          {ja
+            ? '「オリンと会話」で話すときの、オリンの口調を選べます。'
+            : 'Choose how Orin sounds in voice conversation.'}
+        </p>
+        <div role="radiogroup" aria-labelledby="orin-voice-tone-heading" className="mt-2 flex flex-wrap gap-2">
+          {VOICE_CONVERSATION_TONES.map((option) => {
+            const selected = option.id === tone;
+            return (
+              <button
+                type="button"
+                key={option.id}
+                role="radio"
+                aria-checked={selected}
+                data-testid={`orin-voice-tone-${option.id}`}
+                onClick={() => selectTone(option.id)}
+                className={cn(
+                  'inline-flex min-h-11 items-center rounded-full border px-3 text-sm font-semibold transition',
+                  selected ? 'origin-primary-button border-transparent' : 'origin-secondary-button',
+                )}
+              >
+                {ja ? option.labelJa : option.labelEn}
+              </button>
+            );
+          })}
+        </div>
+      </div>
     </section>
   );
 }

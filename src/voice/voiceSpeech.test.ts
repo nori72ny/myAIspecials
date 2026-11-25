@@ -15,6 +15,7 @@ import {
 class FakeUtterance implements SpeechUtteranceLike {
   lang = '';
   rate = 1;
+  pitch = 1;
   voice: SpeechVoiceLike | null = null;
   onend: (() => void) | null = null;
   onerror: (() => void) | null = null;
@@ -171,6 +172,21 @@ describe('VoiceSpeechController', () => {
     expect(controller.speak('msg-1', 'こんにちは。')).toBe(true);
     expect(synthesis.spoken[0]?.voice?.voiceURI).toBe('kyoko-uri');
     expect(synthesis.spoken[0]?.rate).toBe(1.0);
+    expect(synthesis.spoken[0]?.pitch).toBe(1.0);
+  });
+
+  it('applies a per-call style override without touching stored settings', () => {
+    const { controller, synthesis, storage } = makeController();
+    controller.setRate(1.25);
+    expect(controller.speak('msg-1', 'こんにちは。', { pitch: 1.05 })).toBe(true);
+    expect(synthesis.spoken[0]?.rate).toBe(1.25); // stored rate still applies
+    expect(synthesis.spoken[0]?.pitch).toBe(1.05);
+    expect(controller.speak('msg-2', 'こんにちは。', { rate: 0.9, pitch: 0.95 })).toBe(true);
+    expect(synthesis.spoken[1]?.rate).toBe(0.9);
+    expect(synthesis.spoken[1]?.pitch).toBe(0.95);
+    expect(storage.getItem(VOICE_OUTPUT_RATE_STORAGE_KEY)).toBe('1.25'); // unchanged
+    expect(controller.speak('msg-3', 'こんにちは。', { pitch: 99 })).toBe(true);
+    expect(synthesis.spoken[2]?.pitch).toBe(2.0); // clamped to the platform range
   });
 
   it('stop cancels synthesis and clears the active playback', () => {

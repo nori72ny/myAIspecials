@@ -167,6 +167,20 @@ describe('Orin presence (2026-11-14 08:59 revision, frameless form + floating au
     vi.useRealTimers();
   });
 
+  it('marks the disc as speaking while voice playback is live (VC-3 stage 1)', () => {
+    const { container } = renderPresence({ speaking: true });
+    const disc = container.querySelector('.origin-orin-presence__disc');
+    expect(disc?.getAttribute('data-speaking')).toBe('true');
+    expect(disc?.className).toContain('is-speaking');
+  });
+
+  it('does not mark the disc as speaking by default', () => {
+    const { container } = renderPresence();
+    const disc = container.querySelector('.origin-orin-presence__disc');
+    expect(disc?.getAttribute('data-speaking')).toBeNull();
+    expect(disc?.className).not.toContain('is-speaking');
+  });
+
   it('is resident even while idle: the art and the Orin name tag are present, the status text is not, and the old displays never render', () => {
     renderPresence();
     const presence = screen.getByTestId('origin-orin-presence');
