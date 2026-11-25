@@ -338,12 +338,12 @@ test.describe('ORIGIN Personal 2.0 production surface', () => {
     });
   }
 
-  // オーナー決定（2026-11-12「ホームも一番下に寄せて」）: デスクトップでも
-  // ホーム初期画面の入力欄を一番下に置く。以前は sm:justify-center で
-  // イントロと入力欄が一体で中央寄せされ、入力欄が縦の約65%に来ていた。
-  // モバイルと同じ2ゾーン構成（イントロが残りの高さを吸収して上部に残り、
-  // 入力欄はスクロールビューポートの下端に付く）を固定する。
-  test('anchors the desktop home composer to the bottom of the scroll viewport', async ({ page }) => {
+  // オーナー決定（2026-11-26「全体を中央に寄せる（Muse風）」）: 幅640px以上の
+  // ホーム初期画面では、オリン・見出し・本文・チップ・入力欄を1つのまとまり
+  // として中央に寄せる。2026-11-12 の「デスクトップでも入力欄を一番下に」は
+  // 本決定で置き換える（後継の再評価で指摘された大きな空白への対策）。
+  // モバイル（639px以下）は入力欄を一番下に置く従来どおりで、別のテストが固定する。
+  test('centers the desktop home group in the scroll viewport', async ({ page }) => {
     const viewport = { width: 1440, height: 900 };
     await page.setViewportSize(viewport);
     await page.goto('/');
@@ -365,11 +365,16 @@ test.describe('ORIGIN Personal 2.0 production surface', () => {
     expect(descriptionBox).not.toBeNull();
 
     const scrollBottom = scrollBox!.y + scrollBox!.height;
-    expect(composerBox!.y + composerBox!.height).toBeGreaterThanOrEqual(scrollBottom - scrollPaddingBottom - 1);
-    expect(composerBox!.y + composerBox!.height).toBeLessThanOrEqual(scrollBottom - scrollPaddingBottom + 1);
-    expect(composerBox!.y).toBeGreaterThanOrEqual(viewport.height * 0.55);
+    const composerBottom = composerBox!.y + composerBox!.height;
+    // 入力欄は下端に付かず、下にまとまった余白が残る（中央寄せ）。
+    expect(scrollBottom - scrollPaddingBottom - composerBottom).toBeGreaterThanOrEqual(60);
+    // 見出しも上端に付かず、まとまり全体が中央に寄っている。
+    expect(headingBox!.y - scrollBox!.y).toBeGreaterThanOrEqual(60);
     expect(headingBox!.y).toBeLessThan(viewport.height * 0.5);
+    expect(composerBox!.y).toBeGreaterThanOrEqual(viewport.height * 0.45);
     expect(descriptionBox!.y + descriptionBox!.height).toBeLessThanOrEqual(composerBox!.y);
+    // まとまりの中の間隔は詰まっている（本文→入力欄はチップ込みでも 180px 以内）。
+    expect(composerBox!.y - (descriptionBox!.y + descriptionBox!.height)).toBeLessThanOrEqual(180);
   });
 
   test('opens HTML artifacts as finished previews instead of source code', async ({ page }) => {
