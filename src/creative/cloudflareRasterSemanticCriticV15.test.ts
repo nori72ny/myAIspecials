@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import {
   CLOUDFLARE_RASTER_SEMANTIC_MODEL_V15,
   RASTER_SEMANTIC_AXES_V15,
+  RasterSemanticCriticResponseInvalidError,
   critiqueCloudflareRasterSemanticV15,
 } from './cloudflareRasterSemanticCriticV15';
 
@@ -248,6 +249,150 @@ describe('cloudflareRasterSemanticCriticV15', () => {
     // keeps the failed first call's consumption for reconciliation.
     expect(result.reportedNeurons).toBe(34.34);
     expect(result.reportedCallsNeurons).toEqual([30, 34.34]);
+  });
+
+  it('counts the first call in reportedCallsNeurons when its answer is not a string', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(envelope({ default_usage_model: 'bundled' }))
+      .mockResolvedValueOnce(envelope([]))
+      .mockResolvedValueOnce(envelope({ input: {}, output: {} }))
+      // First call: the envelope is well-formed and reports the call's
+      // own 30 Neurons, but neither the nested nor the flat answer is a
+      // string — an envelope-stage format failure (answer-not-a-string).
+      .mockResolvedValueOnce(envelope({
+        result: { caption: null, finish_reason: 'stop' },
+        usage: { prompt_tokens: 800, completion_tokens: 90, total_tokens: 890, neurons: 30 },
+      }))
+      // Retry call: a valid verdict reporting 34.34 Neurons.
+      .mockResolvedValueOnce(runEnvelope(semanticAnswer()));
+
+    const result = await critiqueCloudflareRasterSemanticV15({
+      originalRequest: '白い背景に高級腕時計の商品広告。文字は不要。',
+      bytes: png(),
+      mimeType: 'image/png',
+    }, ENV, fetchMock as unknown as typeof fetch);
+
+    expect(result.passed).toBe(true);
+    // The envelope-failed first call's consumption is preserved for
+    // reconciliation instead of being dropped with its envelope.
+    expect(result.reportedNeurons).toBe(34.34);
+    expect(result.reportedCallsNeurons).toEqual([30, 34.34]);
+  });
+
+  it('counts the first call in reportedCallsNeurons when its envelope reports success=false', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(envelope({ default_usage_model: 'bundled' }))
+      .mockResolvedValueOnce(envelope([]))
+      .mockResolvedValueOnce(envelope({ input: {}, output: {} }))
+      // First call: HTTP 200, but the envelope itself reports
+      // success=false while still carrying a result object whose usage
+      // block reports the call's own 30 Neurons.
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        success: false,
+        result: {
+          result: { answer: semanticAnswer(), caption: null, finish_reason: 'stop' },
+          usage: { prompt_tokens: 800, completion_tokens: 90, total_tokens: 890, neurons: 30 },
+        },
+        errors: [{ code: 0, message: 'envelope shape deviation' }],
+        messages: [],
+      }), { status: 200, headers: { 'content-type': 'application/json' } }))
+      // Retry call: a valid verdict reporting 34.34 Neurons.
+      .mockResolvedValueOnce(runEnvelope(semanticAnswer()));
+
+    const result = await critiqueCloudflareRasterSemanticV15({
+      originalRequest: '白い背景に高級腕時計の商品広告。文字は不要。',
+      bytes: png(),
+      mimeType: 'image/png',
+    }, ENV, fetchMock as unknown as typeof fetch);
+
+    expect(result.passed).toBe(true);
+    expect(result.reportedCallsNeurons).toEqual([30, 34.34]);
+  });
+
+  it('counts the first call from the cf-ai-neurons header when its envelope has no result object', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(envelope({ default_usage_model: 'bundled' }))
+      .mockResolvedValueOnce(envelope([]))
+      .mockResolvedValueOnce(envelope({ input: {}, output: {} }))
+      // First call: success=true but result is null, so the header is
+      // the only usage source the failed call leaves behind.
+      .mockResolvedValueOnce(envelope(null, 200, { 'cf-ai-neurons': '28.5' }))
+      // Retry call: a valid verdict reporting 34.34 Neurons.
+      .mockResolvedValueOnce(runEnvelope(semanticAnswer()));
+
+    const result = await critiqueCloudflareRasterSemanticV15({
+      originalRequest: '白い背景に高級腕時計の商品広告。文字は不要。',
+      bytes: png(),
+      mimeType: 'image/png',
+    }, ENV, fetchMock as unknown as typeof fetch);
+
+    expect(result.passed).toBe(true);
+    expect(result.reportedCallsNeurons).toEqual([28.5, 34.34]);
+  });
+
+  it('counts the first call from the cf-ai-neurons header when its body is not JSON', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(envelope({ default_usage_model: 'bundled' }))
+      .mockResolvedValueOnce(envelope([]))
+      .mockResolvedValueOnce(envelope({ input: {}, output: {} }))
+      // First call: the body does not parse as JSON at all; the header
+      // still reports the Neurons the call consumed.
+      .mockResolvedValueOnce(new Response('this is not a json body', {
+        status: 200,
+        headers: { 'content-type': 'application/json', 'cf-ai-neurons': '27.25' },
+      }))
+      // Retry call: a valid verdict reporting 34.34 Neurons.
+      .mockResolvedValueOnce(runEnvelope(semanticAnswer()));
+
+    const result = await critiqueCloudflareRasterSemanticV15({
+      originalRequest: '白い背景に高級腕時計の商品広告。文字は不要。',
+      bytes: png(),
+      mimeType: 'image/png',
+    }, ENV, fetchMock as unknown as typeof fetch);
+
+    expect(result.passed).toBe(true);
+    expect(result.reportedCallsNeurons).toEqual([27.25, 34.34]);
+  });
+
+  it('attaches the usage report and envelope diagnostics when both attempts fail before an answer exists', async () => {
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      const fetchMock = vi.fn()
+        .mockResolvedValueOnce(envelope({ default_usage_model: 'bundled' }))
+        .mockResolvedValueOnce(envelope([]))
+        .mockResolvedValueOnce(envelope({ input: {}, output: {} }))
+        // Both calls: a well-formed envelope reporting 30 Neurons and a
+        // length finish, but no string answer anywhere.
+        .mockResolvedValueOnce(envelope({
+          result: { caption: null, finish_reason: 'length' },
+          usage: { prompt_tokens: 800, completion_tokens: 90, total_tokens: 890, neurons: 30 },
+        }))
+        .mockResolvedValueOnce(envelope({
+          result: { caption: null, finish_reason: 'length' },
+          usage: { prompt_tokens: 800, completion_tokens: 90, total_tokens: 890, neurons: 30 },
+        }));
+
+      const caught = await critiqueCloudflareRasterSemanticV15({
+        originalRequest: '静かな湖の写真',
+        bytes: png(),
+        mimeType: 'image/png',
+      }, ENV, fetchMock as unknown as typeof fetch).catch((error: unknown) => error);
+
+      expect(caught).toBeInstanceOf(RasterSemanticCriticResponseInvalidError);
+      const invalid = caught as RasterSemanticCriticResponseInvalidError;
+      expect(invalid.detail).toBe('answer-not-a-string');
+      // The failed calls' consumption and the envelope's own metadata
+      // ride on the error, so the failure record can show them.
+      expect(invalid.reportedNeurons).toBe(30);
+      expect(invalid.envelope).toMatchObject({ finishReason: 'length', usageNeurons: 30 });
+
+      expect(errorSpy).toHaveBeenCalledTimes(2);
+      const records = errorSpy.mock.calls.map(call => call[1] as Record<string, unknown>);
+      expect(records[0]).toMatchObject({ detail: 'answer-not-a-string', attempt: 1, usageNeurons: 30, finishReason: 'length' });
+      expect(records[1]).toMatchObject({ detail: 'answer-not-a-string', attempt: 2, usageNeurons: 30, finishReason: 'length' });
+    } finally {
+      errorSpy.mockRestore();
+    }
   });
 
   it('keeps the envelope usage as the primary report even when a cf-ai-neurons header is present', async () => {

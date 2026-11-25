@@ -681,36 +681,59 @@ export async function critiqueCloudflareRasterSemanticV15(
     }
 
     const body = await response.json().catch(() => null) as CloudflareEnvelope | null;
-    if (!body) throw responseInvalid('envelope-body-not-json');
-    if (body.success !== true) throw responseInvalid('envelope-success-not-true');
-    if (!body.result || typeof body.result !== 'object' || Array.isArray(body.result)) {
-      throw responseInvalid('envelope-result-missing-or-not-object');
-    }
+
+    // The call's own usage report is read BEFORE any envelope validation
+    // can throw. The live-verified envelope carries the report at
+    // result.usage.neurons (measured 34-36 Neurons per critic call on
+    // 2026-11-07); only when the envelope carries no usage block at all,
+    // the cf-ai-neurons response header is consulted as a fallback. A
+    // missing or malformed report in both places stays null, never
+    // invented. Reading it up front matters because an envelope-shape
+    // deviation is exactly what triggers the bounded format retry below:
+    // the failed call consumed its Neurons, so dropping its report with
+    // the failed envelope would leave the caller's post-generation
+    // reconciliation evidence incomplete even when the retry succeeds
+    // (production-observed as reconciliation failures whose single
+    // unreported call was the semantic critic).
+    const resultObject = body?.result && typeof body.result === 'object' && !Array.isArray(body.result)
+      ? body.result as Record<string, unknown>
+      : null;
+    const nested = resultObject?.result;
+    const reportedNeurons = (resultObject ? usageNeurons(resultObject.usage) : null)
+      ?? (nested && typeof nested === 'object' && !Array.isArray(nested)
+        ? usageNeurons((nested as Record<string, unknown>).usage)
+        : null)
+      ?? neuronsFromResponseHeader(response.headers);
+
+    // Every envelope-stage failure leaves with the call's usage report
+    // attached — and the envelope diagnostics as well, when a result
+    // object exists to read them from — so the retry loop keeps the
+    // failed call's consumption in the request's accounting exactly as
+    // it does for an answer-shaped failure. The validation conditions
+    // themselves, and their order, are unchanged.
+    const throwEnvelopeInvalid = (detail: string): never => {
+      const error = responseInvalid(detail);
+      error.reportedNeurons = reportedNeurons;
+      if (resultObject) error.envelope = envelopeDiagnostics(resultObject, nested);
+      throw error;
+    };
+    if (!body) throwEnvelopeInvalid('envelope-body-not-json');
+    if (body.success !== true) throwEnvelopeInvalid('envelope-success-not-true');
+    if (!resultObject) throwEnvelopeInvalid('envelope-result-missing-or-not-object');
+
     // Live-verified shape (2026-11-07, production probe): this vision model's
     // run response nests the model's own output object one level deeper, i.e.
     // { result: { result: { answer, caption, finish_reason, ... }, usage } }.
     // The flat { result: { answer } } shape is accepted only as a fallback;
     // either way the extracted string still faces the full strict validation
     // in parseSemanticPayload, and anything else fails closed.
-    const resultObject = body.result as Record<string, unknown>;
-    const nested = resultObject.result;
     const nestedAnswer = nested && typeof nested === 'object' && !Array.isArray(nested)
       ? (nested as Record<string, unknown>).answer
       : undefined;
-    const answer = typeof nestedAnswer === 'string' ? nestedAnswer : resultObject.answer;
-    if (typeof answer !== 'string') throw responseInvalid('answer-not-a-string');
-
-    // The same live-verified envelope carries the call's own usage report at
-    // result.usage.neurons (measured 34-36 Neurons per critic call on
-    // 2026-11-07). It is surfaced verbatim for the caller's reconciliation;
-    // only when the envelope carries no usage block at all, the cf-ai-neurons
-    // response header is consulted as a fallback. A missing or malformed
-    // report in both places is surfaced as null, never invented.
-    const reportedNeurons = usageNeurons(resultObject.usage)
-      ?? (nested && typeof nested === 'object' && !Array.isArray(nested)
-        ? usageNeurons((nested as Record<string, unknown>).usage)
-        : null)
-      ?? neuronsFromResponseHeader(response.headers);
+    const answer: string | null = typeof nestedAnswer === 'string'
+      ? nestedAnswer
+      : typeof resultObject.answer === 'string' ? resultObject.answer : null;
+    if (answer === null) throwEnvelopeInvalid('answer-not-a-string');
 
     // A format failure here is rethrown with the envelope's own metadata
     // attached (finish reason and reported usage numbers), so the failure
