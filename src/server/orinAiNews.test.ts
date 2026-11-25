@@ -24,6 +24,19 @@ function fetchReturning(...responses: OriginSearchFetchResponse[]): OriginSearch
   return vi.fn(async () => responses[Math.min(index++, responses.length - 1)]);
 }
 
+const RSS_XML = `<?xml version="1.0" encoding="UTF-8"?><rss version="2.0"><channel>
+<item><title>生成AIの新モデルを発表 - ITmedia</title><link>https://news.google.com/rss/articles/AAA</link><pubDate>Wed, 25 Nov 2026 03:30:00 GMT</pubDate><source url="https://www.itmedia.co.jp">ITmedia</source></item>
+<item><title>AI regulation &amp; policy update - Reuters</title><link>https://news.google.com/rss/articles/BBB</link><pubDate>Wed, 25 Nov 2026 01:00:00 GMT</pubDate><source url="https://www.reuters.com">Reuters</source></item>
+</channel></rss>`;
+
+function rssResponse(xml: string = RSS_XML, status = 200): OriginSearchFetchResponse {
+  return {
+    ok: status >= 200 && status < 300,
+    status,
+    text: async () => xml,
+  };
+}
+
 const noSleep = async () => { /* injected in tests that do not exercise the wait */ };
 
 describe("createOrinAiNewsService (ai-news headline outlet fix, 2026-11-25)", () => {
@@ -80,7 +93,7 @@ describe("createOrinAiNewsService (ai-news headline outlet fix, 2026-11-25)", ()
     expect(sleep.mock.calls[0][0]).toBeGreaterThanOrEqual(5_000);
   });
 
-  it("does not retry non-429 failures and reports the reason", async () => {
+  it("does not retry non-429 GDELT failures, tries the RSS fallback, and reports both reasons", async () => {
     const fetchImpl = fetchReturning({ ok: false, status: 500, text: async () => "server error" });
     const failures: OrinAiNewsFailure[] = [];
     const service = createOrinAiNewsService({
@@ -89,8 +102,54 @@ describe("createOrinAiNewsService (ai-news headline outlet fix, 2026-11-25)", ()
       onFailure: (failure) => { failures.push(failure); },
     });
     await expect(service.getHeadlines()).rejects.toBeInstanceOf(OrinAiNewsUnavailableError);
-    expect(fetchImpl).toHaveBeenCalledTimes(1);
-    expect(failures).toEqual([{ code: "http", status: 500 }]);
+    // GDELT は引き直さず、代替ソース（RSS）を1回だけ引く。
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+    expect(String(vi.mocked(fetchImpl).mock.calls[1][0])).toContain("news.google.com/rss");
+    expect(failures).toEqual([{ code: "http", status: 500 }, { code: "rss-http", status: 500 }]);
+  });
+
+  it("falls back to the RSS headlines when GDELT fails", async () => {
+    const fetchImpl = fetchReturning(
+      { ok: false, status: 500, text: async () => "server error" },
+      rssResponse(),
+    );
+    const service = createOrinAiNewsService({ fetchImpl, sleep: noSleep });
+    const result = await service.getHeadlines();
+    expect(result.stale).toBe(false);
+    expect(result.items).toEqual([
+      { title: "生成AIの新モデルを発表", url: "https://news.google.com/rss/articles/AAA", source: "ITmedia", publishedAt: "2026-11-25T03:30:00.000Z" },
+      { title: "AI regulation & policy update", url: "https://news.google.com/rss/articles/BBB", source: "Reuters", publishedAt: "2026-11-25T01:00:00.000Z" },
+    ]);
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+  });
+
+  it("falls back to RSS after the GDELT rate-limit retry also fails", async () => {
+    const fetchImpl = fetchReturning(
+      { ok: false, status: 429, text: async () => "Please limit requests to one every 5 seconds" },
+      { ok: false, status: 429, text: async () => "Please limit requests to one every 5 seconds" },
+      rssResponse(),
+    );
+    const sleep = vi.fn(async (_ms: number) => { /* record only */ });
+    const service = createOrinAiNewsService({ fetchImpl, sleep });
+    const result = await service.getHeadlines();
+    expect(result.items).toHaveLength(2);
+    expect(fetchImpl).toHaveBeenCalledTimes(3);
+    expect(sleep).toHaveBeenCalledTimes(1);
+  });
+
+  it("treats an RSS response without usable items as a failure", async () => {
+    const fetchImpl = fetchReturning(
+      { ok: false, status: 503, text: async () => "unavailable" },
+      rssResponse("<html><body>not a feed</body></html>"),
+    );
+    const failures: OrinAiNewsFailure[] = [];
+    const service = createOrinAiNewsService({
+      fetchImpl,
+      sleep: noSleep,
+      onFailure: (failure) => { failures.push(failure); },
+    });
+    await expect(service.getHeadlines()).rejects.toBeInstanceOf(OrinAiNewsUnavailableError);
+    expect(failures).toEqual([{ code: "http", status: 503 }, { code: "rss-invalid" }]);
   });
 
   it("surfaces a timeout as the failure reason (the production failure mode)", async () => {
@@ -101,11 +160,12 @@ describe("createOrinAiNewsService (ai-news headline outlet fix, 2026-11-25)", ()
     const service = createOrinAiNewsService({
       fetchImpl,
       timeoutMs: 10,
+      rssTimeoutMs: 10,
       sleep: noSleep,
       onFailure: (failure) => { failures.push(failure); },
     });
     await expect(service.getHeadlines()).rejects.toBeInstanceOf(OrinAiNewsUnavailableError);
-    expect(failures).toEqual([{ code: "timeout" }]);
+    expect(failures).toEqual([{ code: "timeout" }, { code: "rss-timeout" }]);
   });
 
   it("falls back to the previous headlines (marked stale) when a refresh fails", async () => {

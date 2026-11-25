@@ -22,10 +22,13 @@ import type { OrinPanelProps } from './OrinPanel';
  * PersonalEditionApp 経由で受け取る。runs の取得はパネルと共用の
  * useOrinPanelRuns（共有ストア。このページを開いている間だけ取り直す）。
  *
- * runs が引けない時（unavailable）は「残っている依頼はありません」
- * とは言わない（0件なのか分からないのかを混同しない）。取得中は
- * 読み込み中を出し、引けなければその旨を出す。前景・送信待ちの
- * 行は材料がある限り出し、runs 由来の行が欠けている可能性を注記する。
+ * runs が引けない時は「残っている依頼はありません」とは言わない
+ * （0件なのか分からないのかを混同しない）。理由は2つに分ける：
+ * 管理者キーが未入力（needs-credential）の時は取得の失敗ではなく
+ * 入力を促す案内を出し、キーがあるのに取得できなかった時
+ * （unavailable）はその旨を出す。取得中は読み込み中を出す。
+ * 前景・送信待ちの行は材料がある限り出し、runs 由来の行が
+ * 欠けている可能性を注記する。
  */
 export interface OrinRemainingPageProps {
   language: OriginLanguage;
@@ -176,6 +179,15 @@ export default function OrinRemainingPage({
             {ja ? '読み込んでいます' : 'Loading…'}
           </p>
         </div>
+      ) : totalRows === 0 && runsState.kind === 'needs-credential' ? (
+        <div className="origin-orin-panel__empty-block">
+          <p data-testid="origin-remaining-needs-credential" className="origin-orin-panel__empty-line">
+            {ja ? 'エージェントの依頼を表示するには、管理者キーが必要です' : 'An admin key is needed to show your agent requests.'}
+          </p>
+          <p className="origin-orin-panel__empty-sub">
+            {ja ? '設定から管理者キーを入力してください。入力すると、残っている依頼がここに表示されます' : 'Enter the admin key in Settings, and your remaining requests will appear here.'}
+          </p>
+        </div>
       ) : totalRows === 0 && runsState.kind === 'unavailable' ? (
         <div className="origin-orin-panel__empty-block">
           <p data-testid="origin-remaining-unavailable" className="origin-orin-panel__empty-line">
@@ -199,6 +211,11 @@ export default function OrinRemainingPage({
           {runsState.kind === 'unavailable' && (
             <p data-testid="origin-remaining-unavailable-note" className="origin-orin-panel__row-sub">
               {ja ? 'エージェントの依頼は読み込めませんでした' : 'Agent requests could not be loaded.'}
+            </p>
+          )}
+          {runsState.kind === 'needs-credential' && (
+            <p data-testid="origin-remaining-needs-credential-note" className="origin-orin-panel__row-sub">
+              {ja ? 'エージェントの依頼は、設定で管理者キーを入力すると表示されます' : 'Agent requests will appear once the admin key is entered in Settings.'}
             </p>
           )}
           {sections.map((section) => (section.rows.length > 0 ? (
