@@ -385,6 +385,18 @@
    the settings overlay and this scrim in production builds
    (measured 2026-11-22). Do not reorder. */
 .origin-sidebar-scrim {
+  /* Drawer layering (external evaluation fix batch 3, 2026-11-25):
+     the app header carries z-index 50, above this scrim's Tailwind
+     z-40, so with the drawer open the header band alone stayed lit
+     while the rest of the screen dimmed (verified by
+     elementFromPoint at the header band). 55 sits above the header
+     and below the drawer itself (60), the settings modal / Orin
+     panel (70) and the skip link (100): the whole screen now dims
+     uniformly, and a tap on the band lands on the scrim, closing
+     the drawer like any other outside tap. Declared here, like the
+     drawer's own z-index 60 above, so it wins over the utility
+     class on the element. */
+  z-index: 55;
   background: var(--scrim);
   -webkit-backdrop-filter: blur(3px);
   backdrop-filter: blur(3px);

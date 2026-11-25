@@ -476,6 +476,15 @@ export default function OrinPanel({
             {ja ? 'できること' : 'What I can do'}
           </button>
         </div>
+        {/* Tab page wrapper (tab-switch motion, 2026-11-25): keyed
+            by the active tab so a switch remounts the page and the
+            CSS slide/fade replays, entering from the side of the
+            tab being opened. The profile block above stays outside
+            this element, so Orin never moves on a switch. */}
+        <div
+          key={tab}
+          className={`origin-orin-panel__page ${tab === 'features' ? 'origin-orin-panel__page--from-right' : 'origin-orin-panel__page--from-left'}`}
+        >
         {tab === 'work' ? (
           <div data-testid="origin-orin-panel-work">
             {totalRows === 0 ? (
@@ -549,6 +558,7 @@ export default function OrinPanel({
             ))}
           </div>
         )}
+        </div>
       </div>
     </div>
   );
