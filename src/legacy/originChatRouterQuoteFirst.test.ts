@@ -1,6 +1,6 @@
 import express from "express";
 import request from "supertest";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 const { researchMock } = vi.hoisted(() => ({ researchMock: vi.fn() }));
 vi.mock("./originResearchSource.js", () => ({ researchCurrentInformation: researchMock }));
@@ -110,11 +110,46 @@ function plainSynthesis(captured: CapturedRequest[]): OriginChatExecutor {
   }) as unknown as OriginChatExecutor;
 }
 
-function createChatApp(env: Record<string, string>, researchSynthesis: OriginChatExecutor) {
+/** A source pool whose packet holds no answer-bearing sentence: the registry stays empty. */
+const aboutSources: OriginResearchSource[] = [
+  {
+    title: "会社概要",
+    url: "https://example.jp/about",
+    excerpt: "ホーム 会社概要 アクセス 採用情報",
+    sourceType: "web-search",
+    domain: "example.jp",
+    rank: 1,
+    evidenceLevel: "page-verified",
+    retrievedAt: "2026-11-19T00:00:00.000Z",
+    freshness: "recent",
+  },
+];
+
+function aboutSynthesis(captured: CapturedRequest[]): OriginChatExecutor {
+  return vi.fn().mockImplementation(async (req: { messages: Array<{ content: string }>; systemInstruction: string }) => {
+    const content = req.messages[req.messages.length - 1]?.content ?? "";
+    captured.push({ content, systemInstruction: req.systemInstruction });
+    const text = [
+      "## 結論",
+      "会社概要のページが取得できました。[S1](https://example.jp/about)",
+      "## 根拠",
+      "会社概要のページです。[S1](https://example.jp/about)",
+      "## 出典",
+      "example.jp・公開日不明 [S1](https://example.jp/about)",
+    ].join("\n");
+    return { ...executionResult, text };
+  }) as unknown as OriginChatExecutor;
+}
+
+function createChatApp(
+  env: Record<string, string>,
+  researchSynthesis: OriginChatExecutor,
+  sources: OriginResearchSource[] = quoteSources,
+) {
   const research = vi.fn().mockResolvedValue({
     ok: true,
     searchProvider: "Tavily",
-    sources: quoteSources,
+    sources,
   }) as unknown as OriginResearchExecutor;
   const app = express();
   app.use(express.json());
@@ -132,7 +167,19 @@ function createChatApp(env: Record<string, string>, researchSynthesis: OriginCha
 
 const QUESTION = { messages: [{ role: "user", content: "今日の公開情報を調査してください" }] };
 
+const ENGAGEMENT_LOG_MESSAGE = "[origin-chat] research synthesis quote-first engagement";
+
+function engagementPayloads(infoSpy: { mock: { calls: unknown[][] } }): Array<Record<string, unknown>> {
+  return infoSpy.mock.calls
+    .filter((call) => call[0] === ENGAGEMENT_LOG_MESSAGE)
+    .map((call) => call[1] as Record<string, unknown>);
+}
+
 describe("chat router quote-first wiring", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
   it("off (switch unset): the request carries no registry or contract and the answer is unchanged", async () => {
     const captured: CapturedRequest[] = [];
     const response = await request(createChatApp({}, plainSynthesis(captured)))
@@ -179,5 +226,58 @@ describe("chat router quote-first wiring", () => {
     expect(response.body.routing.synthesisSalvaged).toBe(true);
     expect(response.body.routing.synthesisSalvageRemovedUnits).toBe(1);
     expect(response.body.answer.limitations).toContain("この回答は確認できた範囲のみを示しており、確認できなかった部分は含めていません。");
+  });
+
+  it("off: no engagement record is emitted (the observation stays out of off requests entirely)", async () => {
+    const infoSpy = vi.spyOn(console, "info").mockImplementation(() => {});
+    const captured: CapturedRequest[] = [];
+    const response = await request(createChatApp({}, plainSynthesis(captured)))
+      .post("/api/chat")
+      .send(QUESTION);
+    expect(response.status).toBe(200);
+    expect(engagementPayloads(infoSpy)).toEqual([]);
+  });
+
+  it("shadow: the engagement record names the mode and the registry the model was given", async () => {
+    const infoSpy = vi.spyOn(console, "info").mockImplementation(() => {});
+    const captured: CapturedRequest[] = [];
+    const response = await request(createChatApp(
+      { ORIGIN_QUOTE_FIRST_MODE: "shadow" },
+      compliantSynthesis(captured, false),
+    )).post("/api/chat").send(QUESTION);
+    expect(response.status).toBe(200);
+    const engagements = engagementPayloads(infoSpy);
+    expect(engagements).toHaveLength(1);
+    expect(engagements[0]).toMatchObject({
+      requestId: "origin-quote-first-trace",
+      quoteFirstMode: "shadow",
+      quoteFirstEngaged: true,
+      quoteFirstRegistrySources: 2,
+    });
+    expect(engagements[0].quoteFirstRegistryQuotes).toBeGreaterThanOrEqual(2);
+    // The record is counts and codes only: no quote text rides it.
+    expect(JSON.stringify(engagements[0])).not.toContain("1.25%");
+  });
+
+  it("shadow with an empty registry: recorded as not engaged, and the request stays exactly as off", async () => {
+    const infoSpy = vi.spyOn(console, "info").mockImplementation(() => {});
+    const captured: CapturedRequest[] = [];
+    const response = await request(createChatApp(
+      { ORIGIN_QUOTE_FIRST_MODE: "shadow" },
+      aboutSynthesis(captured),
+      aboutSources,
+    )).post("/api/chat").send(QUESTION);
+    expect(response.status).toBe(200);
+    expect(captured).toHaveLength(1);
+    expect(captured[0].content).not.toContain("引用レジストリ");
+    expect(captured[0].systemInstruction).not.toContain("quote-first");
+    const engagements = engagementPayloads(infoSpy);
+    expect(engagements).toHaveLength(1);
+    expect(engagements[0]).toMatchObject({
+      quoteFirstMode: "shadow",
+      quoteFirstEngaged: false,
+      quoteFirstRegistryQuotes: 0,
+      quoteFirstRegistrySources: 0,
+    });
   });
 });

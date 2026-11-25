@@ -31,6 +31,21 @@ import {
  * strings enable it, so production behavior is unchanged until the
  * mode is deliberately registered.
  *
+ * Observation protocol (SEARCH_RELIABILITY_95_PLAN_2026-11-24 §4
+ * item 2): the activation judgement for enforce is made from shadow
+ * observation, and the binding report alone cannot support it. The
+ * report is attached to an adoption, so an armed request whose
+ * registry was empty (the packet found no answer-bearing sentence —
+ * the material side had nothing to convert) and an armed request
+ * whose synthesis failed before adoption would leave no trace at
+ * all: the observation would have no denominator and could not split
+ * "no key sentence in the excerpts" from "key sentences existed but
+ * the answer did not convert them", which is the split the plan's
+ * effect estimate is made on. Callers therefore also emit the
+ * counts-only engagement record (describeQuoteFirstEngagement) when
+ * the context is decided, before execution. Neither record carries
+ * answer text, quote text, or question text.
+ *
  * Mode semantics (fixed by tests in groundedResearchQuoteFirst.test.ts):
  *  - off: the registry and contract are not added to the request and
  *    no binding analysis runs. Requests and adoption are byte-identical
@@ -142,6 +157,45 @@ export function buildQuoteFirstRegistry(
 /** The citation token for a registry entry, exactly as the packet prints it. */
 export function quoteFirstCitationToken(entry: QuoteFirstRegistryEntry): string {
   return `[${entry.sourceId}](${entry.url})`;
+}
+
+/**
+ * Counts-only engagement record for one armed (shadow/enforce)
+ * request, safe for structured logs (no text, no tokens). Emitted by
+ * the routers when the quote-first context is decided — before the
+ * synthesis executes — so the shadow observation keeps its
+ * denominator: every armed request is on record, engaged or not,
+ * even when the synthesis later fails before adoption. `engaged` is
+ * false exactly when the registry is empty, i.e. the evidence packet
+ * found no answer-bearing sentence in the bounded sources; that is
+ * the material-side population, distinct from an engaged request
+ * whose answer then fails to convert the quoted sentences.
+ */
+export interface QuoteFirstEngagement {
+  quoteFirstMode: "shadow" | "enforce";
+  quoteFirstEngaged: boolean;
+  /** Registry sentences available to quote (0 when not engaged). */
+  quoteFirstRegistryQuotes: number;
+  /** Distinct bounded sources contributing at least one registry sentence. */
+  quoteFirstRegistrySources: number;
+}
+
+/**
+ * Describe the engagement of one request under the resolved mode.
+ * Returns undefined when the mode is off: an off request is not part
+ * of the observation and must stay byte-identical, logs included.
+ */
+export function describeQuoteFirstEngagement(
+  mode: QuoteFirstMode,
+  registry: QuoteFirstRegistry,
+): QuoteFirstEngagement | undefined {
+  if (mode === "off") return undefined;
+  return {
+    quoteFirstMode: mode,
+    quoteFirstEngaged: registry.entries.length > 0,
+    quoteFirstRegistryQuotes: registry.entries.length,
+    quoteFirstRegistrySources: new Set(registry.entries.map((entry) => entry.sourceIndex)).size,
+  };
 }
 
 /**
