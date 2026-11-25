@@ -283,6 +283,36 @@ function documentOutlineFor(normalized: string): string[] {
   return ['概要', '本文', 'まとめ'];
 }
 
+/**
+ * The outline a goal's own fenced output structure prescribes
+ * (D6). When the goal embeds a markdown structure for the
+ * deliverable — the "Suggested output structure" shape — its
+ * section (##) headings are the document's outline, ahead of any
+ * keyword template: the keyword templates once put a weekly-report
+ * outline on an audit plan merely because the goal contained the
+ * word "report", even though the goal's own structure was detected
+ * (it becomes the step's content) in the same breath. Only a fence
+ * tagged markdown (or untagged) counts, and only when it actually
+ * carries section headings; a code fence or a heading-less example
+ * decides nothing and the keyword templates apply exactly as
+ * before. Entries are capped the way the document tool consumes
+ * them (12 sections, 120 chars each).
+ */
+function outlineFromStructureSpec(fenced: string, fenceLanguage: string | undefined): string[] {
+  const language = (fenceLanguage ?? '').trim().toLowerCase();
+  if (language !== '' && language !== 'markdown' && language !== 'md') return [];
+  const sections: string[] = [];
+  for (const line of fenced.split('\n')) {
+    const heading = /^##\s+(.+)$/.exec(line.trim());
+    if (!heading) continue;
+    const text = heading[1].trim().slice(0, 120);
+    if (!text || sections.includes(text)) continue;
+    sections.push(text);
+    if (sections.length >= 12) break;
+  }
+  return sections;
+}
+
 function detectCodeLanguage(normalized: string, fenceLanguage?: string): string | undefined {
   const fence = (fenceLanguage ?? '').toLowerCase();
   const fenceMap: Record<string, string> = { py: 'python', python: 'python', ts: 'typescript', typescript: 'typescript', js: 'javascript', javascript: 'javascript', sql: 'sql', rust: 'rust', go: 'go' };
@@ -326,7 +356,12 @@ function generatedParams(toolName: ToolName, goal: string, options?: { contentFr
   if (toolName === 'repository_explorer') return {};
   if (toolName === 'image_prompt_compiler') return { prompt: normalized };
   if (toolName === 'document_generator') {
-    const fenced = normalized.match(/```(?:[A-Za-z0-9_.+-]+)?\s*\n([\s\S]*?)```/)?.[1]?.trim();
+    const fencedMatch = normalized.match(/```([A-Za-z0-9_.+-]+)?\s*\n([\s\S]*?)```/);
+    const fenced = fencedMatch?.[2]?.trim();
+    // A detected output structure prescribes the outline (D6);
+    // the keyword templates are the fallback for goals whose
+    // structure is not spelled out.
+    const specOutline = fenced ? outlineFromStructureSpec(fenced, fencedMatch?.[1]) : [];
     const format = /docx|\bword\b/i.test(normalized) ? 'docx'
       : /\bpdf\b/i.test(normalized) ? 'pdf'
         : /xlsx|\bexcel\b/i.test(normalized) ? 'xlsx'
@@ -336,7 +371,7 @@ function generatedParams(toolName: ToolName, goal: string, options?: { contentFr
       title: extractDocumentTitle(normalized),
       format,
       brief: normalized,
-      outline: documentOutlineFor(normalized),
+      outline: specOutline.length > 0 ? specOutline : documentOutlineFor(normalized),
       ...(fenced ? { content: fenced } : {}),
     };
   }

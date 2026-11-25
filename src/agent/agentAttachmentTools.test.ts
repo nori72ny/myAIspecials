@@ -11,6 +11,7 @@ import {
   AGENT_ANALYZER_CHUNK_INTERVAL_MS,
   AGENT_AUDIT_ATTRIBUTE_VOCABULARY,
   agentDataCitationPairKey,
+  agentGoalDirectedOutputLanguage,
   agentGoalUsesCjk,
   applyAgentDataPairGate,
   canonicalAgentDataAttribute,
@@ -477,11 +478,40 @@ describe('attachment_analyzer transient provider retry (segment-2 wall)', () => 
     // The terminal code is still the leading token (the advancer's
     // code extraction is unaffected); the parenthetical carries the
     // attempts of the LAST dispatch the transient retry made — route,
-    // model, outcome, code, duration, transports; never a body.
+    // model, outcome, code, duration, transports; never a body. The
+    // execution segment follows it (D8): the routes that dispatch
+    // exercised are the step's execution trace, in the same shape a
+    // later failure carries.
     expect(result.message).toBe(
-      'PROVIDER_TIMEOUT (attempts: cloudflare-workers-ai-free|@cf/openai/gpt-oss-120b|availability-error|PROVIDER_TIMEOUT|25000|2; groq-free|openai/gpt-oss-120b|failed|PROVIDER_TIMEOUT|45000|1)',
+      'PROVIDER_TIMEOUT (attempts: cloudflare-workers-ai-free|@cf/openai/gpt-oss-120b|availability-error|PROVIDER_TIMEOUT|25000|2; groq-free|openai/gpt-oss-120b|failed|PROVIDER_TIMEOUT|45000|1) (execution: servings=cloudflare-workers-ai-free|@cf/openai/gpt-oss-120b,groq-free|openai/gpt-oss-120b; repair=0)',
     );
     expect(sleeps).toEqual([15_000, 30_000]);
+  });
+
+  it('records the exercised route as the execution trace when the first dispatch fails outright (D8, Basel shape)', async () => {
+    const { store, setDigest } = await storeWithFruits();
+    const invalidExecutor: AgentModelExecutor = async () => ({
+      ok: false,
+      code: 'PROVIDER_INVALID_RESPONSE',
+      providerAttempts: [
+        { providerId: 'cloudflare-workers-ai-free', modelId: '@cf/google/gemma-4-26b-a4b-it', outcome: 'failed', errorCode: 'PROVIDER_INVALID_RESPONSE', durationMs: 22_895, transportRequestCount: 4 },
+        { providerId: 'groq-free', modelId: 'openai/gpt-oss-120b', outcome: 'skipped' },
+      ],
+    });
+    const result = await toolRegistry.attachment_analyzer.execute(
+      analyzerParams(setDigest),
+      contextFor(store, invalidExecutor),
+    );
+    expect(result.ok).toBe(false);
+    // Nothing ever succeeded, so before D8 this message carried no
+    // execution segment and the step record had no analyzerExecution
+    // — the record fell back to the attempts segment alone, in a
+    // different shape from every successful step. The exercised
+    // route now joins the trace; the skipped route, never
+    // dispatched, does not.
+    expect(result.message).toBe(
+      'PROVIDER_INVALID_RESPONSE (attempts: cloudflare-workers-ai-free|@cf/google/gemma-4-26b-a4b-it|failed|PROVIDER_INVALID_RESPONSE|22895|4; groq-free|openai/gpt-oss-120b|skipped|-|-|-) (execution: servings=cloudflare-workers-ai-free|@cf/google/gemma-4-26b-a4b-it; repair=0)',
+    );
   });
 
   it('keeps the bare code when the failure carries no attempt evidence', async () => {
@@ -516,9 +546,12 @@ describe('attachment_analyzer transient provider retry (segment-2 wall)', () => 
     // unknown outcome are dropped whole; the entry whose model id
     // alone is unusable keeps its route and outcome with the model
     // field blanked — the same field-wise whitelist the provider
-    // layer applies to its surfaced diagnostics.
+    // layer applies to its surfaced diagnostics. The execution
+    // segment (D8) harvests under the same whitelist: the two
+    // surviving entries are its servings, the dropped entries
+    // contribute nothing to either segment.
     expect(result.message).toBe(
-      'PROVIDER_INTERNAL_ERROR (attempts: groq-free|openai/gpt-oss-120b|failed|PROVIDER_INTERNAL_ERROR|-|-; groq-free|-|failed|-|-|-)',
+      'PROVIDER_INTERNAL_ERROR (attempts: groq-free|openai/gpt-oss-120b|failed|PROVIDER_INTERNAL_ERROR|-|-; groq-free|-|failed|-|-|-) (execution: servings=groq-free|openai/gpt-oss-120b,groq-free|-; repair=0)',
     );
     expect(result.message).not.toContain('evil');
     expect(result.message).not.toContain('has space');
@@ -1578,6 +1611,29 @@ describe('misreading countermeasure layers 1+3: audit-mode analyzer', () => {
     expect(bundle.content).toContain('- Evidence:');
   });
 
+  it('renders English labels when the goal directs English despite its CJK preamble (D5)', async () => {
+    const { store, setDigest } = await storeWithFiles(AUDIT_FILES);
+    const result = await toolRegistry.attachment_analyzer.execute(
+      {
+        attachmentSetId: SET_ID, setDigest,
+        // The production M&A goal shape: a Japanese harness
+        // preamble wrapped around an English brief whose first
+        // report requirement is "Write in English". The CJK check
+        // alone rendered Japanese labels for this goal.
+        instruction: '添付ファイルが input です。成果物は指定されたファイル名・形式のファイルとして作成してください。\n\nReview the filings and write an English inconsistency audit.\n\nReport requirements:\n1. Write in English.\n2. Identify every material inconsistency you can support from the documents.',
+        outputKind: 'findings', chunkOffset: 0, chunkCount: 4, auditMode: true,
+      },
+      contextFor(store, auditExecutor),
+    );
+    expect(result.ok).toBe(true);
+    const bundle = JSON.parse(result.artifact ?? '{}') as { content: string };
+    expect(bundle.content).toContain('## Finding 1:');
+    expect(bundle.content).toContain('- Why it is inconsistent:');
+    expect(bundle.content).toContain('- Evidence:');
+    expect(bundle.content).not.toContain('## 所見');
+    expect(bundle.content).not.toContain('矛盾の説明');
+  });
+
   it('rejects an audit finding without explanation and repairs it with the concrete reason', async () => {
     const { store, setDigest } = await storeWithFiles(AUDIT_FILES);
     const instructions: string[] = [];
@@ -1669,6 +1725,21 @@ describe('misreading countermeasure layers 1+3: audit-mode analyzer', () => {
   it('switches rendering labels by the goal language (deterministic CJK check)', () => {
     expect(agentGoalUsesCjk('文書の不整合を監査してください')).toBe(true);
     expect(agentGoalUsesCjk('Audit the documents for inconsistencies')).toBe(false);
+  });
+
+  it('lets an explicit output-language directive outrank the CJK check (D5)', () => {
+    // The production shape: a Japanese harness preamble (CJK)
+    // wrapped around an English brief that directs English output.
+    expect(agentGoalDirectedOutputLanguage('添付ファイルが input です。Write in English.')).toBe('english');
+    expect(agentGoalDirectedOutputLanguage('英語で書いてください')).toBe('english');
+    expect(agentGoalDirectedOutputLanguage('用英文撰写审计报告')).toBe('english');
+    expect(agentGoalDirectedOutputLanguage('結果を日本語でまとめてください')).toBe('japanese');
+    expect(agentGoalDirectedOutputLanguage('Write the summary in Japanese')).toBe('japanese');
+    // A bare mention of a language directs nothing, and neither
+    // does a goal directing both languages.
+    expect(agentGoalDirectedOutputLanguage('英語の文書を要約してください')).toBeUndefined();
+    expect(agentGoalDirectedOutputLanguage('文書の不整合を監査してください')).toBeUndefined();
+    expect(agentGoalDirectedOutputLanguage('Write in English, then 日本語で書いてください')).toBeUndefined();
   });
 });
 

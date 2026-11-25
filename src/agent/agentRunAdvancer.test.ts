@@ -1224,6 +1224,27 @@ describe('step live detail: analyzer execution trace (coverage observability fol
     });
   });
 
+  it('surfaces the execution trace of a provider-failed first dispatch in the same shape (D8)', () => {
+    const detail = buildStepLiveDetail({
+      toolName: 'attachment_analyzer',
+      params: {},
+      artifact: undefined,
+      // The production Basel failure message after D8: the first
+      // dispatch died on an invalid response, and the exercised
+      // route rides the execution segment alongside the attempts.
+      failureMessage: 'PROVIDER_INVALID_RESPONSE (attempts: cloudflare-workers-ai-free|@cf/google/gemma-4-26b-a4b-it|failed|PROVIDER_INVALID_RESPONSE|22895|4) (execution: servings=cloudflare-workers-ai-free|@cf/google/gemma-4-26b-a4b-it; repair=0)',
+      startedAt: 1_700_000_000_000,
+      finishedAt: 1_700_000_005_000,
+    });
+    expect(detail?.providerAttempts).toEqual([
+      { providerId: 'cloudflare-workers-ai-free', modelId: '@cf/google/gemma-4-26b-a4b-it', outcome: 'failed', errorCode: 'PROVIDER_INVALID_RESPONSE', durationMs: 22_895, transportRequestCount: 4 },
+    ]);
+    expect(detail?.analyzerExecution).toEqual({
+      servings: [{ providerId: 'cloudflare-workers-ai-free', modelId: '@cf/google/gemma-4-26b-a4b-it' }],
+      repairRetried: false,
+    });
+  });
+
   it('surfaces the execution trace from the success artifact execution block', () => {
     const detail = buildStepLiveDetail({
       toolName: 'attachment_analyzer',

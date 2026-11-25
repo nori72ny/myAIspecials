@@ -390,6 +390,39 @@ describe('agent orchestrator v3', () => {
     });
   });
 
+  it('derives the document outline from a fenced output structure in the goal, ahead of keyword templates (D6)', async () => {
+    const goal = [
+      '監査報告書を作成してください',
+      '',
+      'Suggested output structure:',
+      '',
+      '```markdown',
+      '# Share Transfer Disclosure Consistency Review',
+      '',
+      '## Finding 1: <title>',
+      '- Evidence:',
+      '',
+      '## Finding 2: <title>',
+      '```',
+    ].join('\n');
+    const response = await request(appFor()).post('/api/agent/v3/plan').send({ goal });
+    expect(response.status).toBe(201);
+    expect(response.body.selectedTool).toBe('document_generator');
+    // The goal contains 報告書, which alone would select the
+    // weekly-report template; the goal's own prescribed structure
+    // wins, as it already does for the step's content.
+    expect(response.body.params.outline).toEqual(['Finding 1: <title>', 'Finding 2: <title>']);
+    expect(response.body.params.content).toContain('## Finding 1: <title>');
+  });
+
+  it('keeps the keyword outline when a fenced block carries no section structure', async () => {
+    const goal = '週次報告書を作成してください\n\n```markdown\nただの例文です\n```';
+    const response = await request(appFor()).post('/api/agent/v3/plan').send({ goal });
+    expect(response.status).toBe(201);
+    expect(response.body.selectedTool).toBe('document_generator');
+    expect(response.body.params.outline).toEqual(['進捗サマリー', '主な実績', '課題と対策', '来週の予定']);
+  });
+
   it('returns structured web-search parameters and a default sales-table file without code fences', async () => {
     const app = appFor(env, { consume: async () => true });
     const research = await request(app).post('/api/agent/v3/plan').send({ goal: '最新のVercel料金を調べてください' });
