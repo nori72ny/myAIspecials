@@ -2676,6 +2676,34 @@ describe('failure diagnosis 2026-11-24 wave 1 (対策3・対策4・対策1(d))',
     expect(instructions[0]).toContain('所見として挙げた食い違いのペアは、同じ主体・同じ属性ラベルで値テーブルにも必ず入れること');
   });
 
+  it('names the three read-stage dropout rules in the audit contract (run-f0d306fe)', async () => {
+    const { store, setDigest } = await storeWithTypedFiles([
+      ['announcement.txt', '公告本文。', 'text/plain'],
+    ]);
+    const instructions: string[] = [];
+    const executor: AgentModelExecutor = async ({ instruction }) => {
+      instructions.push(instruction);
+      return { ok: true, text: JSON.stringify({ findings: [] }) };
+    };
+    const result = await toolRegistry.attachment_analyzer.execute(
+      {
+        attachmentSetId: SET_ID, setDigest,
+        instruction: '文書の不整合を監査してください',
+        outputKind: 'findings', chunkOffset: 0, chunkCount: 1, auditMode: true,
+      },
+      contextFor(store, executor),
+    );
+    expect(result.ok).toBe(true);
+    // A stake held inside an entity is reported under the
+    // holder's name, a checkbox-selected disclosure counts as a
+    // value, and the entity is the party's name, not a role word:
+    // the three shapes the failed run's sources carried but the
+    // value table never received.
+    expect(instructions[0]).toContain('合伙份额・出資比率など主体の中での持分は、持分を持つ主体の名称をentityにして報告すること');
+    expect(instructions[0]).toContain('チェックボックスで選択された開示（資金源泉の「√自有资金」など）も値として報告すること');
+    expect(instructions[0]).toContain('entityは役割語（情報披露義務人など）でなく当事者の名称で書くこと');
+  });
+
   // The three discrepancies the 2026-11-24 diagnosis verified by
   // hand in the four M&A source documents, entered in the value
   // table under the controlled vocabulary (対策3), plus agreeing
