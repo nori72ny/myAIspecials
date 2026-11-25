@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import {
   AGENT_RUN_APPROVAL_LAPSE_MS,
   AGENT_RUN_RECORD_STATUSES,
+  MAX_AGENT_RUN_LIVE_MODEL_CALLS,
   MAX_AGENT_RUN_LIVE_PROVIDER_ATTEMPTS,
   MAX_AGENT_RUN_LIVE_QUERY_LENGTH,
   MAX_AGENT_RUN_LIVE_SOURCE_EXCERPT_LENGTH,
@@ -469,6 +470,53 @@ describe('agent run step live detail (PR-L1)', () => {
       { ...baseStep, liveDetail } as unknown as AgentRunStepState,
     ]);
     expect(step?.liveDetail?.providerAttempts).toHaveLength(MAX_AGENT_RUN_LIVE_PROVIDER_ATTEMPTS);
+  });
+
+  it('round-trips model call timings (route, model, outcome, code, duration) unchanged (D7 countermeasure A)', () => {
+    const liveDetail = {
+      startedAt: now - 5_000,
+      finishedAt: now,
+      modelCalls: [
+        { providerId: 'cloudflare-workers-ai-free', modelId: '@cf/openai/gpt-oss-120b', outcome: 'failed' as const, errorCode: 'PROVIDER_UNAVAILABLE', durationMs: 100 },
+        { providerId: 'groq-free', modelId: 'openai/gpt-oss-120b', outcome: 'succeeded' as const, durationMs: 321 },
+      ],
+    };
+    const [step] = normalizeAgentRunStepsState([{ ...baseStep, liveDetail }]);
+    expect(step?.liveDetail).toEqual(liveDetail);
+  });
+
+  it('drops malformed model calls — including any without a duration — but keeps valid ones (fail-soft)', () => {
+    const liveDetail = {
+      startedAt: now - 1_000,
+      modelCalls: [
+        { providerId: 'groq-free', modelId: 'openai/gpt-oss-120b', outcome: 'succeeded', durationMs: 321 },
+        { providerId: 'Bearer supersecretvalue', outcome: 'succeeded', durationMs: 1 },
+        { providerId: 'groq-free', outcome: 'availability-error', durationMs: 1 },
+        { providerId: 'groq-free', outcome: 'failed' },
+        { providerId: 'groq-free', outcome: 'failed', durationMs: -1 },
+        { providerId: 'groq-free', outcome: 'failed', durationMs: 3_600_001 },
+        { providerId: 'groq-free', outcome: 'failed', errorCode: 'a free-form sentence, not a code', durationMs: 1 },
+        'not-an-object',
+      ],
+    };
+    const [step] = normalizeAgentRunStepsState([
+      { ...baseStep, liveDetail } as unknown as AgentRunStepState,
+    ]);
+    expect(step?.liveDetail?.startedAt).toBe(now - 1_000);
+    expect(step?.liveDetail?.modelCalls).toEqual([
+      { providerId: 'groq-free', modelId: 'openai/gpt-oss-120b', outcome: 'succeeded', durationMs: 321 },
+    ]);
+    expect(JSON.stringify(step?.liveDetail)).not.toContain('supersecretvalue');
+  });
+
+  it('caps the recorded model calls at the live-detail cap', () => {
+    const liveDetail = {
+      modelCalls: Array.from({ length: 15 }, () => ({ providerId: 'groq-free', outcome: 'succeeded', durationMs: 1 })),
+    };
+    const [step] = normalizeAgentRunStepsState([
+      { ...baseStep, liveDetail } as unknown as AgentRunStepState,
+    ]);
+    expect(step?.liveDetail?.modelCalls).toHaveLength(MAX_AGENT_RUN_LIVE_MODEL_CALLS);
   });
 
   it('reads pre-L1 step state (no live detail) unchanged', () => {

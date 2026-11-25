@@ -58,6 +58,14 @@ export const MAX_AGENT_RUN_LIVE_SOURCE_EXCERPT_LENGTH = 160;
  * tries at most three routes, so six leaves generous headroom while
  * keeping the per-step worst case bounded. */
 export const MAX_AGENT_RUN_LIVE_PROVIDER_ATTEMPTS = 6;
+/** Cap on the model calls kept in one step's timing detail (D7
+ * countermeasure A, diagnosis AGENT_D7_DIAGNOSIS_2026-11-25 §6):
+ * an analyzer step runs at most 2 chunks × 2 logical calls (first
+ * + parse repair) × 3 dispatches (the transient-retry caller's two
+ * delays) = 12 dispatches, and a reconciler step at most 2 × 3 = 6,
+ * so 12 covers every dispatch a step can make today; a step that
+ * somehow made more keeps its first 12, in dispatch order. */
+export const MAX_AGENT_RUN_LIVE_MODEL_CALLS = 12;
 /** Cap on the counts kept in one step's reconciliation summary
  * (misreading countermeasure design §2 layer 2): the candidate
  * list itself is capped at 200 and a run's findings are bounded
@@ -459,6 +467,34 @@ export type AgentRunStepValueTableSummary = {
   groups: { entity: string; attribute: string; entries: number; distinctValues: number }[];
 };
 
+/**
+ * One model dispatch a step actually made, with its wall-clock
+ * duration (D7 countermeasure A, diagnosis
+ * AGENT_D7_DIAGNOSIS_2026-11-25 §5/§6): which route and model the
+ * dispatch exercised, whether it succeeded or failed (with the
+ * failure's code), and how long the dispatch took. Until now only
+ * a FAILED analyzer dispatch left attempt evidence (the
+ * providerAttempts above, parsed back out of the step's failure
+ * message), so a step's provider time could never be separated
+ * from ORIGIN-side waiting — the successful calls that make up
+ * most of a step were invisible. Entries are the model-call
+ * layer's own dispatch evidence (agentModelCall), reduced to the
+ * route that determined the outcome and re-validated by the
+ * normalizer below: identifiers, a closed outcome, a code and a
+ * duration only — no request or response body ever enters the
+ * record, exactly like the rest of the live detail. Optional and
+ * additive: records written before the field existed read back
+ * unchanged, and a dispatch with no attributable route (a plan
+ * refusal, an injected double) contributes no entry.
+ */
+export type AgentRunStepModelCall = {
+  providerId: string;
+  modelId?: string;
+  outcome: 'succeeded' | 'failed';
+  errorCode?: string;
+  durationMs: number;
+};
+
 export type AgentRunStepLiveDetail = {
   startedAt?: number;
   finishedAt?: number;
@@ -468,6 +504,7 @@ export type AgentRunStepLiveDetail = {
   coverageFailure?: AgentRunStepCoverageFailure;
   analyzerExecution?: AgentRunStepAnalyzerExecution;
   providerAttempts?: AgentRunStepProviderAttempt[];
+  modelCalls?: AgentRunStepModelCall[];
   reconciliation?: AgentRunStepReconciliation;
   rowsOutput?: AgentRunStepRowsOutput;
   valueTable?: AgentRunStepValueTableSummary;
@@ -1234,6 +1271,46 @@ function normalizeAgentRunStepProviderAttempts(value: unknown): AgentRunStepProv
   return attempts.length > 0 ? attempts : undefined;
 }
 
+/** Model-call timing vocabularies (D7 countermeasure A): the same
+ * identifier shapes as the provider attempts, a two-value outcome
+ * set (a dispatch either produced its response or it did not), and
+ * a mandatory duration — an entry without a usable duration is
+ * dropped, because the duration is the field's whole purpose. */
+const LIVE_MODEL_CALL_OUTCOMES: ReadonlySet<string> = new Set(['succeeded', 'failed']);
+
+function normalizeAgentRunStepModelCall(value: unknown): AgentRunStepModelCall | undefined {
+  if (!isPlainObject(value)) return undefined;
+  const { providerId, modelId, outcome, errorCode, durationMs } = value;
+  if (typeof providerId !== 'string' || !LIVE_PROVIDER_ID_PATTERN.test(providerId)) return undefined;
+  if (typeof outcome !== 'string' || !LIVE_MODEL_CALL_OUTCOMES.has(outcome)) return undefined;
+  if (!Number.isInteger(durationMs) || Number(durationMs) < 0 || Number(durationMs) > 3_600_000) return undefined;
+  const call: AgentRunStepModelCall = {
+    providerId,
+    outcome: outcome as AgentRunStepModelCall['outcome'],
+    durationMs: Number(durationMs),
+  };
+  if (modelId !== undefined) {
+    if (typeof modelId !== 'string' || !LIVE_MODEL_ID_PATTERN.test(modelId)) return undefined;
+    call.modelId = modelId;
+  }
+  if (errorCode !== undefined) {
+    if (typeof errorCode !== 'string' || !ERROR_CODE_PATTERN.test(errorCode)) return undefined;
+    call.errorCode = errorCode;
+  }
+  return call;
+}
+
+function normalizeAgentRunStepModelCalls(value: unknown): AgentRunStepModelCall[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const calls: AgentRunStepModelCall[] = [];
+  for (const raw of value) {
+    if (calls.length >= MAX_AGENT_RUN_LIVE_MODEL_CALLS) break;
+    const call = normalizeAgentRunStepModelCall(raw);
+    if (call) calls.push(call);
+  }
+  return calls.length > 0 ? calls : undefined;
+}
+
 function normalizeAgentRunStepReconciliation(value: unknown): AgentRunStepReconciliation | undefined {
   if (!isPlainObject(value)) return undefined;
   const mode = value.mode === 'shadow' || value.mode === 'enforce' ? value.mode : undefined;
@@ -1368,6 +1445,8 @@ function normalizeAgentRunStepLiveDetail(value: unknown): AgentRunStepLiveDetail
   if (analyzerExecution !== undefined) detail.analyzerExecution = analyzerExecution;
   const providerAttempts = normalizeAgentRunStepProviderAttempts(value.providerAttempts);
   if (providerAttempts !== undefined) detail.providerAttempts = providerAttempts;
+  const modelCalls = normalizeAgentRunStepModelCalls(value.modelCalls);
+  if (modelCalls !== undefined) detail.modelCalls = modelCalls;
   const reconciliation = normalizeAgentRunStepReconciliation(value.reconciliation);
   if (reconciliation !== undefined) detail.reconciliation = reconciliation;
   const rowsOutput = normalizeAgentRunStepRowsOutput(value.rowsOutput);

@@ -21,7 +21,7 @@ import {
   type AgentDataCoverageResult,
   type AgentDataRow,
 } from './agentAttachmentData.js';
-import { createAgentModelExecutor, type AgentModelCallInput, type AgentModelExecutor, type AgentModelCallResult } from './agentModelCall.js';
+import { createAgentModelExecutor, MAX_AGENT_MODEL_CALL_TIMINGS_PER_STEP, type AgentModelCallInput, type AgentModelCallTiming, type AgentModelExecutor, type AgentModelCallResult } from './agentModelCall.js';
 import { buildAgentReferenceContext } from './agentAttachmentReference.js';
 import { parseBaselBiaInputs } from './agentBaselBia.js';
 import type { ToolParams, ToolResult } from './toolRegistry.js';
@@ -1501,7 +1501,20 @@ export async function executeAttachmentAnalyzer(
   context?: AgentAttachmentToolContext,
 ): Promise<ToolResult> {
   const tool = 'attachment_analyzer' as const;
-  const fail = (message: string): ToolResult => ({ ok: false, tool, message });
+  // Dispatch timing collection (D7 countermeasure A): every model
+  // dispatch this step makes appends its timing evidence here, in
+  // dispatch order, and the result carries the list on success and
+  // failure alike. Observability only — an empty list attaches
+  // nothing, so a step whose executor reports no timing (an
+  // injected double, a pre-dispatch refusal) returns results
+  // identical to before, byte for byte.
+  const modelCallTimings: AgentModelCallTiming[] = [];
+  const fail = (message: string): ToolResult => ({
+    ok: false,
+    tool,
+    message,
+    ...(modelCallTimings.length > 0 ? { modelCallTimings: [...modelCallTimings] } : {}),
+  });
   const outputKind = typeof params.outputKind === 'string' && (OUTPUT_KINDS as readonly string[]).includes(params.outputKind)
     ? (params.outputKind as AgentDataOutputKind)
     : null;
@@ -1570,7 +1583,20 @@ export async function executeAttachmentAnalyzer(
 
   const modelCall = context?.modelCall ?? createAgentModelExecutor(context?.env ?? process.env);
   const sleepMs = context?.sleepMs ?? defaultSleepMs;
-  const callModelWithTransientRetry = createTransientRetryCaller(modelCall, sleepMs);
+  // Timing capture sits BELOW the transient-retry caller, wrapped
+  // around the raw executor, so every dispatch — including the
+  // retries the caller performs internally and would otherwise
+  // hide — appends exactly one entry, in dispatch order (D7
+  // countermeasure A). The wrapper passes results through
+  // untouched; a result without timing evidence adds nothing.
+  const timedModelCall: AgentModelExecutor = async (input) => {
+    const result = await modelCall(input);
+    if (result.timing && modelCallTimings.length < MAX_AGENT_MODEL_CALL_TIMINGS_PER_STEP) {
+      modelCallTimings.push(result.timing);
+    }
+    return result;
+  };
+  const callModelWithTransientRetry = createTransientRetryCaller(timedModelCall, sleepMs);
   // Execution trace (coverage observability follow-on, diagnosis
   // 2026-11-23): which route/model actually served this step's
   // chunk calls, and whether the parse repair retry ran. Until now
@@ -1839,6 +1865,7 @@ export async function executeAttachmentAnalyzer(
     tool,
     message,
     diagnosticArtifact: buildBundleArtifact(),
+    ...(modelCallTimings.length > 0 ? { modelCallTimings: [...modelCallTimings] } : {}),
   });
 
   // Chunk-local coverage (Basel segment-2 fix, 案2): a step whose
@@ -1914,6 +1941,7 @@ export async function executeAttachmentAnalyzer(
     tool,
     artifact,
     message: `Attachment data analyzed (${chunkOffset + range.length}/${view.totalChunks} chunk(s)).`,
+    ...(modelCallTimings.length > 0 ? { modelCallTimings: [...modelCallTimings] } : {}),
   };
 }
 
@@ -2384,7 +2412,16 @@ export async function executeAttachmentReconciler(
   context?: AgentAttachmentToolContext,
 ): Promise<ToolResult> {
   const tool = 'attachment_reconciler' as const;
-  const fail = (message: string): ToolResult => ({ ok: false, tool, message });
+  // Dispatch timing collection (D7 countermeasure A): same
+  // discipline as the analyzer's — every dispatch appends in
+  // order, an empty list attaches nothing.
+  const modelCallTimings: AgentModelCallTiming[] = [];
+  const fail = (message: string): ToolResult => ({
+    ok: false,
+    tool,
+    message,
+    ...(modelCallTimings.length > 0 ? { modelCallTimings: [...modelCallTimings] } : {}),
+  });
   const loaded = await loadBoundData(tool, params, context);
   if ('failure' in loaded) return loaded.failure;
   const { view } = loaded.data;
@@ -2426,6 +2463,7 @@ export async function executeAttachmentReconciler(
     message: summary
       ? `Attachment findings reconciliation recorded in shadow (candidates ${summary.candidateCount}, kept ${summary.keptCount}, dropped ${summary.droppedCount}, picked up ${summary.pickedUpCount}).`
       : 'Attachment findings passed through without reconciliation.',
+    ...(modelCallTimings.length > 0 ? { modelCallTimings: [...modelCallTimings] } : {}),
   });
 
   const mode = agentFindingsReconciliationMode(context?.env ?? process.env);
@@ -2446,7 +2484,17 @@ export async function executeAttachmentReconciler(
 
   const modelCall = context?.modelCall ?? createAgentModelExecutor(context?.env ?? process.env);
   const sleepMs = context?.sleepMs ?? defaultSleepMs;
-  const callModelWithTransientRetry = createTransientRetryCaller(modelCall, sleepMs);
+  // Timing capture below the transient-retry caller, exactly as
+  // in the analyzer (D7 countermeasure A): every dispatch appends
+  // one entry; results pass through untouched.
+  const timedModelCall: AgentModelExecutor = async (input) => {
+    const result = await modelCall(input);
+    if (result.timing && modelCallTimings.length < MAX_AGENT_MODEL_CALL_TIMINGS_PER_STEP) {
+      modelCallTimings.push(result.timing);
+    }
+    return result;
+  };
+  const callModelWithTransientRetry = createTransientRetryCaller(timedModelCall, sleepMs);
   const instruction = reconcilerInstruction(goalInstruction);
   const userText = reconcilerMaterials(bundle);
   const first = await callModelWithTransientRetry({ instruction, userText, goal: goalInstruction });
@@ -2518,6 +2566,7 @@ export async function executeAttachmentReconciler(
         reconciledFindings: gated.findings,
       }),
       message: `Attachment findings reconciliation recorded in shadow (candidates ${summary.candidateCount}, kept ${summary.keptCount}, dropped ${summary.droppedCount}, picked up ${summary.pickedUpCount}).`,
+      ...(modelCallTimings.length > 0 ? { modelCallTimings: [...modelCallTimings] } : {}),
     };
   }
   return {
@@ -2529,5 +2578,6 @@ export async function executeAttachmentReconciler(
       summary,
     }),
     message: `Attachment findings reconciled (candidates ${summary.candidateCount}, kept ${summary.keptCount}, dropped ${summary.droppedCount}, picked up ${summary.pickedUpCount}).`,
+    ...(modelCallTimings.length > 0 ? { modelCallTimings: [...modelCallTimings] } : {}),
   };
 }

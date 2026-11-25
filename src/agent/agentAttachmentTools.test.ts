@@ -2086,6 +2086,42 @@ describe('misreading countermeasure layer 2: attachment_reconciler tool', () => 
     expect(withBadDrop.ok).toBe(true);
     if (withBadDrop.ok) expect(withBadDrop.dropped).toEqual([]);
   });
+
+  it('reconciler timing: an enforce success carries its dispatch timing (D7 countermeasure A)', async () => {
+    const { store, setDigest } = await storeWithFiles(RECONCILER_FILES);
+    const timing = { providerId: 'groq-free', modelId: 'openai/gpt-oss-120b', outcome: 'succeeded' as const, durationMs: 321 };
+    const executor: AgentModelExecutor = async () => ({ ok: true, text: VETTED_OUTPUT, timing });
+    const result = await toolRegistry.attachment_reconciler.execute(
+      reconcilerParams(setDigest),
+      contextWithMode(store, executor, 'enforce'),
+    );
+    expect(result.ok).toBe(true);
+    expect(result.modelCallTimings).toEqual([timing]);
+  });
+
+  it('reconciler timing: a shadow failure still carries the failed dispatch timing (D7 countermeasure A)', async () => {
+    const { store, setDigest } = await storeWithFiles(RECONCILER_FILES);
+    const timing = { providerId: 'groq-free', outcome: 'failed' as const, errorCode: 'PROVIDER_INVALID_RESPONSE', durationMs: 42 };
+    const executor: AgentModelExecutor = async () => ({ ok: false, code: 'PROVIDER_INVALID_RESPONSE', timing });
+    const result = await toolRegistry.attachment_reconciler.execute(
+      reconcilerParams(setDigest),
+      contextWithMode(store, executor, 'shadow'),
+    );
+    // Shadow never fails the step; the timing rides the pass-through.
+    expect(result.ok).toBe(true);
+    expect(result.modelCallTimings).toEqual([timing]);
+  });
+
+  it('reconciler timing: an executor without timing evidence leaves the result untouched (D7 countermeasure A)', async () => {
+    const { store, setDigest } = await storeWithFiles(RECONCILER_FILES);
+    const executor: AgentModelExecutor = async () => ({ ok: true, text: VETTED_OUTPUT });
+    const result = await toolRegistry.attachment_reconciler.execute(
+      reconcilerParams(setDigest),
+      contextWithMode(store, executor, 'enforce'),
+    );
+    expect(result.ok).toBe(true);
+    expect(result).not.toHaveProperty('modelCallTimings');
+  });
 });
 
 describe('function inspection 2026-11-25: D2 deterministic pairing, D3 pair gate', () => {
@@ -2867,5 +2903,73 @@ describe('attachment_analyzer wave 2 (対策5 reference co-location, 対策6 BIA
       alphaText: '0.15',
       grossIncomeByYear: { '2021': 2850000000, '2022': 3120000000, '2023': -456000000 },
     });
+  });
+});
+
+describe('model call timing channel (D7 countermeasure A)', () => {
+  const TIMING_OK = { providerId: 'groq-free', modelId: 'openai/gpt-oss-120b', outcome: 'succeeded' as const, durationMs: 321 };
+
+  it('analyzer: a successful step carries its dispatch timing', async () => {
+    const { store, setDigest } = await storeWithFruits();
+    const executor: AgentModelExecutor = async (input) => {
+      const base = await classifyingExecutor(input);
+      return base.ok ? { ...base, timing: { ...TIMING_OK } } : base;
+    };
+    const result = await toolRegistry.attachment_analyzer.execute(
+      analyzerParams(setDigest),
+      contextFor(store, executor),
+    );
+    expect(result.ok).toBe(true);
+    expect(result.modelCallTimings).toEqual([TIMING_OK]);
+  });
+
+  it('analyzer: a transient retry appends one entry per dispatch, in dispatch order', async () => {
+    const { store, setDigest } = await storeWithFruits();
+    const sleeps: number[] = [];
+    let calls = 0;
+    const executor: AgentModelExecutor = async (input) => {
+      calls += 1;
+      if (calls === 1) {
+        return {
+          ok: false,
+          code: 'PROVIDER_UNAVAILABLE',
+          timing: { providerId: 'cloudflare-workers-ai-free', outcome: 'failed' as const, errorCode: 'PROVIDER_UNAVAILABLE', durationMs: 100 },
+        };
+      }
+      const base = await classifyingExecutor(input);
+      return base.ok ? { ...base, timing: { ...TIMING_OK, durationMs: 200 } } : base;
+    };
+    const result = await toolRegistry.attachment_analyzer.execute(
+      analyzerParams(setDigest),
+      contextFor(store, executor, recordingSleep(sleeps)),
+    );
+    expect(result.ok).toBe(true);
+    expect(sleeps).toEqual([15_000]);
+    expect(result.modelCallTimings).toEqual([
+      { providerId: 'cloudflare-workers-ai-free', outcome: 'failed', errorCode: 'PROVIDER_UNAVAILABLE', durationMs: 100 },
+      { ...TIMING_OK, durationMs: 200 },
+    ]);
+  });
+
+  it('analyzer: a provider failure carries its dispatch timing on the failure result', async () => {
+    const { store, setDigest } = await storeWithFruits();
+    const timing = { providerId: 'groq-free', outcome: 'failed' as const, errorCode: 'PROVIDER_INVALID_RESPONSE', durationMs: 42 };
+    const executor: AgentModelExecutor = async () => ({ ok: false, code: 'PROVIDER_INVALID_RESPONSE', timing });
+    const result = await toolRegistry.attachment_analyzer.execute(
+      analyzerParams(setDigest),
+      contextFor(store, executor),
+    );
+    expect(result.ok).toBe(false);
+    expect(result.modelCallTimings).toEqual([timing]);
+  });
+
+  it('analyzer: an executor without timing evidence leaves the result untouched', async () => {
+    const { store, setDigest } = await storeWithFruits();
+    const result = await toolRegistry.attachment_analyzer.execute(
+      analyzerParams(setDigest),
+      contextFor(store, classifyingExecutor),
+    );
+    expect(result.ok).toBe(true);
+    expect(result).not.toHaveProperty('modelCallTimings');
   });
 });
