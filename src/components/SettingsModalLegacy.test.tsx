@@ -76,6 +76,20 @@ describe('SettingsModalLegacy focus trap', () => {
     expect(document.activeElement).not.toBe(insideButtons[insideButtons.length - 1]);
   });
 
+  it('renders the dialog header as a sticky bar inside the scroll region (batch 2)', async () => {
+    await renderModal();
+    const scrollRegion = screen.getByTestId('settings-scroll-region');
+    // The header bar is the region's first child and sticks to its
+    // top, so a half-scrolled line passes under the opaque bar
+    // instead of being bisected by the header divider, and the
+    // sections keep their own padded wrapper below it.
+    const bar = scrollRegion.firstElementChild as HTMLElement;
+    expect(bar.className).toContain('sticky');
+    expect(bar.querySelector('#settings-title')).toBeTruthy();
+    expect(bar.querySelector('[data-testid="close-settings-button"]')).toBeTruthy();
+    expect(scrollRegion.querySelector('#language-heading')).toBeTruthy();
+  });
+
   it('renders the About you section right after the history section', async () => {
     await renderModal();
     const scrollRegion = screen.getByTestId('settings-scroll-region');

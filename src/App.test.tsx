@@ -193,6 +193,12 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
 
     fireEvent.click(screen.getByTestId('history-drawer-toggle'));
     expect(screen.getByTestId('history-drawer')).toBeTruthy();
+    // Batch 2 (2026-11-25): the drawer anchors 16px below the main
+    // top at every width (the sm:top-20 step is gone), so together
+    // with the vertically centred home hero it clears the heading
+    // and the description instead of covering them (pc-04).
+    expect(screen.getByTestId('history-drawer').className).toContain('top-16');
+    expect(screen.getByTestId('history-drawer').className).not.toContain('sm:top-20');
   });
 
   it('keeps the composer wide, icon-only, and minimally self-explanatory while preserving touch targets (send action at 44px)', () => {

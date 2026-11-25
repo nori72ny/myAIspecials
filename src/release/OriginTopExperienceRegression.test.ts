@@ -402,13 +402,34 @@ describe('ORIGIN top experience regression boundary', () => {
     // The workspace tool header shares the chat header's 60px.
     const toolHeaderRule = topUi.match(/section\[aria-label="Workspace tool header"\] \{[^}]*\}/)?.[0] ?? '';
     expect(toolHeaderRule).toContain('min-height: 60px;');
-    // The focused skip link lands below the header, not on it.
-    expect(indexCss).toContain('top: calc(max(1rem, env(safe-area-inset-top)) + 3.75rem);');
-    // Settings rows stop 24px below the scroll region's top edge,
-    // and the release-identity disclosure carries a chevron.
+    // The focused skip link reveals as a full-width bar at the top
+    // and the shell yields the bar's height, so it covers neither
+    // the header nor the Orin presence and its name tag (batch 2,
+    // 2026-11-25 — supersedes the batch-1 below-the-header landing,
+    // which still covered the presence and most of the tag).
+    expect(indexCss).toContain('.origin-personal-shell:has(.origin-skip-link:focus-visible)');
+    expect(indexCss).not.toContain('top: calc(max(1rem, env(safe-area-inset-top)) + 3.75rem);');
+    // Settings rows revealed by focus or scrollIntoView stop below
+    // the sticky header bar that now lives inside the scroll
+    // region; the scroll padding is the bar's measured height
+    // (batch 2 — supersedes the batch-1 24px, which could not
+    // affect where a free scroll position lands), and the
+    // release-identity disclosure carries a chevron.
     expect(indexCss).toContain('[data-testid="settings-scroll-region"]');
-    expect(indexCss).toContain('scroll-padding-top: 24px;');
+    expect(indexCss).toContain('scroll-padding-top: 83px;');
+    expect(indexCss).not.toContain('scroll-padding-top: 24px;');
     expect(indexCss).toContain('.release-identity__chevron');
+    // Batch 2 (blind re-evaluation of the batch-1 production): the
+    // home hero group centres between the presence row and the
+    // composer at >=640px, the add-menu scrim also dims the header
+    // band, the empty Orin panel rail hugs its content, and the
+    // image advanced-settings disclosure carries the same chevron.
+    const balanceBlock = topUi.slice(topUi.indexOf('Home hero balance (external evaluation fix batch 2'));
+    expect(balanceBlock).toContain('.origin-app main .origin-home-intro');
+    expect(balanceBlock).toContain('margin-top: auto !important;');
+    expect(functionalUi).toContain('.origin-personal-shell:has(.origin-add-menu[open]) .origin-header');
+    expect(topUi).toContain('.origin-orin-panel--work-empty');
+    expect(indexCss).toContain('.origin-image-advanced-settings__chevron');
     const settingsLegacy = readFileSync(resolve(root, 'components/SettingsModalLegacy.tsx'), 'utf8');
     expect(settingsLegacy).toContain('release-identity__chevron');
     // The Orin tap target's accessible name contains the visible

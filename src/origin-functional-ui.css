@@ -77,6 +77,21 @@
   -webkit-backdrop-filter: blur(3px);
   backdrop-filter: blur(3px);
 }
+/* The header band escapes the app-root scrim for the opposite
+   reason the sidebar does: .origin-header carries z-index 50
+   (origin-top-ui.css), above the scrim's 15, so the band stayed
+   fully lit while the rest of the app dimmed (external evaluation
+   fix batch 2, 2026-11-25; measured by elementFromPoint — header
+   content, not the scrim, was topmost over the band). While the
+   add menu is open the header drops below the scrim, so the band
+   dims and blurs like every other surface and a tap there lands
+   on the scrim — an outside tap that closes the menu. The
+   composer (z-index 20) stays lit, and the header's z-index 50
+   layering against the sidebar (60) and modals is unchanged
+   whenever the menu is closed. */
+.origin-personal-shell:has(.origin-add-menu[open]) .origin-header {
+  z-index: 10;
+}
 .artifact-workspace__header {
   display: grid;
   grid-template-columns: minmax(0, 1fr);

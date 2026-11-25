@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { X } from 'lucide-react';
+import { ChevronRight, X } from 'lucide-react';
 
 type ImageRatio = '1:1' | '16:9' | '9:16' | '4:5' | '3:2' | '2:3';
 type ImageResolution = '1024' | '1536';
@@ -117,10 +117,10 @@ export default function ImageGenerationPanel({ language, onClose, onGenerate }: 
         <form onSubmit={submit} className="grid gap-4 rounded-none! border-none! bg-transparent! shadow-none!">
           <label className="grid gap-2 text-sm font-medium">
             {ja ? '作りたい画像' : 'Image brief'}
-            <textarea ref={promptRef} data-testid="origin-image-prompt" value={prompt} onChange={(event) => { setPrompt(event.target.value); setError(''); }} maxLength={2000} rows={4} placeholder={ja ? '例：夕暮れの海辺、映画のワンシーンのような光、人物なし' : 'Example: a quiet beach at sunset, cinematic lighting, no people'} className="origin-input min-h-28 w-full resize-y rounded-2xl border border-[var(--border-default)] bg-transparent p-3 text-base leading-6" />
+            <textarea ref={promptRef} data-testid="origin-image-prompt" value={prompt} onChange={(event) => { setPrompt(event.target.value); setError(''); }} maxLength={2000} rows={4} placeholder={ja ? '例：夕暮れの海辺、映画のワンシーンのような光、人物なし' : 'Example: a quiet beach at sunset, cinematic lighting, no people'} className="origin-input min-h-28 w-full resize-none rounded-2xl border border-[var(--border-default)] bg-transparent p-3 text-base leading-6" />
           </label>
           <details data-testid="origin-image-advanced-settings">
-            <summary className="flex min-h-11 cursor-pointer items-center text-sm font-semibold">{ja ? '詳細設定' : 'Advanced settings'}</summary>
+            <summary className="flex min-h-11 cursor-pointer items-center text-sm font-semibold">{ja ? '詳細設定' : 'Advanced settings'}<ChevronRight className="origin-image-advanced-settings__chevron ml-auto h-4 w-4 shrink-0 text-[var(--text-secondary)]" aria-hidden="true" /></summary>
             <div className="mt-3 grid gap-3">
               <div className="grid grid-cols-2 gap-3">
                 <label className="grid gap-2 text-sm font-medium">

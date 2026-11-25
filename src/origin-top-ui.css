@@ -675,6 +675,29 @@
   }
 }
 
+/* Home hero balance (external evaluation fix batch 2, 2026-11-25):
+   the batch-1 group spacing packed the hero group (presence,
+   heading, description, chips) at the top of the home layout and
+   let the whole flexible void collect between the chips and the
+   bottom-pinned composer — measured 554px at 768x1024 (54% of the
+   screen height), 314px at 1280x800 and 522px at 1280x1024, which
+   the blind re-evaluation flagged as excess blank. On screens at
+   least 640px wide the group now centres in the space between the
+   presence row and the composer: the intro takes an auto top
+   margin, which shares the void equally with the composer
+   wrapper's existing auto top margin, and the intro's
+   viewport-proportional top padding (the K-22 clamp, and the
+   tablet band's fixed 40px) is replaced by the group's own 24px
+   scale so the split stays symmetric. The group's internal
+   spacing (24px / 16px / 24px), the composer's bottom pin and the
+   mobile geometry (max-width: 639px blocks above) are unchanged. */
+@media (min-width: 640px) {
+  .origin-app main .origin-home-intro {
+    margin-top: auto !important;
+    padding-top: 24px !important;
+  }
+}
+
 /* Orin presence (owner revision, 2026-11-14 08:59; band layout
    revision, 2026-11-17; "Orin's window" revision, 2026-11-20;
    floating + auto-shrink refinement, 2026-11-20 10:10;
@@ -1199,6 +1222,16 @@
     width: min(360px, 33.333vw);
     border-left: 1px solid var(--border-default);
     background: var(--bg-surface);
+  }
+  /* Empty work tab (external evaluation fix batch 2, 2026-11-25):
+     the rail stretched to the full column height even when the
+     work tab held nothing, leaving ~54% of it blank below the
+     empty-state guide (measured 434px of 800px). While the work
+     tab is empty the rail hugs its content instead of stretching;
+     the full-screen forms below 1024px are the owner's screen-
+     switch spec and keep their geometry. */
+  .origin-orin-panel--work-empty {
+    bottom: auto;
   }
   .origin-orin-panel__topbar {
     display: none;

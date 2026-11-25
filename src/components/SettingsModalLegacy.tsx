@@ -183,11 +183,24 @@ export default function SettingsModalLegacy({
         >
           <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="origin-dialog-overlay pointer-events-none absolute inset-0" aria-hidden="true" />
           <motion.div data-testid="settings-modal" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 8 }} className="origin-surface relative flex max-h-[calc(100dvh-1.5rem)] w-full max-w-[660px] flex-col overflow-hidden rounded-2xl border sm:max-h-[calc(100dvh-2rem)]" onPointerDown={stopPointer} style={{ overscrollBehavior: 'contain' }}>
-            <div className="flex items-center justify-between border-b border-[var(--border-default)] px-5 py-4">
-              <div><h2 id="settings-title" className="text-base font-bold">{t.settings}</h2><p id="settings-description" className="origin-muted mt-1 text-[13px]">{t.settingsDescription}</p></div>
-              <button ref={closeButtonRef} type="button" onClick={(event) => { stopPointer(event); onClose(); }} data-testid="close-settings-button" aria-label={t.closeSettings} className="origin-secondary-button origin-close-button"><X aria-hidden="true" size={18} /></button>
-            </div>
-            <div data-testid="settings-scroll-region" className="min-h-0 flex-1 space-y-6 overflow-y-auto overscroll-contain p-5 pb-8">
+            <div data-testid="settings-scroll-region" className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
+              {/* The dialog header lives inside the scroll region as a
+                  sticky bar (external evaluation fix batch 2,
+                  2026-11-25): as a sibling above the region, the
+                  region's first visible line could stop mid-glyph
+                  against the header divider whenever the scroll
+                  position landed between lines (measured at the
+                  scroll bottom in the 2026-11-25 inspection). Sticky
+                  inside the region, a half-scrolled line passes under
+                  the opaque bar instead of being bisected by it, and
+                  the region's scroll-padding-top (index.css) is set
+                  to the bar's measured height so rows revealed by
+                  focus or scrollIntoView stop clear below it. */}
+              <div className="sticky top-0 z-10 flex items-center justify-between border-b border-[var(--border-default)] bg-[var(--bg-surface)] px-5 py-4">
+                <div><h2 id="settings-title" className="text-base font-bold">{t.settings}</h2><p id="settings-description" className="origin-muted mt-1 text-[13px]">{t.settingsDescription}</p></div>
+                <button ref={closeButtonRef} type="button" onClick={(event) => { stopPointer(event); onClose(); }} data-testid="close-settings-button" aria-label={t.closeSettings} className="origin-secondary-button origin-close-button"><X aria-hidden="true" size={18} /></button>
+              </div>
+              <div className="space-y-6 p-5 pb-8">
               <section aria-labelledby="language-heading" className="space-y-3"><h3 id="language-heading" className="flex items-center gap-2 text-sm font-bold"><Globe className="h-4 w-4 text-[var(--accent-primary)]" aria-hidden="true" />{t.languageHeading}</h3><div className="grid grid-cols-2 gap-2">{[{ id: 'ja', label: t.languageJapanese }, { id: 'en', label: t.languageEnglish }].map((language) => { const selected = settings.language === language.id; return <button type="button" key={language.id} onClick={(event) => { stopPointer(event); update({ language: language.id as Settings['language'] }); }} aria-pressed={selected} style={{ minHeight: 48 }} className={cn('flex min-h-12 items-center justify-center gap-2 rounded-xl border px-3 text-sm font-semibold transition', selected ? 'origin-primary-button border-transparent' : 'origin-secondary-button')}>{selected && <Check className="h-4 w-4" aria-hidden="true" />}{language.label}</button>; })}</div></section>
               <section aria-labelledby="appearance-heading" className="space-y-3 border-t border-[var(--border-default)] pt-5"><h3 id="appearance-heading" className="text-sm font-bold">{t.appearanceHeading}</h3><div className="grid grid-cols-3 gap-2">{[{ id: 'light', label: t.themeLight, icon: Sun }, { id: 'dark', label: t.themeDark, icon: Moon }, { id: 'system', label: t.themeSystem, icon: Laptop }].map((theme) => { const selected = selectedTheme === theme.id; return <button type="button" key={theme.id} onClick={(event) => { stopPointer(event); update({ selectedTheme: theme.id as Settings['selectedTheme'] }); }} aria-pressed={selected} style={{ minHeight: 48 }} className={cn('flex min-h-12 flex-col items-center justify-center gap-1 rounded-xl border px-2 py-1 text-sm font-semibold transition', selected ? 'origin-primary-button border-transparent' : 'origin-secondary-button')}><theme.icon className="h-4 w-4" aria-hidden="true" />{theme.label}</button>; })}</div><p className="origin-muted text-[13px] leading-5">{t.systemThemeDescription}</p></section>
               <section data-testid="origin-design-theme-section" aria-labelledby="design-theme-heading" className="space-y-3 border-t border-[var(--border-default)] pt-5"><h3 id="design-theme-heading" className="text-sm font-bold">{settings.language === 'ja' ? '見た目のテーマ' : 'Visual theme'}</h3><div role="group" aria-labelledby="design-theme-heading" className="grid grid-cols-3 gap-2">{([{ id: 'minimal', label: settings.language === 'ja' ? 'ミニマル' : 'Minimal' }, { id: 'luxury', label: settings.language === 'ja' ? 'ラグジュアリー' : 'Luxury' }, { id: 'glass', label: settings.language === 'ja' ? 'グラス' : 'Glass' }] as const).map((theme) => <button type="button" key={theme.id} data-testid={`design-theme-${theme.id}`} aria-pressed={selectedDesignTheme === theme.id} onClick={(event) => { stopPointer(event); update({ designTheme: theme.id }); }} style={{ minHeight: 48 }} className={cn('flex min-h-12 flex-col items-center justify-center gap-1 rounded-xl border px-2 py-1 text-sm font-semibold transition', selectedDesignTheme === theme.id ? 'origin-primary-button border-transparent' : 'origin-secondary-button')}>{theme.label}</button>)}</div><p className="origin-muted text-[13px] leading-5">{settings.language === 'ja' ? '成果物のプレビューにも、同じデザインがすぐに反映されます。' : 'Artifact previews immediately reflect the same design.'}</p></section>
@@ -213,6 +226,7 @@ export default function SettingsModalLegacy({
                   <input id="settings-admin-key" type="password" autoComplete="off" value={adminKey} onChange={(event) => setSessionCredential('admin', event.target.value)} className="mt-1 min-h-11 w-full rounded-xl border border-[var(--border-default)] bg-transparent px-3 text-sm" />
                 </div>
               </details>
+              </div>
             </div>
           </motion.div>
         </div>
