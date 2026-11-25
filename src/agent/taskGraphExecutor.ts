@@ -2,7 +2,7 @@ import { createAgentTaskGraph, getNextRunnableTask, markTaskResult, markTaskRunn
 import { hasSuccessfulCheckpoint } from './checkpointManager.js';
 import type { FileMutationCheckpoint } from './checkpointManager.js';
 
-export type ExecutorToolResult = { ok: boolean; artifact?: string; message?: string; mutation?: FileMutationCheckpoint };
+export type ExecutorToolResult = { ok: boolean; artifact?: string; message?: string; mutation?: FileMutationCheckpoint; diagnosticArtifact?: string };
 export type ExecutorTool = (task: { id: string; title: string }) => Promise<ExecutorToolResult>;
 export type ExecutorVerification = (result: ExecutorToolResult) => Promise<{ ok: boolean; artifact?: string; reason?: string; attempts?: number }>;
 
@@ -24,6 +24,19 @@ export type TaskExecutionRecord = {
    * every failure into a generic verification code.
    */
   toolFailureMessage?: string;
+  /**
+   * Diagnostic channel (K-17 target B, design AGENT_K17_FAILED_STEP_
+   * ARTIFACT_DESIGN_2026-11-24 §5): the payload a failed tool had
+   * already computed when its own gates refused it, carried strictly
+   * apart from `artifact`. The dataflow artifact of a failed step
+   * stays '' — consumers resolve inputs from `artifact` only,
+   * verification never sees this channel, and checkpoints never
+   * store it. Only the failure branch below populates it, from the
+   * tool result's own diagnostic attachment; a successful result's
+   * attachment, if any, is dropped. The run advancer is the only
+   * reader, and only to persist it as a diagnostic row.
+   */
+  diagnosticArtifact?: string;
 };
 
 function markCheckpointedTasksCompleted(graph: AgentTaskGraph, executionId: string): AgentTaskGraph {
@@ -45,7 +58,7 @@ export async function executeNextTask(
   const result = await tool(task);
   if (!result.ok) {
     running = markTaskResult(running, task.id, false);
-    return { graph: running, record: { taskId: task.id, attempt: task.attempts + 1, toolExecuted: true, verified: false, status: running.tasks.find((candidate) => candidate.id === task.id)?.status === 'blocked' ? 'blocked' : 'failed', artifact: '', verificationAttempts: 0, mutation: result.mutation, ...(result.message !== undefined ? { toolFailureMessage: result.message } : {}) } };
+    return { graph: running, record: { taskId: task.id, attempt: task.attempts + 1, toolExecuted: true, verified: false, status: running.tasks.find((candidate) => candidate.id === task.id)?.status === 'blocked' ? 'blocked' : 'failed', artifact: '', verificationAttempts: 0, mutation: result.mutation, ...(result.message !== undefined ? { toolFailureMessage: result.message } : {}), ...(result.diagnosticArtifact !== undefined ? { diagnosticArtifact: result.diagnosticArtifact } : {}) } };
   }
 
   const verification = await verify(result);

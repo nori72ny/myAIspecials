@@ -1421,39 +1421,48 @@ export async function advanceAgentRun(
       const stepSucceeded = Boolean(executionRecord?.toolExecuted && executionRecord.verified
         && executionRecord.status === 'completed' && finalTask.status === 'completed');
       // Diagnostic retention (K-17, design AGENT_K17_FAILED_STEP_
-      // ARTIFACT_DESIGN_2026-11-24 §2 target A): a step that executed
-      // and produced an artifact but did not complete — verification
-      // refused the artifact, or the task ended around it — keeps
-      // that artifact in the same store, under the same selectivity,
-      // caps and screening, so the failure can be diagnosed from what
-      // the step actually produced instead of from aggregates alone.
-      // A diagnostic row is never dataflow: hydration admits only
+      // ARTIFACT_DESIGN_2026-11-24 §2 targets A and B): a step that
+      // executed and produced an artifact but did not complete —
+      // verification refused the artifact, or the task ended around
+      // it — keeps that artifact in the same store, under the same
+      // selectivity, caps and screening, so the failure can be
+      // diagnosed from what the step actually produced instead of
+      // from aggregates alone. Target B extends the same retention
+      // to tool failures: the executor records '' as a failed tool's
+      // dataflow artifact, but a tool that computed a payload before
+      // its own gates refused it (the analyzer's post-merge gates)
+      // attaches that payload on the record's separate diagnostic
+      // channel, and the content saved here for a failed step is the
+      // dataflow artifact when one exists, else that channel. A
+      // diagnostic row is never dataflow: hydration admits only
       // rows whose recorded step state is completed (with matching
       // attempt and fingerprint), the read side derives the
       // diagnostic kind from that same step state, and this advance
       // deliberately never registers the row in the persisted-by-step
       // maps below, so no consumer can resolve it and the chunk
-      // boundary never treats it as persisted. Tool failures carry
-      // no artifact (the executor records ''), so nothing is saved
-      // for them here; the failure itself — code, state, outcome —
-      // is exactly as before. A verification-failed step ends the
-      // run, so a diagnostic row can never crowd out a later success
-      // of the same run under the run-total cap.
+      // boundary never treats it as persisted. The failure itself —
+      // code, state, outcome — is exactly as before. A failed step
+      // ends the run, so a diagnostic row can never crowd out a
+      // later success of the same run under the run-total cap.
+      const diagnosticContent = executionRecord?.artifact || executionRecord?.diagnosticArtifact;
       const diagnosticArtifact = !stepSucceeded
-        && Boolean(executionRecord?.toolExecuted && executionRecord?.artifact);
+        && Boolean(executionRecord?.toolExecuted && diagnosticContent);
       let artifactToSave: PutAgentRunStepArtifactInput | undefined;
-      if (stepArtifactsOn && (stepSucceeded || diagnosticArtifact) && persistIndexes.has(index) && executionRecord?.artifact) {
-        try {
-          const candidate: PutAgentRunStepArtifactInput = {
-            stepIndex: index,
-            stepFingerprint: computeAgentRunStepFingerprint(step.toolName, step.params),
-            attempt: stepsState[index].attempts,
-            artifact: executionRecord.artifact,
-          };
-          validatePutAgentRunStepArtifactInput(candidate);
-          artifactToSave = candidate;
-        } catch {
-          artifactToSave = undefined;
+      if (stepArtifactsOn && (stepSucceeded || diagnosticArtifact) && persistIndexes.has(index) && executionRecord) {
+        const contentToSave = stepSucceeded ? executionRecord.artifact : diagnosticContent;
+        if (contentToSave) {
+          try {
+            const candidate: PutAgentRunStepArtifactInput = {
+              stepIndex: index,
+              stepFingerprint: computeAgentRunStepFingerprint(step.toolName, step.params),
+              attempt: stepsState[index].attempts,
+              artifact: contentToSave,
+            };
+            validatePutAgentRunStepArtifactInput(candidate);
+            artifactToSave = candidate;
+          } catch {
+            artifactToSave = undefined;
+          }
         }
       }
       if (!await runStore.updateProgress(record.runId, driverId, {
