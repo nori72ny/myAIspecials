@@ -478,15 +478,16 @@ describe('self-referential and summary assembly (owner brain follow-up)', () => 
     expect(block).toContain('目標は来年、独立することです');
 
     // The instruction that wraps the block on the server carries the
-    // proxy discipline: Orin is the owner's alter ego and answers as
-    // him, in the first person (owner instruction 2026-11-25 20:20);
-    // ground only in the records, admit the unknown, never finalize
-    // commitments that affect other people.
+    // proxy discipline: Orin is the owner's representative — his alter
+    // ego, but not the owner himself (owner instructions 2026-11-25
+    // 20:12 / 20:20, corrected 20:57); ground only in the records,
+    // admit the unknown, never finalize commitments that affect other
+    // people.
     const instruction = mod.buildActiveContextInstruction(block);
     expect(instruction).toContain('Proxy answering');
-    expect(instruction).toContain("you are the owner's alter ego");
-    expect(instruction).toContain('answer as the owner himself, in the first person');
-    expect(instruction).toContain('Do not speak about the owner in the third person');
+    expect(instruction).toContain("you are the owner's representative");
+    expect(instruction).toContain('not the owner himself');
+    expect(instruction).toContain('Answer on his behalf, in his manner and tone');
     expect(instruction).toContain('say plainly that you do not know it');
     expect(instruction).toContain('Never finalize anything that affects other people');
     expect(instruction).toContain("subject to the owner's own confirmation");
