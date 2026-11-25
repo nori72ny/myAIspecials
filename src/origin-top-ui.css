@@ -1146,7 +1146,14 @@
   -webkit-tap-highlight-color: transparent;
 }
 .origin-orin-panel__close {
-  display: none;
+  /* Shown at every width (external evaluation round 4, 2026-11-25):
+     below 1024px this button used to be display:none, which left
+     the sheet's only visible close control as the back label —
+     whether the sheet could be closed, and how, was not visually
+     clear. The × now sits in the top bar's reserved right zone
+     (the centred name is balanced by the 64px spacer) at all
+     widths; the desktop rule below keeps the same inline-flex. */
+  display: inline-flex;
   border-color: transparent;
   background: transparent;
   box-shadow: none;
@@ -1203,6 +1210,20 @@
   display: flex;
   padding: 0 8px;
   min-width: max-content;
+}
+/* Tablet sheet form (UI/UX evaluation 2026-11-25): the tab group
+   is two icon buttons, so on a 600–1023px sheet it sat at the
+   left edge of a full-width empty bar and read as stretched.
+   Cap and centre the group; the bar's hairline still runs the
+   full width, and the indicator keeps measuring from this
+   inner group, so its geometry is unchanged. The desktop rail
+   (360px) keeps the left-aligned group. */
+@media (min-width: 600px) and (max-width: 1023.98px) {
+  .origin-orin-panel__tabs-inner {
+    width: max-content;
+    max-width: 560px;
+    margin-inline: auto;
+  }
 }
 .origin-orin-panel__tab {
   display: inline-flex;

@@ -441,6 +441,14 @@ describe('PersonalizationSettings clear all', () => {
       expect(await graph.listProfileItems(userId)).toHaveLength(0);
     });
   });
+
+  it('disables the clear-all button when there is nothing to clear (UI/UX evaluation 2026-11-25)', async () => {
+    const { PersonalizationSettings } = await loadModules();
+    renderSection(PersonalizationSettings);
+    await screen.findByText('まだ何も書かれていません。');
+    const button = screen.getByTestId('personal-clear-all-button') as HTMLButtonElement;
+    expect(button.disabled).toBe(true);
+  });
 });
 
 // --- Proposals (design §6.4, PR P1-6) -------------------------------------------

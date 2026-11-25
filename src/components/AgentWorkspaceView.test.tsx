@@ -175,6 +175,12 @@ describe('AgentWorkspaceView v3', () => {
     // left); the results panel must not repeat the plan as a document.
     expect(screen.getAllByText('Goal analysis')).toHaveLength(1);
     expect(screen.getByText('まだ結果はありません')).toBeTruthy();
+    // The how-it-works explanation lives only in the left-column intro
+    // (UI/UX evaluation 2026-11-25): the results empty state no longer
+    // repeats the numbered flow, it only names where results land.
+    expect(screen.queryByText('3. 計画に沿って作業し、確認します')).toBeNull();
+    expect(screen.queryByText('4. 結果がここに表示されます')).toBeNull();
+    expect(screen.getByText('作業が終わると、結果がここに表示されます。')).toBeTruthy();
     expect(screen.queryByText('承認は、この計画に書かれた内容だけに必要です。')).toBeNull();
     // The approval actions stay with the plan section.
     expect(screen.getByRole('button', { name: '承認して実行' })).toBeTruthy();

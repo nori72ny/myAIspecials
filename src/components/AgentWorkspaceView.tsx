@@ -778,8 +778,11 @@ export default function AgentWorkspaceView() {
   return <section className="flex min-h-full flex-col bg-origin-paper p-3 text-origin-ink md:p-5" aria-label="エージェント">
     <div className="mx-auto grid w-full max-w-[var(--content-wide)] items-start gap-4 lg:grid-cols-[minmax(300px,0.85fr)_minmax(0,1.35fr)]">
       <aside className="origin-workspace rounded-2xl p-4">
-        <p className="text-[13px] font-bold uppercase tracking-[0.16em] text-origin-brand">エージェント</p>
-        <h1 className="mt-1 text-xl font-bold">エージェントに任せる</h1>
+        {/* 見出しの三重重なり解消（UI/UX評価 2026-11-25）：ワークスペース
+            ヘッダーにも「エージェント」があり、眉見出しまで同じ語を
+            重ねると見出しが3段に積み上がる。眉見出しは置かず、
+            見出しは「エージェントに任せる」の1本にする。 */}
+        <h1 className="text-xl font-bold">エージェントに任せる</h1>
         <p className="mt-1 text-sm leading-6 text-origin-muted">任せたいことを書くと、まず実行計画を作ります。内容を確認して承認すると、計画に沿って作業し、結果を表示します。調べる・まとめる・文書にするような、手順の多い作業に向いています。</p>
 
         <label htmlFor="agent-goal" className="mt-4 block text-sm font-bold">任せたいこと</label>
@@ -890,13 +893,11 @@ export default function AgentWorkspaceView() {
             : artifact === ARTIFACT_PLACEHOLDER && !liveSession && (phase === 'idle' || phase === 'awaiting_approval')
               ? <div>
                   <p className="text-sm font-bold">まだ結果はありません</p>
-                  <p className="mt-1 text-sm leading-6 text-origin-muted">「任せたいこと」に書いて「実行計画を作る」を押すと、計画の確認のあとに作業が始まり、結果がここに表示されます。</p>
-                  <ol className="mt-3 space-y-1 text-sm leading-6 text-origin-muted">
-                    <li>1. 実行計画を作ります</li>
-                    <li>2. 内容を確認して承認します</li>
-                    <li>3. 計画に沿って作業し、確認します</li>
-                    <li>4. 結果がここに表示されます</li>
-                  </ol>
+                  {/* 進め方の説明は左カラムの導入文に一本化する
+                      （UI/UX評価 2026-11-25：同じ説明が左カラム本文・
+                      ここの手順リスト・保存結果の説明と3系統に
+                      重なっていた）。ここは結果の置き場所だけを示す。 */}
+                  <p className="mt-1 text-sm leading-6 text-origin-muted">作業が終わると、結果がここに表示されます。</p>
                 </div>
               : <FormattedMarkdown text={artifact} />}
         </div>

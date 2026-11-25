@@ -559,8 +559,9 @@ export default function PersonalizationSettings({ language, enabled, onToggleEna
             <button
               type="button"
               data-testid="personal-clear-all-button"
+              disabled={profileItems.length === 0 && memoryItems.length === 0}
               onClick={(event) => { event.stopPropagation(); setClearConfirmOpen(true); }}
-              className="origin-danger-button inline-flex min-h-12 items-center justify-center rounded-xl border px-3 text-sm font-semibold"
+              className="origin-danger-button inline-flex min-h-12 items-center justify-center rounded-xl border px-3 text-sm font-semibold disabled:cursor-not-allowed disabled:opacity-50"
             >
               {p.clearAll}
             </button>
