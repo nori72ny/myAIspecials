@@ -1081,6 +1081,22 @@ describe("originGroqRouteSystemInstruction planning augmentation (round-2 adjudi
     expect(base).not.toContain("Business planning rules for this request");
   });
 
+  it("deck variant: drops the premise table and required parts from the addendum, keeping the number discipline (DOCUMENT_WAVE2 unit 1)", () => {
+    for (const brief of ORIGIN_BUSINESS_PLANNING_BRIEFS) {
+      const profile = resolveOriginBusinessPlanning(brief.prompt)!;
+      const deck = originGroqRouteSystemInstruction(profile, { forDeck: true });
+      expect(deck.startsWith(base), brief.id).toBe(true);
+      expect(deck, brief.id).not.toContain("Premise table first");
+      expect(deck, brief.id).not.toContain("Required parts:");
+      expect(deck, brief.id).toContain("- Numbers:");
+      // Without the option the addendum is the standard one.
+      expect(originGroqRouteSystemInstruction(profile), brief.id).toContain("Premise table first");
+    }
+    // The option alone (no profile) changes nothing.
+    expect(originGroqRouteSystemInstruction(null, { forDeck: true })).toBe(base);
+    expect(originGroqRouteSystemInstruction(undefined, { forDeck: true })).toBe(base);
+  });
+
   it("appends the compact playbook after the unchanged base for every fixed brief", () => {
     for (const brief of ORIGIN_BUSINESS_PLANNING_BRIEFS) {
       const profile = resolveOriginBusinessPlanning(brief.prompt)!;

@@ -480,3 +480,72 @@ describe("OriginBusinessPlanning calendar anchor & premise table (external-consu
     expect(compact).toContain("compute once, then cite by name — never recompute or relabel");
   });
 });
+
+describe("OriginBusinessPlanning deck variant (DOCUMENT_WAVE2 unit 1, S-5 countermeasure)", () => {
+  // For a proposal-deck draft the deck skeleton owns the structure, so
+  // the planning instruction must drop every structural demand
+  // (premise-table-first, the required parts under exact names/order,
+  // what each part must carry, ownership/KPI structure) and keep only
+  // the number discipline. Pinned for every fixed brief.
+  const profiles = ORIGIN_BUSINESS_PLANNING_BRIEFS.map((brief) => ({
+    id: brief.id,
+    profile: resolveOriginBusinessPlanning(brief.prompt)!,
+  }));
+
+  it("full instruction: deck variant carries no premise table and no required parts, for every brief", () => {
+    for (const { id, profile } of profiles) {
+      const deck = buildOriginBusinessPlanningInstruction(profile, new Date(), { forDeck: true });
+      expect(deck.toLowerCase(), id).not.toContain("premise table");
+      expect(deck, id).not.toContain("Required parts for this kind");
+      expect(deck, id).not.toContain("What the parts must carry");
+      // The number discipline survives intact.
+      expect(deck, id).toContain("Number discipline (hard rule)");
+      expect(deck, id).toContain("Number sanity (hard rules");
+      // The default instruction is untouched by the variant.
+      const standard = buildOriginBusinessPlanningInstruction(profile);
+      expect(standard.toLowerCase(), id).toContain("premise table");
+      expect(standard, id).toContain("Required parts for this kind");
+    }
+  });
+
+  it("route-3 compact instruction: deck variant carries no premise table and no required parts, for every brief", () => {
+    for (const { id, profile } of profiles) {
+      const deck = buildOriginGroqBusinessPlanningInstruction(profile, new Date(), { forDeck: true });
+      expect(deck, id).not.toContain("Premise table first");
+      expect(deck, id).not.toContain("Required parts:");
+      expect(deck, id).toContain("- Numbers:");
+      const standard = buildOriginGroqBusinessPlanningInstruction(profile);
+      expect(standard, id).toContain("Premise table first");
+      expect(standard, id).toContain("Required parts:");
+    }
+  });
+
+  it("policy: deckRequest propagates into the assembled answer-quality instruction", () => {
+    const prompt = ORIGIN_BUSINESS_PLANNING_BRIEFS[0].prompt;
+    const deckPolicy = resolveOriginAnswerQualityPolicy({
+      intent: intent(),
+      taskType: "documentation",
+      independentReviewRequired: false,
+      promptText: prompt,
+      deckRequest: true,
+    });
+    expect(deckPolicy.businessPlanning).not.toBeNull();
+    expect(deckPolicy.deckRequest).toBe(true);
+    const deckInstruction = originAnswerQualityInstruction(deckPolicy);
+    expect(deckInstruction.toLowerCase()).not.toContain("premise table");
+    expect(deckInstruction).not.toContain("Required parts for this kind");
+    expect(deckInstruction).toContain("Number discipline (hard rule)");
+
+    const standardPolicy = resolveOriginAnswerQualityPolicy({
+      intent: intent(),
+      taskType: "documentation",
+      independentReviewRequired: false,
+      promptText: prompt,
+    });
+    // Non-deck policies keep their exact previous shape (no new key).
+    expect("deckRequest" in standardPolicy).toBe(false);
+    const standardInstruction = originAnswerQualityInstruction(standardPolicy);
+    expect(standardInstruction.toLowerCase()).toContain("premise table");
+    expect(standardInstruction).toContain("Required parts for this kind");
+  });
+});

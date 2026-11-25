@@ -67,7 +67,16 @@ export function isProposalDeckChatRequest(
 }
 
 export type ProposalDeckChatArtifactOutcome =
-  | { status: "created"; artifact: OriginSupervisorArtifactPayloadV2 }
+  | {
+      status: "created";
+      artifact: OriginSupervisorArtifactPayloadV2;
+      /**
+       * 数値の素材照合（shadow）の検出コード。素材テキストを渡した場合
+       * にだけ付き、ファイル作成の成否は変えない（DOCUMENT_WAVE2 §4
+       * 単位2）。呼び出し側はコードと件数だけをログへ残す。
+       */
+      numericGroundingViolationCodes?: readonly string[];
+    }
   | {
       status: "failed";
       failureCode: string;
@@ -75,6 +84,17 @@ export type ProposalDeckChatArtifactOutcome =
       /** 失敗時の回答の「形」（件数のみ・原文テキストは含まない）。完了ログへそのまま渡す。 */
       failureShape?: ProposalDeckAnswerShape;
     };
+
+export interface BuildProposalDeckChatArtifactOptions {
+  /**
+   * 素材テキスト（依頼文＋素材）を渡すと、デッキの数値を素材と照合する
+   * shadow チェックが有効になる。未指定では従来どおり一切実行しない。
+   * 素材テキスト自体は保持せず、この呼び出し内でのみ使う。
+   */
+  numericGroundingSourceTexts?: readonly string[];
+  /** 当日日付の刻印を根拠なしとしないための基準日（既定は現在日時）。 */
+  referenceDate?: Date;
+}
 
 /** artifactGeneratorV12 の safeName と同じ規則でファイル名の stem を作る。 */
 function deckFilenameStem(title: string): string {
@@ -93,6 +113,7 @@ function deckFilenameStem(title: string): string {
  */
 export function buildProposalDeckChatArtifact(
   answerText: string,
+  options?: BuildProposalDeckChatArtifactOptions,
 ): ProposalDeckChatArtifactOutcome {
   // 失敗時は段階別の failureCode に加え、回答の「形」（件数のみ）を必ず添える。
   // 形があれば、原文を保存しなくても失敗形状を恒常フィクスチャとして再構成できる。
@@ -124,6 +145,14 @@ export function buildProposalDeckChatArtifact(
 
   const selfCheck = checkProposalDeck(deck, {
     numericSourceTexts: proposalDeckNumericSourceTexts(input),
+    ...(options?.numericGroundingSourceTexts
+      ? {
+          numericGrounding: {
+            sourceTexts: options.numericGroundingSourceTexts,
+            referenceDate: options.referenceDate ?? new Date(),
+          },
+        }
+      : {}),
   });
   if (!selfCheck.ok) {
     return fail(
@@ -131,6 +160,9 @@ export function buildProposalDeckChatArtifact(
       selfCheck.violations.map((violation) => violation.code),
     );
   }
+  const numericGroundingViolationCodes = selfCheck.numericGroundingViolations?.map(
+    (violation) => violation.code,
+  );
 
   let bytes: Buffer;
   try {
@@ -162,6 +194,9 @@ export function buildProposalDeckChatArtifact(
   const sha256 = createHash("sha256").update(bytes).digest("hex");
   return {
     status: "created",
+    // shadow 照合を実行した場合は、検出ゼロでもコード配列（空）を付けて
+    // 「実行した」ことを呼び出し側が判別できるようにする。
+    ...(numericGroundingViolationCodes ? { numericGroundingViolationCodes } : {}),
     artifact: {
       id: `artifact-pptx-${sha256.slice(0, 20)}`,
       kind: "presentation",

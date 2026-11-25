@@ -12,6 +12,7 @@ import {
   type ProposalDeck,
 } from './proposalDeckV1.js';
 import type { ProposalDeckInput } from './proposalDeckPlannerV1.js';
+import { checkProposalDeckNumericGrounding } from './proposalDeckNumericGroundingV1.js';
 
 export type ProposalDeckViolationCode =
   | 'SUMMARY_MISSING'
@@ -22,7 +23,13 @@ export type ProposalDeckViolationCode =
   | 'PLACEHOLDER_REMAINING'
   | 'COLOR_OUT_OF_TOKENS'
   | 'SLIDE_COUNT_OUT_OF_RANGE'
-  | 'NUMERIC_TOKEN_NOT_PRESERVED';
+  | 'NUMERIC_TOKEN_NOT_PRESERVED'
+  // 数値の素材照合（proposalDeckNumericGroundingV1、shadow 専用コード）。
+  // checkProposalDeck の violations には入らず、結果の
+  // numericGroundingViolations に分離して返る（成立可否は変えない）。
+  | 'NUMERIC_FORMULA_MISMATCH'
+  | 'NUMERIC_NOT_GROUNDED'
+  | 'SOURCE_NUMERIC_MISSING';
 
 export interface ProposalDeckViolation {
   code: ProposalDeckViolationCode;
@@ -33,6 +40,12 @@ export interface ProposalDeckViolation {
 export interface ProposalDeckSelfCheckResult {
   ok: boolean;
   violations: ProposalDeckViolation[];
+  /**
+   * 数値の素材照合（shadow）の検出結果。options.numericGrounding を
+   * 指定した場合にだけ付き、ok には数えない（DOCUMENT_WAVE2 §4 単位2:
+   * 注記・enforce は単位4で、オーナー承認待ち）。
+   */
+  numericGroundingViolations?: ProposalDeckViolation[];
 }
 
 /**
@@ -114,33 +127,43 @@ function pushText(texts: string[], value: unknown) {
   if (typeof value === 'string') texts.push(value);
 }
 
+/** デッキ側の全テキスト（path 付き）。数値保全・素材照合の比較対象。 */
+export function collectProposalDeckTextSegments(
+  deck: Partial<ProposalDeck>,
+): { path: string; text: string }[] {
+  const segments: { path: string; text: string }[] = [];
+  const push = (path: string, value: unknown) => {
+    if (typeof value === 'string') segments.push({ path, text: value });
+  };
+  push('title', deck.title);
+  push('subtitle', deck.subtitle);
+  push('presenter', deck.presenter);
+  push('date', deck.date);
+  push('summary.headline', deck.summary?.headline);
+  (Array.isArray(deck.summary?.points) ? deck.summary.points : []).forEach((point, index) => {
+    push(`summary.points[${index}]`, point);
+  });
+  (Array.isArray(deck.sections) ? deck.sections : []).forEach((section, sectionIndex) => {
+    push(`sections[${sectionIndex}].message`, section?.message);
+    push(`sections[${sectionIndex}].visual.title`, section?.visual?.title);
+    (Array.isArray(section?.bullets) ? section.bullets : []).forEach((bullet, bulletIndex) => {
+      push(`sections[${sectionIndex}].bullets[${bulletIndex}].lead`, bullet?.lead);
+      push(`sections[${sectionIndex}].bullets[${bulletIndex}].detail`, bullet?.detail);
+    });
+  });
+  push('closing.ask', deck.closing?.ask);
+  (Array.isArray(deck.closing?.nextSteps) ? deck.closing.nextSteps : []).forEach((step, index) => {
+    push(`closing.nextSteps[${index}]`, step);
+  });
+  (Array.isArray(deck.assumptions) ? deck.assumptions : []).forEach((assumption, index) => {
+    push(`assumptions[${index}]`, assumption);
+  });
+  return segments;
+}
+
 /** デッキ側の全テキスト（数値保全チェックの比較対象）。 */
 function collectDeckTexts(deck: Partial<ProposalDeck>): string[] {
-  const texts: string[] = [];
-  pushText(texts, deck.title);
-  pushText(texts, deck.subtitle);
-  pushText(texts, deck.presenter);
-  pushText(texts, deck.date);
-  pushText(texts, deck.summary?.headline);
-  for (const point of Array.isArray(deck.summary?.points) ? deck.summary.points : []) {
-    pushText(texts, point);
-  }
-  for (const section of Array.isArray(deck.sections) ? deck.sections : []) {
-    pushText(texts, section?.message);
-    pushText(texts, section?.visual?.title);
-    for (const bullet of Array.isArray(section?.bullets) ? section.bullets : []) {
-      pushText(texts, bullet?.lead);
-      pushText(texts, bullet?.detail);
-    }
-  }
-  pushText(texts, deck.closing?.ask);
-  for (const step of Array.isArray(deck.closing?.nextSteps) ? deck.closing.nextSteps : []) {
-    pushText(texts, step);
-  }
-  for (const assumption of Array.isArray(deck.assumptions) ? deck.assumptions : []) {
-    pushText(texts, assumption);
-  }
-  return texts;
+  return collectProposalDeckTextSegments(deck).map((segment) => segment.text);
 }
 
 /**
@@ -186,6 +209,19 @@ export interface ProposalDeckSelfCheckOptions {
    * 対応までは検証しない（意味付きの照合は検索強化トラック側の設計に委ねる）。
    */
   numericSourceTexts?: readonly string[];
+  /**
+   * 指定された場合のみ、デッキの数値を素材テキストと照合する
+   * （proposalDeckNumericGroundingV1、DOCUMENT_WAVE2 §4 単位2）。
+   * 結果は shadow として結果の numericGroundingViolations に分離して
+   * 返り、ok（成立可否）は変えない。未指定時は一切実行しない
+   * （現行挙動と同一）。
+   */
+  numericGrounding?: {
+    /** 素材テキスト（依頼文＋素材）。 */
+    sourceTexts: readonly string[];
+    /** 当日日付の刻印を根拠なしとしないための基準日。 */
+    referenceDate?: Date;
+  };
 }
 
 export function checkProposalDeck(
@@ -315,5 +351,19 @@ export function checkProposalDeck(
     }
   }
 
-  return { ok: violations.length === 0, violations };
+  // 数値の素材照合（shadow、options 指定時のみ）: 検出は成立可否に
+  // 一切影響させず、別のフィールドで返す（DOCUMENT_WAVE2 §4 単位2）。
+  const numericGroundingViolations = options?.numericGrounding
+    ? checkProposalDeckNumericGrounding({
+        deckSegments: collectProposalDeckTextSegments(source),
+        sourceTexts: options.numericGrounding.sourceTexts,
+        referenceDate: options.numericGrounding.referenceDate,
+      })
+    : undefined;
+
+  return {
+    ok: violations.length === 0,
+    violations,
+    ...(numericGroundingViolations ? { numericGroundingViolations } : {}),
+  };
 }

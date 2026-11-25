@@ -31,7 +31,7 @@ import {
   resolveOriginDateWeekdayVerificationMode,
   type OriginDateWeekdayVerificationOutcome,
 } from "../lib/orchestration/OriginDateWeekdayVerification.js";
-import { buildOriginProviderFailureDiagnostic, OriginProviderError, type OriginProviderExecutionRequest } from "./originProviderClient.js";
+import { buildOriginProviderFailureDiagnostic, mergeContinuation, OriginProviderError, type OriginProviderExecutionRequest } from "./originProviderClient.js";
 import { type OriginProviderStreamExecutor, type OriginProviderStreamHandlers } from "./originProviderStreamClient.js";
 import {
   analyzeRefusalLikeOutput,
@@ -232,6 +232,11 @@ export function createOriginStreamingChatRouter(options: OriginStreamingChatRout
         taskType: planningResult.plan.taskType,
         independentReviewRequired: reviewDecision.required,
         promptText: intentInput,
+        // Deck variant of the planning instruction (DOCUMENT_WAVE2 §4
+        // unit 1): for a deck request the planning instruction keeps
+        // only its number discipline — its structural demands competed
+        // with the deck skeleton and produced the S-5 form failure.
+        deckRequest: deckRequested,
       });
       const fullSystemInstruction = systemInstruction(
         requestIntent,
@@ -281,7 +286,7 @@ export function createOriginStreamingChatRouter(options: OriginStreamingChatRout
         messages: contextResult.window.messages,
         systemInstruction: fullSystemInstruction + premiseGuardBlockSuffix,
         cloudflareSystemInstruction: originCloudflareRouteSystemInstruction(fullSystemInstruction) + premiseGuardBlockSuffix,
-        groqSystemInstruction: originGroqRouteSystemInstruction(answerQualityPolicy.businessPlanning) + premiseGuardBlockSuffix + deckGroqSuffix,
+        groqSystemInstruction: originGroqRouteSystemInstruction(answerQualityPolicy.businessPlanning, { forDeck: deckRequested }) + premiseGuardBlockSuffix + deckGroqSuffix,
         // Progressive display for responses that need no verification: the
         // upstream executor forwards each fragment as it is generated (after
         // that fragment's own routing/billing checks), so the first characters
@@ -291,6 +296,10 @@ export function createOriginStreamingChatRouter(options: OriginStreamingChatRout
         // Admission is unchanged either way: the client still accepts the
         // answer only on the verified completion event below.
         streamRelease: reviewDecision.required ? "hold-until-verified" : "incremental",
+        // Deck mark for the route-3 completion-budget floor
+        // (DOCUMENT_WAVE2 §4 unit 3): present only on deck requests, so
+        // every other request's provider payload is unchanged.
+        ...(deckRequested ? { deckRequest: true } : {}),
       };
 
       // Assertion gate arming (S-PR-1 output side): when the question
@@ -510,6 +519,14 @@ export function createOriginStreamingChatRouter(options: OriginStreamingChatRout
       let deckFailureCode: string | undefined;
       let deckViolationCodes: readonly string[] | undefined;
       let deckFailureShape: ProposalDeckAnswerShape | undefined;
+      // Deck numeric grounding (shadow, DOCUMENT_WAVE2 §4 unit 2):
+      // detection codes from the created outcome, logged below as codes
+      // only. Never affects whether the file is created.
+      let deckGroundingViolationCodes: readonly string[] | undefined;
+      // Deck continuation (unit 3): set when the single continuation
+      // generation for a truncated deck draft fired, and whether the
+      // merged draft then assembled into a deck.
+      let deckContinuationOutcome: "recovered" | "failed" | undefined;
       let deckRecordsMetrics: DeckRecordsStageMetrics | undefined;
       if (deckRecordsPlan) {
         // D-PR-6 records path: assemble → convert → render from the
@@ -632,9 +649,61 @@ export function createOriginStreamingChatRouter(options: OriginStreamingChatRout
       // when the deck-records kill switch is OFF; the records path
       // above already filled the same outcome fields when it is ON.
       if (deckRequested && !deckRecordsPlan) {
-        const outcome = buildProposalDeckChatArtifact(adoptedResult.text);
+        // Numeric grounding (shadow, DOCUMENT_WAVE2 §4 unit 2): the
+        // user-role messages of the served window are the material the
+        // deck's numbers must trace back to (the DG-1 composition puts
+        // the request and the materials in the user turns). The texts
+        // are used inside this call only and never stored or logged;
+        // detections ride the outcome as codes and never change
+        // whether the file is created.
+        const deckGroundingOptions = {
+          numericGroundingSourceTexts: contextResult.window.messages
+            .filter((message) => message.role === "user")
+            .map((message) => message.content),
+          referenceDate: new Date(now()),
+        };
+        let outcome = buildProposalDeckChatArtifact(adoptedResult.text, deckGroundingOptions);
+        // Completion recovery (unit 3, S-6 shape): the draft was cut
+        // off by the completion budget (finish_reason=length) and the
+        // skeleton cannot be assembled. Exactly ONE continuation
+        // generation runs — the non-streaming client's segment
+        // continuation is the precedent, with the same instruction —
+        // and the merged draft is assembled once more. The
+        // continuation is never streamed to the client (its text is
+        // a draft fragment, not an answer), and any failure leaves
+        // the original outcome untouched.
+        if (outcome.status !== "created" && adoptedResult.truncated === true) {
+          deckContinuationOutcome = "failed";
+          try {
+            const continuation = await streamExecute(
+              {
+                ...providerRequest,
+                messages: [
+                  ...providerRequest.messages,
+                  { role: "assistant", content: adoptedResult.text },
+                  { role: "user", content: "直前の回答が出力上限で途切れました。途切れた箇所から最後まで不足部分だけを続けてください。" },
+                ],
+              },
+              { onDelta: () => {} },
+            );
+            if (continuation.text.trim()) {
+              const mergedOutcome = buildProposalDeckChatArtifact(
+                mergeContinuation(adoptedResult.text, continuation.text),
+                deckGroundingOptions,
+              );
+              if (mergedOutcome.status === "created") {
+                outcome = mergedOutcome;
+                deckContinuationOutcome = "recovered";
+              }
+            }
+          } catch {
+            // The original failure stands; the outcome field above
+            // already records that the continuation did not recover it.
+          }
+        }
         if (outcome.status === "created") {
           deckArtifact = outcome.artifact;
+          deckGroundingViolationCodes = outcome.numericGroundingViolationCodes;
         } else {
           deckFailureCode = outcome.failureCode;
           deckViolationCodes = outcome.violationCodes;
@@ -790,6 +859,8 @@ export function createOriginStreamingChatRouter(options: OriginStreamingChatRout
         ...(deckViolationCodes ? { proposalDeckViolationCodes: deckViolationCodes } : {}),
         ...(deckFailureShape ? { proposalDeckFailureShape: deckFailureShape } : {}),
         ...(deckRecordsMetrics ? { proposalDeckRecords: deckRecordsMetrics } : {}),
+        ...(deckGroundingViolationCodes ? { proposalDeckNumericGroundingCodes: deckGroundingViolationCodes } : {}),
+        ...(deckContinuationOutcome ? { proposalDeckContinuation: deckContinuationOutcome } : {}),
       });
       if (deckRequested && !deckArtifact && !deckRecordsPlan) {
         res.write(`data: ${JSON.stringify({ type: "delta", text: PROPOSAL_DECK_FAILURE_NOTE })}\n\n`);
@@ -800,7 +871,7 @@ export function createOriginStreamingChatRouter(options: OriginStreamingChatRout
         servedModel: adoptedResult.routingEvidence.servedModel,
         costEvidenceStatus: "NOT_MEASURED",
         fallbackUsed: adoptedResult.routingEvidence.fallbackUsed,
-        ...(adoptedResult.truncated === true && !assertionGateReplaced && publicationGateOutcome?.held !== true ? { truncated: true } : {}),
+        ...(adoptedResult.truncated === true && deckContinuationOutcome !== "recovered" && !assertionGateReplaced && publicationGateOutcome?.held !== true ? { truncated: true } : {}),
         ...(deckArtifact ? { artifacts: [deckArtifact] } : {}),
         ...(answerVerification ? { answerVerification } : {}),
       })}\n\n`);

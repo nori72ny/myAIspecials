@@ -1033,3 +1033,63 @@ describe("Groq rate-limit header observation (capacity D-0)", () => {
     expect(result.rateLimit).toEqual({ remainingRequests: 999, resetRequestsSeconds: 2 });
   });
 });
+
+describe("Groq deck completion-budget floor (DOCUMENT_WAVE2 unit 3)", () => {
+  beforeEach(() => {
+    resetOriginCapacityLedgerForTests();
+  });
+
+  const captureBody = async (deckRequest: OriginProviderExecutionRequest) => {
+    const fetchMock = vi.fn(async () => groqJson(successBody())) as unknown as OriginFetch;
+    await executeOriginGroqProvider(deckRequest, groqEnv, fetchMock, { nowMs: NOW_MS });
+    const calls = (fetchMock as unknown as ReturnType<typeof vi.fn>).mock.calls;
+    expect(calls).toHaveLength(1);
+    return JSON.parse(String((calls[0] as [string, RequestInit])[1].body)) as {
+      max_tokens: number;
+      messages: Array<{ role: string; content: string }>;
+    };
+  };
+
+  it("guarantees the 4,096 completion floor for deck requests by trimming the input harder", async () => {
+    // Six ~1,004-token messages (~6,034 estimated input tokens with the
+    // system instruction): the standard 6,000 input budget keeps five
+    // and leaves under 3,000 completion tokens; the deck input budget
+    // (3,904) keeps three and restores the full floor.
+    const history = Array.from({ length: 6 }, (_, index) => ({
+      role: index % 2 === 0 ? ("user" as const) : ("assistant" as const),
+      content: "あ".repeat(2_000),
+    }));
+    const baseRequest: OriginProviderExecutionRequest = { ...request, messages: history };
+
+    const standard = await captureBody(baseRequest);
+    expect(standard.max_tokens).toBeLessThan(4_096);
+    expect(standard.messages).toHaveLength(6);
+
+    const deck = await captureBody({ ...baseRequest, deckRequest: true });
+    expect(deck.max_tokens).toBe(4_096);
+    expect(deck.messages).toHaveLength(4);
+    // The final message (the current user turn) is always kept.
+    expect(deck.messages[deck.messages.length - 1].content).toBe("あ".repeat(2_000));
+  });
+
+  it("raises the completion budget up to the floor when the task-type budget is lower", async () => {
+    // taskType "test" falls in the 2,400 default budget class.
+    const lowBudgetRequest: OriginProviderExecutionRequest = {
+      ...request,
+      plan: { ...groqPlan(), taskType: "test" },
+    };
+    const standard = await captureBody(lowBudgetRequest);
+    expect(standard.max_tokens).toBe(2_400);
+    const deck = await captureBody({ ...lowBudgetRequest, deckRequest: true });
+    expect(deck.max_tokens).toBe(4_096);
+  });
+
+  it("leaves a small deck request's payload shape otherwise unchanged", async () => {
+    const standard = await captureBody(request);
+    const deck = await captureBody({ ...request, deckRequest: true });
+    // taskType "review" already budgets 4,096 and the input is small:
+    // the floor changes nothing.
+    expect(deck.max_tokens).toBe(standard.max_tokens);
+    expect(deck.messages).toEqual(standard.messages);
+  });
+});
