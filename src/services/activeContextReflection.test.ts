@@ -426,3 +426,140 @@ describe('personal context assembly (design §6)', () => {
     expect(en).toContain('[Decisions] 予算の件は確定しました (November 16)');
   });
 });
+
+// --- Self-referential questions and summary assembly (2026-11-25) -------------
+//
+// The lexical relevance gate cannot connect "私の仕事は何ですか" with a
+// stored "食品メーカーで商品開発を担当しています" — the two share no
+// character 2-gram — yet answering questions about the owner from his own
+// stored facts is the point of the store. Self-referential prompts bypass
+// the gate for the owner's attributes, and a summary request assembles
+// the whole active store instead of a five-item slice.
+
+describe('self-referential and summary assembly (owner brain follow-up)', () => {
+  it('detects self-referential prompts and summary requests', async () => {
+    const mod = await loadFreshModule();
+    expect(mod.isSelfReferentialPrompt('私の仕事は何ですか')).toBe(true);
+    expect(mod.isSelfReferentialPrompt('私の目標を教えてください')).toBe(true);
+    expect(mod.isSelfReferentialPrompt('明日の天気を教えてください')).toBe(false);
+    expect(mod.isSelfReferentialPrompt('予算の件を確認します')).toBe(false);
+    expect(mod.isMemorySummaryRequest('覚えていることを全部まとめてください')).toBe(true);
+    expect(mod.isMemorySummaryRequest('私について覚えていることを教えてください')).toBe(true);
+    expect(mod.isMemorySummaryRequest('私の仕事を覚えていますか')).toBe(false);
+    expect(mod.isMemorySummaryRequest('予算の件をまとめてください')).toBe(false);
+    expect(mod.isProxyAnswerRequest('私の代わりに答えてください')).toBe(true);
+    expect(mod.isProxyAnswerRequest('私として返事してください')).toBe(true);
+    expect(mod.isProxyAnswerRequest('この件に代わりに返信しておいてください')).toBe(true);
+    expect(mod.isProxyAnswerRequest('私の仕事は何ですか')).toBe(false);
+    expect(mod.isProxyAnswerRequest('明日の天気を教えてください')).toBe(false);
+  });
+
+  it('assembles the full store for a proxy-answer request and carries the proxy guards in the instruction', async () => {
+    const mod = await loadFreshModule();
+    await mod.upsertMemoryItem(USER_ID, memoryItem({
+      id: 'm-job',
+      kind: 'fact',
+      origin: 'inferred',
+      text: '食品メーカーで商品開発を担当しています',
+      source: { quote: '食品メーカーで商品開発を担当しています', at: NOV16 },
+    }));
+    await mod.upsertMemoryItem(USER_ID, memoryItem({
+      id: 'm-goal',
+      kind: 'fact',
+      origin: 'inferred',
+      text: '目標は来年、独立することです',
+      source: { quote: '目標は来年、独立することです', at: NOV16 },
+    }));
+
+    // Neither fact shares wording with the request; a proxy answer needs
+    // the whole picture, so both are assembled.
+    const block = await mod.retrieveRelevantContext('私の代わりに答えてください');
+    expect(block).toContain('食品メーカーで商品開発を担当しています');
+    expect(block).toContain('目標は来年、独立することです');
+
+    // The instruction that wraps the block on the server carries the
+    // proxy discipline: Orin is the owner's representative — his alter
+    // ego, but not the owner himself (owner instructions 2026-11-25
+    // 20:12 / 20:20, corrected 20:57); ground only in the records,
+    // admit the unknown, never finalize commitments that affect other
+    // people.
+    const instruction = mod.buildActiveContextInstruction(block);
+    expect(instruction).toContain('Proxy answering');
+    expect(instruction).toContain("you are the owner's representative");
+    expect(instruction).toContain('not the owner himself');
+    expect(instruction).toContain('Answer on his behalf, in his manner and tone');
+    expect(instruction).toContain('say plainly that you do not know it');
+    expect(instruction).toContain('Never finalize anything that affects other people');
+    expect(instruction).toContain("subject to the owner's own confirmation");
+  });
+
+  it('answers a question about the owner from a fact that shares no wording with it', async () => {
+    const mod = await loadFreshModule();
+    await mod.upsertMemoryItem(USER_ID, memoryItem({
+      id: 'm-job',
+      kind: 'fact',
+      origin: 'inferred',
+      text: '食品メーカーで商品開発を担当しています',
+      source: { quote: '食品メーカーで商品開発を担当しています', at: NOV16 },
+    }));
+
+    const block = await mod.retrieveRelevantContext('私の仕事は何ですか');
+    expect(block).toContain('食品メーカーで商品開発を担当しています');
+
+    // The same fact stays out of an unrelated prompt: the bypass is tied
+    // to the prompt being about the owner, not a global gate removal.
+    const unrelated = await mod.retrieveRelevantContext('明日の天気を教えてください');
+    expect(unrelated).not.toContain('食品メーカーで商品開発を担当しています');
+  });
+
+  it('keeps the gate for requests and commitments even on self-referential prompts', async () => {
+    const mod = await loadFreshModule();
+    await mod.upsertMemoryItem(USER_ID, memoryItem({
+      id: 'm-request',
+      kind: 'request',
+      origin: 'inferred',
+      text: '週報は金曜までに送る約束です',
+      source: { quote: '週報は金曜までに送る約束です', at: NOV16 },
+    }));
+    await mod.upsertMemoryItem(USER_ID, memoryItem({
+      id: 'm-commitment',
+      kind: 'commitment',
+      origin: 'inferred',
+      text: '次回は金曜までに確認します',
+      source: { quote: '次回は金曜までに確認します', at: NOV16 },
+    }));
+
+    const block = await mod.retrieveRelevantContext('私の仕事は何ですか');
+    expect(block).not.toContain('週報は金曜までに送る約束です');
+    expect(block).not.toContain('次回は金曜までに確認します');
+  });
+
+  it('assembles every active item for a summary request, in reading order, past the five-item cap', async () => {
+    await seedStore({
+      profile: [],
+      memory: [
+        memoryItem({ id: 's-req', kind: 'request', text: '月曜に週報を送ります', source: { quote: '月曜に週報を送ります', at: NOV16 } }),
+        memoryItem({ id: 's-com', kind: 'commitment', text: '金曜までに結果を知らせます', source: { quote: '金曜までに結果を知らせます', at: NOV16 } }),
+        memoryItem({ id: 's-fact', kind: 'fact', text: '食品メーカーで商品開発を担当しています', source: { quote: '食品メーカーで商品開発を担当しています', at: NOV16 } }),
+        memoryItem({ id: 's-pref', kind: 'preference', text: '結論から話してほしい', source: { quote: '結論から話してほしい', at: NOV16 } }),
+        memoryItem({ id: 's-dec', kind: 'decision', text: '新工場の件は来年まで見送ります', source: { quote: '新工場の件は来年まで見送ります', at: NOV16 } }),
+        memoryItem({ id: 's-fact2', kind: 'fact', text: '趣味はキャンプです', source: { quote: '趣味はキャンプです', at: NOV16 }, createdAt: NOV16 + 10 }),
+        memoryItem({ id: 's-check', kind: 'fact', status: 'needs-check', text: '未確定の事実です', source: { quote: '未確定の事実です', at: NOV16 } }),
+        memoryItem({ id: 's-off', kind: 'fact', sendToModel: false, text: '渡さない事実です', source: { quote: '渡さない事実です', at: NOV16 } }),
+      ],
+    });
+    const mod = await loadFreshModule();
+    const block = await mod.retrieveRelevantContext('覚えていることを全部まとめてください');
+    // All six shareable active items are present — more than the usual
+    // five-item cap — while the unresolved and unflagged ones stay out.
+    expect(block.match(/［/g)).toHaveLength(6);
+    expect(block).not.toContain('未確定の事実です');
+    expect(block).not.toContain('渡さない事実です');
+    // Reading order: facts first, then preferences, decisions, requests,
+    // commitments.
+    expect(block.indexOf('食品メーカーで商品開発を担当しています')).toBeLessThan(block.indexOf('結論から話してほしい'));
+    expect(block.indexOf('結論から話してほしい')).toBeLessThan(block.indexOf('新工場の件は来年まで見送ります'));
+    expect(block.indexOf('新工場の件は来年まで見送ります')).toBeLessThan(block.indexOf('月曜に週報を送ります'));
+    expect(block.indexOf('月曜に週報を送ります')).toBeLessThan(block.indexOf('金曜までに結果を知らせます'));
+  });
+});
