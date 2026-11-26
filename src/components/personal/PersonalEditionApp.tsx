@@ -67,6 +67,11 @@ const PersonalEditionApp = React.memo(function PersonalEditionApp({
     const initial = workspaceLocation();
     return initial === 'ai-news' || initial === 'remaining' ? initial : 'chat';
   });
+  // コード画面の依頼文（引き継ぎ文＋未送信の編集）はシェルが保持する
+  // （UIUX 状態保持 2026-11-27）。チャットの未送信下書きがシェルに
+  // マウントされた App の状態として残るのと同じ流儀で、コード画面を
+  // 離れて戻っても内容が消えないようにする。画面側は離脱時に最新の
+  // 依頼文を onGoalChange で書き戻し、送信が受理されたら空になる。
   const [codingInitialGoal, setCodingInitialGoal] = useState('');
   // 「作る」は専用画面ではなく、会話のそばに開くパネルになった
   // （画面構成の移行・第3段）。null = 閉じている、文字列 = その依頼で開く。
@@ -93,7 +98,6 @@ const PersonalEditionApp = React.memo(function PersonalEditionApp({
   useEffect(() => {
     const sync = () => {
       setWorkspace(workspaceLocation());
-      setCodingInitialGoal('');
       setCreativePanelRequest(null);
       setMobileSurface('conversation');
     };
@@ -106,14 +110,16 @@ const PersonalEditionApp = React.memo(function PersonalEditionApp({
     if (next === 'chat') url.searchParams.delete('workspace');
     else url.searchParams.set('workspace', next);
     window.history.pushState(null, '', url);
-    if (next !== 'coding') setCodingInitialGoal('');
     setCreativePanelRequest(null);
     setMobileSurface('conversation');
     setWorkspace(next);
   };
 
   const openCodingWorkspace = (goal?: string) => {
-    setCodingInitialGoal(goal?.trim().slice(0, 4000) ?? '');
+    // 引き継ぎ文が渡されたときだけ下書きを置き換える。引数なしの
+    // 画面遷移（+メニューやオリンパネル経由）では、保持中の下書きを
+    // 消さない（UIUX 状態保持 2026-11-27）。
+    if (goal !== undefined) setCodingInitialGoal(goal.trim().slice(0, 4000));
     switchWorkspace('coding');
   };
 
@@ -259,7 +265,7 @@ const PersonalEditionApp = React.memo(function PersonalEditionApp({
       />}
 
       {workspace === 'agent' && <div className="h-full overflow-y-auto"><Suspense fallback={<p role="status">エージェントを読み込んでいます…</p>}><AgentWorkspace /></Suspense></div>}
-      {workspace === 'coding' && <div className="h-full overflow-y-auto"><Suspense fallback={<p role="status">コード画面を読み込んでいます…</p>}><CodingJobWorkspace initialGoal={codingInitialGoal} onOpenSettings={onOpenSettings} /></Suspense></div>}
+      {workspace === 'coding' && <div className="h-full overflow-y-auto"><Suspense fallback={<p role="status">コード画面を読み込んでいます…</p>}><CodingJobWorkspace initialGoal={codingInitialGoal} onGoalChange={setCodingInitialGoal} onOpenSettings={onOpenSettings} /></Suspense></div>}
       {workspace === 'ai-news' && <div className="h-full overflow-y-auto"><OrinAiNewsPage language={settings?.language ?? 'ja'} /></div>}
       {workspace === 'remaining' && <div className="h-full overflow-y-auto"><OrinRemainingPage language={settings?.language ?? 'ja'} foregroundItems={orinWorkState.foregroundItems} agentFallbackItem={orinWorkState.agentFallbackItem} queuedRequests={orinWorkState.queuedRequests} onOpenAgent={() => switchWorkspace('agent')} onOpenChat={() => switchWorkspace('chat')} /></div>}
     </div>

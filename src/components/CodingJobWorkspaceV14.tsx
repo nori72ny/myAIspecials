@@ -162,10 +162,21 @@ function StatusBadge({ status, cancelRequested }: { status: CodingJobStatus; can
   </span>;
 }
 
-type CodingJobWorkspaceV14Props = { initialGoal?: string; onOpenSettings?: (section?: 'coding') => void };
+type CodingJobWorkspaceV14Props = { initialGoal?: string; onOpenSettings?: (section?: 'coding') => void; onGoalChange?: (goal: string) => void };
 
-export default function CodingJobWorkspaceV14({ initialGoal, onOpenSettings }: CodingJobWorkspaceV14Props) {
+export default function CodingJobWorkspaceV14({ initialGoal, onOpenSettings, onGoalChange }: CodingJobWorkspaceV14Props) {
   const [goal, setGoal] = useState(() => initialGoal?.trim().slice(0, 4000) ?? '');
+  // 下書き保持（UIUX 状態保持 2026-11-27）：未送信の依頼文はシェル
+  // （PersonalEditionApp）が保持するのがこのアプリの流儀で、チャットの
+  // 未送信下書きもシェルにマウントされたままの状態として残る。この画面は
+  // 遷移でアンマウントされるため、離れる時に最新の依頼文をシェルへ
+  // 書き戻し、戻ったときに initialGoal として復元されるようにする。
+  // 端末ストレージへの保存はしない（従来どおり）。
+  const goalRef = useRef(goal);
+  useEffect(() => { goalRef.current = goal; }, [goal]);
+  const onGoalChangeRef = useRef(onGoalChange);
+  useEffect(() => { onGoalChangeRef.current = onGoalChange; }, [onGoalChange]);
+  useEffect(() => () => { onGoalChangeRef.current?.(goalRef.current); }, []);
   const [capability, setCapability] = useState<CapabilityResponse | null>(null);
   const [job, setJob] = useState<CodingJobRecord | null>(null);
   const [result, setResult] = useState<CodingJobResult | null>(null);
@@ -310,6 +321,10 @@ export default function CodingJobWorkspaceV14({ initialGoal, onOpenSettings }: C
       if (!response.ok || !data.ok || !data.job) { credentialRef.current = ''; setError(safeCode(data.code, `CODING_UI_CREATE_${response.status}`)); return; }
       currentJobIdRef.current = data.job.jobId;
       applyResponse(data, epoch);
+      // 送信が受理された時点で下書きは消費済みのため空にする（チャットが
+      // 送信時に入力欄を空にするのと同じ流儀）。失敗時は依頼文を
+      // 残し、直して送り直せるようにする。
+      setGoal('');
     } catch { if (epoch === requestEpochRef.current) { credentialRef.current = ''; setError('CODING_UI_CREATE_UNAVAILABLE'); } }
     finally { if (epoch === requestEpochRef.current) setBusy(false); }
   }, [applyResponse, beginOperation, busy, capability?.ready, goal]);

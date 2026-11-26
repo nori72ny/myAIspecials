@@ -357,4 +357,70 @@ describe('CodingJobWorkspaceV14', () => {
     // 案内するだけで、ジョブは作らない。
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
+
+  it('writes the edited goal back to the shell on unmount so it survives leaving and returning (UIUX state retention, 2026-11-27)', async () => {
+    const onGoalChange = vi.fn();
+    const fetchMock = vi.fn().mockResolvedValue(response(capability));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const { unmount } = render(<CodingJobWorkspaceV14 initialGoal="チャットから引き継いだ依頼文" onGoalChange={onGoalChange} />);
+    await screen.findByText('準備できています');
+    const textarea = screen.getByLabelText('作りたいもの・直したいこと') as HTMLTextAreaElement;
+    expect(textarea.value).toBe('チャットから引き継いだ依頼文');
+
+    fireEvent.change(textarea, { target: { value: 'コード画面で編集した依頼文' } });
+    // 編集中は書き戻さない（書き戻しは離脱時に1回だけ）。
+    expect(onGoalChange).not.toHaveBeenCalled();
+
+    unmount();
+    expect(onGoalChange).toHaveBeenCalledTimes(1);
+    expect(onGoalChange).toHaveBeenCalledWith('コード画面で編集した依頼文');
+    // 保持はシェルのメモリ内 state が担い、端末ストレージには書かない。
+    expect(localStorage.length).toBe(0);
+    expect(sessionStorage.length).toBe(0);
+  });
+
+  it('clears the goal once a job is accepted, so the consumed draft is not restored later', async () => {
+    const onGoalChange = vi.fn();
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(response(capability))
+      .mockResolvedValueOnce(response({ ok: true, job: job('verified'), result, resultDetailsState: 'available' }, 202));
+    vi.stubGlobal('fetch', fetchMock);
+    act(() => { setSessionCredential('coding', 'operator-secret-that-is-long-enough-for-production'); });
+
+    const { unmount } = render(<CodingJobWorkspaceV14 initialGoal="送信する依頼文" onGoalChange={onGoalChange} />);
+    await screen.findByText('準備できています');
+    const textarea = screen.getByLabelText('作りたいもの・直したいこと') as HTMLTextAreaElement;
+    expect(textarea.value).toBe('送信する依頼文');
+
+    fireEvent.click(screen.getByRole('button', { name: '作成・修正を始める' }));
+    await screen.findByText('src/existing.ts');
+    // 受理された時点で下書きは消費済み：入力欄は空になる。
+    expect(textarea.value).toBe('');
+
+    unmount();
+    expect(onGoalChange).toHaveBeenCalledTimes(1);
+    expect(onGoalChange).toHaveBeenCalledWith('');
+  });
+
+  it('keeps the goal when job creation fails, so it can be fixed and resent', async () => {
+    const onGoalChange = vi.fn();
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(response(capability))
+      .mockResolvedValueOnce(response({ ok: false, code: 'CODING_JOB_DISPATCH_UNAVAILABLE' }, 503));
+    vi.stubGlobal('fetch', fetchMock);
+    act(() => { setSessionCredential('coding', 'operator-secret-that-is-long-enough-for-production'); });
+
+    const { unmount } = render(<CodingJobWorkspaceV14 initialGoal="失敗しても残る依頼文" onGoalChange={onGoalChange} />);
+    await screen.findByText('準備できています');
+    fireEvent.click(screen.getByRole('button', { name: '作成・修正を始める' }));
+    await screen.findByRole('alert');
+
+    const textarea = screen.getByLabelText('作りたいもの・直したいこと') as HTMLTextAreaElement;
+    expect(textarea.value).toBe('失敗しても残る依頼文');
+
+    unmount();
+    expect(onGoalChange).toHaveBeenCalledTimes(1);
+    expect(onGoalChange).toHaveBeenCalledWith('失敗しても残る依頼文');
+  });
 });
