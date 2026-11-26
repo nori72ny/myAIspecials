@@ -25,6 +25,7 @@ import {
   parseFailureRepairGuidance,
   parseReconciliationOutput,
   summarizeAgentDataValueTable,
+  synthesizeDeterministicCandidatePickups,
   type AgentDataValue,
 } from './agentAttachmentTools.js';
 import { buildAgentAttachmentDataView } from './agentAttachmentData.js';
@@ -1818,6 +1819,24 @@ describe('misreading countermeasure layer 2: attachment_reconciler tool', () => 
     dropped: [{ index: 1, reason: 'boilerplate' }],
   });
 
+  // A bundle whose only candidate cannot form an anchor group:
+  // its two values read as the same key (45% and 45.0% are one
+  // value), so the deterministic candidate pickup (案B) has
+  // nothing to synthesize from it. The fail-closed judgments
+  // below run against this variant so they keep exercising the
+  // empty-judgment path exactly as before the pickup existed.
+  const ANALYZER_BUNDLE_DEGENERATE_CANDIDATE = JSON.stringify({
+    ...(JSON.parse(ANALYZER_BUNDLE) as Record<string, unknown>),
+    candidates: [{
+      entity: '聚源盛业',
+      attribute: '持股比例',
+      values: [
+        { value: '45%', normalizedValue: '45', file: 'announcement.txt', location: 'p.2' },
+        { value: '45.0%', normalizedValue: '45', file: 'announcement.txt', location: 'p.2' },
+      ],
+    }],
+  });
+
   const reconcilerParams = (setDigest: string, extra: Record<string, unknown> = {}) => ({
     attachmentSetId: SET_ID,
     setDigest,
@@ -1889,8 +1908,11 @@ describe('misreading countermeasure layer 2: attachment_reconciler tool', () => 
       ok: true,
       text: JSON.stringify({ findings: [], dropped: [{ index: 0, reason: 'no-pair' }, { index: 1, reason: 'boilerplate' }] }),
     });
+    // The degenerate-candidate bundle: the candidate cannot be
+    // picked up deterministically either, so the judged list is
+    // empty after every layer and the step fails closed (案B).
     const result = await toolRegistry.attachment_reconciler.execute(
-      reconcilerParams(setDigest),
+      reconcilerParams(setDigest, { content: ANALYZER_BUNDLE_DEGENERATE_CANDIDATE }),
       contextWithMode(store, executor, 'enforce'),
     );
     expect(result.ok).toBe(false);
@@ -1916,8 +1938,11 @@ describe('misreading countermeasure layer 2: attachment_reconciler tool', () => 
         dropped: [{ index: 1, reason: 'boilerplate' }],
       }),
     });
+    // The degenerate-candidate bundle, so the deterministic
+    // pickup cannot rescue the judgment either and the failure
+    // (and its diagnostic channel) is what is exercised.
     const result = await toolRegistry.attachment_reconciler.execute(
-      reconcilerParams(setDigest),
+      reconcilerParams(setDigest, { content: ANALYZER_BUNDLE_DEGENERATE_CANDIDATE }),
       contextWithMode(store, executor, 'enforce'),
     );
     expect(result.ok).toBe(false);
@@ -1926,11 +1951,20 @@ describe('misreading countermeasure layer 2: attachment_reconciler tool', () => 
       kind: string;
       reconciliation: { mode: string; candidateCount: number; keptCount: number; droppedCount: number; droppedReasons: Record<string, number>; pickedUpCount: number; keptIndexes: number[]; droppedIndexes: { index: number; reason: string }[] };
       parsedFindingsCount: number;
+      parsedPickedUpCount: number;
+      gatedOutKeptIndexes: number[];
     };
     expect(diagnostic.kind).toBe('attachment-reconciliation-failure');
     // One candidate existed, the model kept one finding (so the
     // model did not empty the list), the gate dropped it.
     expect(diagnostic.parsedFindingsCount).toBe(1);
+    // 案C: the parse stage's pickup count and the gate's own
+    // drops ride the same channel, separating the model's
+    // declarations from the gate's removals — the model built
+    // no candidate finding (parse pickup 0) and the gate, not
+    // the model, removed kept original 0.
+    expect(diagnostic.parsedPickedUpCount).toBe(0);
+    expect(diagnostic.gatedOutKeptIndexes).toEqual([0]);
     expect(diagnostic.reconciliation).toEqual({
       mode: 'enforce',
       candidateCount: 1,
@@ -2054,8 +2088,10 @@ describe('misreading countermeasure layer 2: attachment_reconciler tool', () => 
       ok: true,
       text: JSON.stringify({ findings: [], dropped: [{ index: 0, reason: 'no-pair' }, { index: 1, reason: 'boilerplate' }] }),
     });
+    // The degenerate-candidate bundle, so the deterministic
+    // pickup (案B) cannot fill the judged list either.
     const result = await toolRegistry.attachment_reconciler.execute(
-      reconcilerParams(setDigest),
+      reconcilerParams(setDigest, { content: ANALYZER_BUNDLE_DEGENERATE_CANDIDATE }),
       contextWithMode(store, executor, 'shadow'),
     );
     expect(result.ok).toBe(true);
@@ -2417,15 +2453,32 @@ describe('function inspection 2026-11-25: D2 deterministic pairing, D3 pair gate
     expect(gatedFaithful.pickedUpCount).toBe(1);
   });
 
+  // The gate bundle with a candidate that cannot form an anchor
+  // group (both values read as the one amount 146660323), so the
+  // deterministic pickup (案B) synthesizes nothing from it and
+  // the gate-emptying fail-closed path is exercised as before.
+  const GATE_BUNDLE_DEGENERATE_CANDIDATE = JSON.stringify({
+    ...(JSON.parse(GATE_BUNDLE) as Record<string, unknown>),
+    candidates: [{
+      entity: '买方一',
+      attribute: '金額',
+      values: [
+        { value: '146,660,323.00', normalizedValue: '146660323', file: 'announcement.txt', location: 'p.2' },
+        { value: '146,660,323', normalizedValue: '146660323', file: 'buyer1_report.txt', location: 'p.3' },
+      ],
+    }],
+  });
+
   const GATE_FILES = [
     { name: 'announcement.txt', text: '公告本文。' },
     { name: 'buyer1_report.txt', text: '買主一報告本文。' },
   ];
-  const gateParams = (setDigest: string) => ({
+  const gateParams = (setDigest: string, extra: Record<string, unknown> = {}) => ({
     attachmentSetId: SET_ID,
     setDigest,
     instruction: 'Audit the documents for inconsistencies and report each inconsistency with its explanation.',
     content: GATE_BUNDLE,
+    ...extra,
   });
   const gateContext = (
     store: InMemoryAgentAttachmentStore,
@@ -2462,14 +2515,23 @@ describe('function inspection 2026-11-25: D2 deterministic pairing, D3 pair gate
     );
     expect(result.ok).toBe(true);
     const bundle = JSON.parse(result.artifact ?? '{}') as {
-      findings: { claim: string }[];
+      findings: { claim: string; origin?: string }[];
       reconciliation: {
         keptCount: number; droppedCount: number; droppedReasons: Record<string, number>;
         keptIndexes?: number[]; droppedIndexes?: { index: number; reason: string }[];
       };
       content: string;
     };
-    expect(bundle.findings.map((finding) => finding.claim)).toEqual(['対価の金額が食い違う']);
+    // The kept original publishes, the mispair does not. The
+    // bundle's candidate names the very pair the kept original
+    // states — same group, same two values — so the candidate
+    // is covered by the model's own finding and the
+    // deterministic pickup (案B) adds nothing: the pair
+    // publishes exactly once.
+    expect(bundle.findings.map((finding) => finding.claim)).toEqual([
+      '対価の金額が食い違う',
+    ]);
+    expect(bundle.findings[0]?.origin).toBeUndefined();
     expect(bundle.content).not.toContain('資金源泉と承認手続きが不整合である');
     expect(bundle.reconciliation.keptCount).toBe(1);
     expect(bundle.reconciliation.droppedCount).toBe(1);
@@ -2492,8 +2554,10 @@ describe('function inspection 2026-11-25: D2 deterministic pairing, D3 pair gate
         dropped: [{ index: 0, reason: 'other' }],
       }),
     });
+    // The degenerate-candidate variant, so the deterministic
+    // pickup (案B) cannot refill the emptied list either.
     const result = await toolRegistry.attachment_reconciler.execute(
-      gateParams(setDigest),
+      gateParams(setDigest, { content: GATE_BUNDLE_DEGENERATE_CANDIDATE }),
       gateContext(store, executor, 'enforce'),
     );
     expect(result.ok).toBe(false);
@@ -2519,7 +2583,13 @@ describe('function inspection 2026-11-25: D2 deterministic pairing, D3 pair gate
     expect(bundle.findings.map((finding) => finding.claim)).toEqual([
       '対価の金額が食い違う', '資金源泉と承認手続きが不整合である',
     ]);
-    expect(bundle.reconciledFindings.map((finding) => finding.claim)).toEqual(['対価の金額が食い違う']);
+    // The recorded judgment is the gated list alone: the
+    // bundle's candidate is covered by the kept original
+    // stating the same pair, so the deterministic pickup (案B)
+    // adds nothing, exactly as enforce publishes.
+    expect(bundle.reconciledFindings.map((finding) => finding.claim)).toEqual([
+      '対価の金額が食い違う',
+    ]);
     expect(bundle.reconciliation.failed).toBeUndefined();
     expect(bundle.reconciliation.keptIndexes).toEqual([0]);
     expect(bundle.reconciliation.droppedIndexes).toEqual([{ index: 1, reason: 'no-pair' }]);
@@ -3280,5 +3350,312 @@ describe('deterministic value seeds (C1/C2, diagnosis 2026-11-26)', () => {
       const normalized = candidate.values.map((value) => value.normalizedValue);
       return normalized.includes('0') && normalized.includes('36.15');
     })).toBe(false);
+  });
+});
+const PROD_BUNDLE_8C49293C_JSON = "{\"kind\":\"data-analysis\",\"outputKind\":\"findings\",\"findings\":[{\"claim\":\"Inconsistent total consideration amounts for identical share transfers\",\"evidence\":\"转让价格（元/股）13.00\\n协议转让对价146,660,332.00\\n\\n转让价格（元/股）13.00\\n协议转让对价\\n价款支付方146,660,323.00\",\"file\":\"announcement.txt\",\"location\":\"Page 2\",\"explanation\":\"The same quantity of shares (11,281,564) at the same price (13.00) should yield the same total consideration, but the amounts differ by 9.00.\",\"evidenceB\":\"价款支付方146,660,323.00\",\"fileB\":\"announcement.txt\",\"locationB\":\"Page 2\"},{\"claim\":\"Contradiction between '受让方性质' and '其他组织或机构' fields\",\"evidence\":\"受让方性质 私募基金\",\"file\":\"announcement.txt\",\"location\":\"Page 5\",\"explanation\":\"The entity is classified as a private equity fund but also marked as 'other organization or institution', which may conflict with classification.\",\"evidenceB\":\"其他组织或机构√是\",\"fileB\":\"announcement.txt\",\"locationB\":\"Page 5\"},{\"claim\":\"Transferor entity name inconsistency\",\"evidence\":\"2026 年1 月13 日，物美集团与厦门联芯美签订了《股份转让协议》\",\"file\":\"buyer2_report.txt\",\"location\":\"Page 7\",\"explanation\":\"The transferor is referred to as 物美集团 in the transaction summary but as 物美科技集团有限公司 in the agreement.\",\"evidenceB\":\"甲方（转让方）：物美科技集团有限公司\",\"fileB\":\"buyer2_report.txt\",\"locationB\":\"Page 8\"},{\"claim\":\"Recipient entity name inconsistency\",\"evidence\":\"物美集团与厦门联芯美签订了《股份转让协议》\",\"file\":\"buyer2_report.txt\",\"location\":\"Page 7\",\"explanation\":\"The recipient is referred to as 厦门联芯美 in the transaction summary but as 厦门联芯美企业管理合伙企业（有限合伙） in the agreement.\",\"evidenceB\":\"乙方（受让方）：厦门联芯美企业管理合伙企业（有限合伙）\",\"fileB\":\"buyer2_report.txt\",\"locationB\":\"Page 8\"},{\"claim\":\"物美集团 reported share reduction inconsistent with transfer amount\",\"evidence\":\"物美集团 81,570,343 36.15% 59,007,215 26.15%\",\"file\":\"seller_report.txt\",\"location\":\"Page 11\",\"explanation\":\"The table shows 物美集团’s shares reduced from 81,570,343 to 59,007,215, implying a transfer of 22,563,128 shares, but the agreement states only 11,281,564 shares were transferred.\",\"evidenceB\":\"杭州景祺以现金人民币146,660,332.00 元受让物美集团持有的新华百货无限售流通股11,281,564 股股份（占上市公司股份总数的5%）\",\"fileB\":\"seller_report.txt\",\"locationB\":\"Page 12\"},{\"claim\":\"Approval requirement vs. approval obtained mismatch\",\"evidence\":\"本次权益变动是否需取得批准 是 ☑ 否 □\",\"file\":\"seller_report.txt\",\"location\":\"Page 29\",\"explanation\":\"The report indicates that the transaction requires regulatory approval, but the subsequent page states that such approval has not been obtained, creating a contradictory statement.\",\"evidenceB\":\"是否已得到批准 是 □ 否 ☑\",\"fileB\":\"seller_report.txt\",\"locationB\":\"Page 30\"}],\"values\":[{\"entity\":\"物美科技集团有限公司\",\"attribute\":\"Transfer price per share\",\"value\":\"13.00\",\"normalizedValue\":\"13.00\",\"file\":\"announcement.txt\",\"location\":\"Page 2\"},{\"entity\":\"物美科技集团有限公司\",\"attribute\":\"Total consideration\",\"value\":\"146,660,332.00\",\"normalizedValue\":\"146660332\",\"file\":\"announcement.txt\",\"location\":\"Page 2\"},{\"entity\":\"厦门联芯美企业管理合伙企业\",\"attribute\":\"Total consideration\",\"value\":\"146,660,323.00\",\"normalizedValue\":\"146660323\",\"file\":\"announcement.txt\",\"location\":\"Page 2\"},{\"entity\":\"杭州景祺电子信息合伙企业(有限合伙)\",\"attribute\":\"株数\",\"value\":\"11,281,564\",\"file\":\"announcement.txt\",\"location\":\"チャンク 1・行 44\"},{\"entity\":\"杭州景祺电子信息合伙企业(有限合伙)\",\"attribute\":\"比率・持分\",\"value\":\"5.00\",\"file\":\"announcement.txt\",\"location\":\"チャンク 1・行 46\"},{\"entity\":\"杭州景祺电子信息合伙企业(有限合伙)\",\"attribute\":\"金額\",\"value\":\"146,660,332.00\",\"file\":\"announcement.txt\",\"location\":\"チャンク 1・行 50\"},{\"entity\":\"杭州景祺电子信息合伙企业(有限合伙)\",\"attribute\":\"資金源泉\",\"value\":\"自有资金\",\"file\":\"announcement.txt\",\"location\":\"チャンク 1・行 57\"},{\"entity\":\"厦门联芯美企业管理合伙企业(有限合伙)\",\"attribute\":\"株数\",\"value\":\"11,281,564\",\"file\":\"announcement.txt\",\"location\":\"チャンク 1・行 75\"},{\"entity\":\"厦门联芯美企业管理合伙企业(有限合伙)\",\"attribute\":\"比率・持分\",\"value\":\"5.00\",\"file\":\"announcement.txt\",\"location\":\"チャンク 1・行 77\"},{\"entity\":\"厦门联芯美企业管理合伙企业(有限合伙)\",\"attribute\":\"金額\",\"value\":\"146,660,323.00\",\"file\":\"announcement.txt\",\"location\":\"チャンク 1・行 82\"},{\"entity\":\"厦门联芯美企业管理合伙企业(有限合伙)\",\"attribute\":\"資金源泉\",\"value\":\"自有资金\",\"file\":\"announcement.txt\",\"location\":\"チャンク 1・行 93\"},{\"entity\":\"北京京西硅谷科技有限公司\",\"attribute\":\"比率・持分\",\"value\":\"77.612%\",\"file\":\"announcement.txt\",\"location\":\"チャンク 1・行 195\"},{\"entity\":\"北京中胜华特科技有限公司\",\"attribute\":\"比率・持分\",\"value\":\"19.403%\",\"file\":\"announcement.txt\",\"location\":\"チャンク 1・行 196\"},{\"entity\":\"北京慕弘管理咨询有限公司\",\"attribute\":\"比率・持分\",\"value\":\"2.985%\",\"file\":\"announcement.txt\",\"location\":\"チャンク 1・行 197\"},{\"entity\":\"聚源盛业投资(宁波)有限公司\",\"attribute\":\"比率・持分\",\"value\":\"45%\",\"file\":\"announcement.txt\",\"location\":\"チャンク 1・行 235\"},{\"entity\":\"宁波芯空间盛芯创业投资合伙企业(有限合伙)\",\"attribute\":\"比率・持分\",\"value\":\"33.33333%\",\"file\":\"announcement.txt\",\"location\":\"チャンク 1・行 237\"},{\"entity\":\"上海芯齐投资中心(有限合伙)\",\"attribute\":\"比率・持分\",\"value\":\"26.66667%\",\"file\":\"announcement.txt\",\"location\":\"チャンク 1・行 238\"},{\"entity\":\"厦门联芯美企业管理合伙企业（有限合伙）\",\"attribute\":\"受让方性质\",\"value\":\"私募基金\",\"normalizedValue\":\"Private Equity Fund\",\"file\":\"announcement.txt\",\"location\":\"Page 5\"},{\"entity\":\"厦门联芯美企业管理合伙企业（有限合伙）\",\"attribute\":\"其他组织或机构\",\"value\":\"是\",\"normalizedValue\":\"Yes\",\"file\":\"announcement.txt\",\"location\":\"Page 5\"},{\"entity\":\"厦门联芯美企业管理合伙企业（有限合伙）\",\"attribute\":\"企业类型\",\"value\":\"有限合伙企业\",\"normalizedValue\":\"Limited Partnership\",\"file\":\"announcement.txt\",\"location\":\"Page 5\"},{\"entity\":\"厦门联芯美企业管理合伙企业（有限合伙）\",\"attribute\":\"统一社会信用代码\",\"value\":\"91350200MAK68L5M1J\",\"normalizedValue\":\"91350200MAK68L5M1J\",\"file\":\"announcement.txt\",\"location\":\"Page 5\"},{\"entity\":\"厦门联芯美企业管理合伙企业（有限合伙）\",\"attribute\":\"注册资本/出资额\",\"value\":\"20000 万元\",\"normalizedValue\":\"200,000,000 RMB\",\"file\":\"announcement.txt\",\"location\":\"Page 5\"},{\"entity\":\"厦门联芯美企业管理合伙企业（有限合伙）\",\"attribute\":\"实缴资本\",\"value\":\"20000 万元\",\"normalizedValue\":\"200,000,000 RMB\",\"file\":\"announcement.txt\",\"location\":\"Page 5\"},{\"entity\":\"厦门联芯美企业管理合伙企业（有限合伙）\",\"attribute\":\"成立日期\",\"value\":\"2026/01/09\",\"normalizedValue\":\"2026-01-09\",\"file\":\"announcement.txt\",\"location\":\"Page 5\"},{\"entity\":\"厦门联芯美企业管理合伙企业（有限合伙）\",\"attribute\":\"主要股东\",\"value\":\"厦门市中亿资产管理有限公司持有74%合伙份额；厦门市联和股权投资基金管理有限公司持有25%合伙份额；厦门联芯盛投资合伙企业（有限合伙）持有1%合伙份额。\",\"normalizedValue\":\"厦门市中亿资产管理有限公司:74%;厦门市联和股权投资基金管理有限公司:25%;厦门联芯盛投资合伙企业（有限合伙）:1%\",\"file\":\"announcement.txt\",\"location\":\"Page 5\"},{\"entity\":\"厦门市中亿资产管理有限公司\",\"attribute\":\"比率・持分\",\"value\":\"74%\",\"file\":\"announcement.txt\",\"location\":\"チャンク 2・行 42\"},{\"entity\":\"厦门市联和股权投资基金管理有限公司\",\"attribute\":\"比率・持分\",\"value\":\"25%\",\"file\":\"announcement.txt\",\"location\":\"チャンク 2・行 43\"},{\"entity\":\"厦门联芯盛投资合伙企业(有限合伙)\",\"attribute\":\"比率・持分\",\"value\":\"1%\",\"file\":\"announcement.txt\",\"location\":\"チャンク 2・行 45\"},{\"entity\":\"厦门联芯美企业管理合伙企业(有限合伙)\",\"attribute\":\"金額\",\"value\":\"146,660,332.00\",\"file\":\"announcement.txt\",\"location\":\"チャンク 3・行 43\"},{\"entity\":\"聚源盛业投资(宁波)有限公司\",\"attribute\":\"比率・持分\",\"value\":\"40%\",\"file\":\"buyer1_report.txt\",\"location\":\"チャンク 5・行 119\"},{\"entity\":\"宁波芯空间盛芯创业投资合伙企业(有限合伙)\",\"attribute\":\"比率・持分\",\"value\":\"33.33333%\",\"file\":\"buyer1_report.txt\",\"location\":\"チャンク 5・行 120\"},{\"entity\":\"上海芯齐投资中心(有限合伙)\",\"attribute\":\"比率・持分\",\"value\":\"26.66667%\",\"file\":\"buyer1_report.txt\",\"location\":\"チャンク 5・行 122\"},{\"entity\":\"杭州景祺\",\"attribute\":\"株数\",\"value\":\"0\",\"file\":\"buyer1_report.txt\",\"location\":\"チャンク 6・行 26\",\"scope\":\"交易前\"},{\"entity\":\"杭州景祺\",\"attribute\":\"比率・持分\",\"value\":\"0%\",\"file\":\"buyer1_report.txt\",\"location\":\"チャンク 6・行 26\",\"scope\":\"交易前\"},{\"entity\":\"杭州景祺\",\"attribute\":\"株数\",\"value\":\"11,281,564\",\"file\":\"buyer1_report.txt\",\"location\":\"チャンク 6・行 26\",\"scope\":\"交易后\"},{\"entity\":\"杭州景祺\",\"attribute\":\"比率・持分\",\"value\":\"5%\",\"file\":\"buyer1_report.txt\",\"location\":\"チャンク 6・行 26\",\"scope\":\"交易后\"},{\"entity\":\"杭州景祺电子信息合伙企业(有限合伙)\",\"attribute\":\"金額\",\"value\":\"146,660,332.00\",\"file\":\"buyer1_report.txt\",\"location\":\"チャンク 6・行 53\"},{\"entity\":\"杭州景祺电子信息合伙企业（有限合伙）\",\"attribute\":\"持股数量\",\"value\":\"11,281,564\",\"normalizedValue\":\"11281564\",\"file\":\"buyer1_report.txt\",\"location\":\"Page 19\"},{\"entity\":\"杭州景祺电子信息合伙企业（有限合伙）\",\"attribute\":\"持股比例\",\"value\":\"5%\",\"normalizedValue\":\"5%\",\"file\":\"buyer1_report.txt\",\"location\":\"Page 19\"},{\"entity\":\"杭州景祺电子信息合伙企业(有限合伙)\",\"attribute\":\"资金来源\",\"value\":\"信息披露义务人向银行的借款\",\"normalizedValue\":\"Bank Loan\",\"file\":\"buyer1_report.txt\",\"location\":\"Page 12\"},{\"entity\":\"杭州景祺电子信息合伙企业（有限合伙）\",\"attribute\":\"是否已充足披露资金来源\",\"value\":\"是\",\"file\":\"buyer1_report.txt\",\"location\":\"Page 19\"},{\"entity\":\"杭州景祺电子信息合伙企业（有限合伙）\",\"attribute\":\"是否需取得批准\",\"value\":\"是\",\"file\":\"buyer1_report.txt\",\"location\":\"Page 20\"},{\"entity\":\"杭州景祺电子信息合伙企业（有限合伙）\",\"attribute\":\"是否已取得批准\",\"value\":\"否\",\"file\":\"buyer1_report.txt\",\"location\":\"Page 20\"},{\"entity\":\"杭州景祺电子信息合伙企业（有限合伙）\",\"attribute\":\"是否为上市公司第一大股东\",\"value\":\"是\",\"file\":\"buyer1_report.txt\",\"location\":\"Page 19\"},{\"entity\":\"杭州景祺电子信息合伙企业（有限合伙）\",\"attribute\":\"是否为上市公司实际控制人\",\"value\":\"是\",\"file\":\"buyer1_report.txt\",\"location\":\"Page 19\"},{\"entity\":\"银川新华百货商业集团股份有限公司\",\"attribute\":\"股票代码\",\"value\":\"600785\",\"normalizedValue\":\"600785\",\"file\":\"buyer1_report.txt\",\"location\":\"Page 18\"},{\"entity\":\"银川新华百货商业集团股份有限公司\",\"attribute\":\"股票简称\",\"value\":\"新华百货\",\"normalizedValue\":\"新华百货\",\"file\":\"buyer1_report.txt\",\"location\":\"Page 18\"},{\"entity\":\"银川新华百货商业集团股份有限公司\",\"attribute\":\"上市公司所在地\",\"value\":\"宁夏回族自治区银川市\",\"normalizedValue\":\"宁夏回族自治区银川市\",\"file\":\"buyer1_report.txt\",\"location\":\"Page 18\"},{\"entity\":\"杭州景祺电子信息合伙企业（有限合伙）\",\"attribute\":\"注册地\",\"value\":\"浙江省杭州市拱墅区上塘街道云顺弄255号1幢503室\",\"normalizedValue\":\"浙江省杭州市拱墅区上塘街道云顺弄255号1幢503室\",\"file\":\"buyer1_report.txt\",\"location\":\"Page 18\"},{\"entity\":\"厦门市中亿资产管理有限公司\",\"attribute\":\"比率・持分\",\"value\":\"74%\",\"file\":\"buyer2_report.txt\",\"location\":\"チャンク 8・行 118\"},{\"entity\":\"厦门市联和股权投资基金管理有限公司\",\"attribute\":\"比率・持分\",\"value\":\"25%\",\"file\":\"buyer2_report.txt\",\"location\":\"チャンク 8・行 119\"},{\"entity\":\"厦门联芯盛投资合伙企业(有限合伙)\",\"attribute\":\"比率・持分\",\"value\":\"1%\",\"file\":\"buyer2_report.txt\",\"location\":\"チャンク 8・行 120\"},{\"entity\":\"物美集团\",\"attribute\":\"transferor entity name\",\"value\":\"物美集团\",\"normalizedValue\":\"物美集团\",\"file\":\"buyer2_report.txt\",\"location\":\"Page 7\"},{\"entity\":\"物美科技集团有限公司\",\"attribute\":\"transferor entity name\",\"value\":\"物美科技集团有限公司\",\"normalizedValue\":\"物美科技集团有限公司\",\"file\":\"buyer2_report.txt\",\"location\":\"Page 8\"},{\"entity\":\"厦门联芯美\",\"attribute\":\"recipient entity name\",\"value\":\"厦门联芯美\",\"normalizedValue\":\"厦门联芯美\",\"file\":\"buyer2_report.txt\",\"location\":\"Page 7\"},{\"entity\":\"厦门联芯美企业管理合伙企业（有限合伙）\",\"attribute\":\"recipient entity name\",\"value\":\"厦门联芯美企业管理合伙企业（有限合伙）\",\"normalizedValue\":\"厦门联芯美企业管理合伙企业（有限合伙）\",\"file\":\"buyer2_report.txt\",\"location\":\"Page 8\"},{\"entity\":\"物美集团\",\"attribute\":\"shares transferred\",\"value\":\"11,281,564\",\"normalizedValue\":\"11281564\",\"file\":\"buyer2_report.txt\",\"location\":\"Page 7\"},{\"entity\":\"物美集团\",\"attribute\":\"percentage of total shares\",\"value\":\"5%\",\"normalizedValue\":\"5\",\"file\":\"buyer2_report.txt\",\"location\":\"Page 7\"},{\"entity\":\"物美集团\",\"attribute\":\"price per share\",\"value\":\"13.00\",\"normalizedValue\":\"13.00\",\"file\":\"buyer2_report.txt\",\"location\":\"Page 8\"},{\"entity\":\"物美集团\",\"attribute\":\"total transfer price\",\"value\":\"146,660,332.00\",\"normalizedValue\":\"146660332\",\"file\":\"buyer2_report.txt\",\"location\":\"Page 8\"},{\"entity\":\"2026-01-13\",\"attribute\":\"transaction date\",\"value\":\"2026 年1 月13 日\",\"normalizedValue\":\"2026-01-13\",\"file\":\"buyer2_report.txt\",\"location\":\"Page 7\"},{\"entity\":\"厦门联芯美\",\"attribute\":\"株数\",\"value\":\"0\",\"file\":\"buyer2_report.txt\",\"location\":\"チャンク 9・行 26\",\"scope\":\"交易前\"},{\"entity\":\"厦门联芯美\",\"attribute\":\"比率・持分\",\"value\":\"0%\",\"file\":\"buyer2_report.txt\",\"location\":\"チャンク 9・行 26\",\"scope\":\"交易前\"},{\"entity\":\"厦门联芯美\",\"attribute\":\"株数\",\"value\":\"11,281,564\",\"file\":\"buyer2_report.txt\",\"location\":\"チャンク 9・行 26\",\"scope\":\"交易后\"},{\"entity\":\"厦门联芯美\",\"attribute\":\"比率・持分\",\"value\":\"5%\",\"file\":\"buyer2_report.txt\",\"location\":\"チャンク 9・行 26\",\"scope\":\"交易后\"},{\"entity\":\"厦门联芯美企业管理合伙企业(有限合伙)\",\"attribute\":\"金額\",\"value\":\"146,660,332.00\",\"file\":\"buyer2_report.txt\",\"location\":\"チャンク 9・行 53\"},{\"entity\":\"厦门联芯美企业管理合伙企业（有限合伙）\",\"attribute\":\"持股数量\",\"value\":\"11,281,564\",\"normalizedValue\":\"11281564\",\"file\":\"buyer2_report.txt\",\"location\":\"Page 18\"},{\"entity\":\"厦门联芯美企业管理合伙企业（有限合伙）\",\"attribute\":\"持股比例\",\"value\":\"5%\",\"normalizedValue\":\"5\",\"file\":\"buyer2_report.txt\",\"location\":\"Page 18\"},{\"entity\":\"厦门联芯美企业管理合伙企业(有限合伙)\",\"attribute\":\"资金来源\",\"value\":\"自有资金\",\"normalizedValue\":\"自有资金\",\"file\":\"buyer2_report.txt\",\"location\":\"Page 11\"},{\"entity\":\"厦门联芯美企业管理合伙企业（有限合伙）\",\"attribute\":\"是否为第一大股东\",\"value\":\"是\",\"normalizedValue\":\"是\",\"file\":\"buyer2_report.txt\",\"location\":\"Page 17\"},{\"entity\":\"厦门联芯美企业管理合伙企业（有限合伙）\",\"attribute\":\"是否为实际控制人\",\"value\":\"是\",\"normalizedValue\":\"是\",\"file\":\"buyer2_report.txt\",\"location\":\"Page 17\"},{\"entity\":\"厦门联芯美企业管理合伙企业（有限合伙）\",\"attribute\":\"是否已充分披露资金来源\",\"value\":\"是\",\"normalizedValue\":\"是\",\"file\":\"buyer2_report.txt\",\"location\":\"Page 18\"},{\"entity\":\"厦门联芯美企业管理合伙企业（有限合伙）\",\"attribute\":\"是否拟于未来12个月内继续增持\",\"value\":\"否\",\"normalizedValue\":\"否\",\"file\":\"buyer2_report.txt\",\"location\":\"Page 18\"},{\"entity\":\"厦门联芯美企业管理合伙企业（有限合伙）\",\"attribute\":\"是否已得到批准\",\"value\":\"否\",\"normalizedValue\":\"否\",\"file\":\"buyer2_report.txt\",\"location\":\"Page 19\"},{\"entity\":\"物美科技集团有限公司\",\"attribute\":\"注册资本\",\"value\":\"80,000 万元\",\"normalizedValue\":\"800000000\",\"file\":\"seller_report.txt\",\"location\":\"Page 5\"},{\"entity\":\"北京京西硅谷科技有限公司\",\"attribute\":\"持股比例\",\"value\":\"77.612%\",\"normalizedValue\":\"77.612\",\"file\":\"seller_report.txt\",\"location\":\"Page 5\"},{\"entity\":\"北京中胜华特科技有限公司\",\"attribute\":\"持股比例\",\"value\":\"19.403%\",\"normalizedValue\":\"19.403\",\"file\":\"seller_report.txt\",\"location\":\"Page 5\"},{\"entity\":\"北京慕弘管理咨询有限公司\",\"attribute\":\"持股比例\",\"value\":\"2.985%\",\"normalizedValue\":\"2.985\",\"file\":\"seller_report.txt\",\"location\":\"Page 5\"},{\"entity\":\"物美津投（天津）商业管理有限公司\",\"attribute\":\"注册资本\",\"value\":\"100 万元\",\"normalizedValue\":\"1000000\",\"file\":\"seller_report.txt\",\"location\":\"Page 6\"},{\"entity\":\"物美津投（天津）商业管理有限公司\",\"attribute\":\"主要股东\",\"value\":\"物美科技集团有限公司持股100%\",\"normalizedValue\":\"100\",\"file\":\"seller_report.txt\",\"location\":\"Page 6\"},{\"entity\":\"北京绿色安全农产品物流信息中心有限公司\",\"attribute\":\"注册资本\",\"value\":\"400 万元\",\"normalizedValue\":\"4000000\",\"file\":\"seller_report.txt\",\"location\":\"Page 6\"},{\"entity\":\"北京绿色安全农产品物流信息中心有限公司\",\"attribute\":\"主要股东\",\"value\":\"物美科技集团有限公司持股100%\",\"normalizedValue\":\"100\",\"file\":\"seller_report.txt\",\"location\":\"Page 7\"},{\"entity\":\"天津滨海新区物美津融商贸有限公司\",\"attribute\":\"持股比例\",\"value\":\"26.35%\",\"normalizedValue\":\"26.35\",\"file\":\"seller_report.txt\",\"location\":\"Page 9\"},{\"entity\":\"上海京遥贸易有限公司\",\"attribute\":\"持股比例\",\"value\":\"11.72%\",\"normalizedValue\":\"11.72\",\"file\":\"seller_report.txt\",\"location\":\"Page 9\"},{\"entity\":\"物美科技集团有限公司\",\"attribute\":\"比率・持分\",\"value\":\"100%\",\"file\":\"seller_report.txt\",\"location\":\"チャンク 12・行 72\"},{\"entity\":\"物美集团\",\"attribute\":\"持股数量\",\"value\":\"81,570,343\",\"normalizedValue\":\"81,570,343\",\"file\":\"seller_report.txt\",\"location\":\"Page 11\"},{\"entity\":\"物美集团\",\"attribute\":\"持股比例\",\"value\":\"36.15%\",\"normalizedValue\":\"36.15%\",\"file\":\"seller_report.txt\",\"location\":\"Page 11\",\"scope\":\"交易前\"},{\"entity\":\"物美集团\",\"attribute\":\"持股数量\",\"value\":\"59,007,215\",\"normalizedValue\":\"59,007,215\",\"file\":\"seller_report.txt\",\"location\":\"Page 11\"},{\"entity\":\"物美集团\",\"attribute\":\"持股比例\",\"value\":\"26.15%\",\"normalizedValue\":\"26.15%\",\"file\":\"seller_report.txt\",\"location\":\"Page 11\",\"scope\":\"交易后\"},{\"entity\":\"杭州景祺\",\"attribute\":\"持股数量\",\"value\":\"11,281,564\",\"normalizedValue\":\"11,281,564\",\"file\":\"seller_report.txt\",\"location\":\"Page 12\"},{\"entity\":\"杭州景祺\",\"attribute\":\"持股比例\",\"value\":\"5%\",\"normalizedValue\":\"5%\",\"file\":\"seller_report.txt\",\"location\":\"Page 12\"},{\"entity\":\"物美集团\",\"attribute\":\"株数\",\"value\":\"81,570,343\",\"file\":\"seller_report.txt\",\"location\":\"チャンク 13・行 28\",\"scope\":\"交易前\"},{\"entity\":\"物美集团\",\"attribute\":\"株数\",\"value\":\"59,007,215\",\"file\":\"seller_report.txt\",\"location\":\"チャンク 13・行 28\",\"scope\":\"交易后\"},{\"entity\":\"物美津投\",\"attribute\":\"株数\",\"value\":\"8,922,900\",\"file\":\"seller_report.txt\",\"location\":\"チャンク 13・行 33\",\"scope\":\"交易前\"},{\"entity\":\"物美津投\",\"attribute\":\"比率・持分\",\"value\":\"3.95%\",\"file\":\"seller_report.txt\",\"location\":\"チャンク 13・行 33\",\"scope\":\"交易前\"},{\"entity\":\"北京绿农\",\"attribute\":\"株数\",\"value\":\"4,545,951\",\"file\":\"seller_report.txt\",\"location\":\"チャンク 13・行 38\",\"scope\":\"交易前\"},{\"entity\":\"北京绿农\",\"attribute\":\"比率・持分\",\"value\":\"2.01%\",\"file\":\"seller_report.txt\",\"location\":\"チャンク 13・行 38\",\"scope\":\"交易前\"},{\"entity\":\"杭州景祺电子信息合伙企业(有限合伙)\",\"attribute\":\"金額\",\"value\":\"146,660,332.00\",\"file\":\"seller_report.txt\",\"location\":\"チャンク 13・行 69\"},{\"entity\":\"物美科技集团有限公司\",\"attribute\":\"shareCount\",\"value\":\"11,281,564 股\",\"normalizedValue\":\"11281564\",\"file\":\"seller_report.txt\",\"location\":\"Page 15-16\"},{\"entity\":\"物美科技集团有限公司\",\"attribute\":\"percentage\",\"value\":\"5%\",\"normalizedValue\":\"0.05\",\"file\":\"seller_report.txt\",\"location\":\"Page 15-16\"},{\"entity\":\"物美科技集团有限公司\",\"attribute\":\"pricePerShare\",\"value\":\"13.00 元/股\",\"normalizedValue\":\"13.00\",\"file\":\"seller_report.txt\",\"location\":\"Page 16\"},{\"entity\":\"物美科技集团有限公司\",\"attribute\":\"totalPrice\",\"value\":\"146,660,332.00 元\",\"normalizedValue\":\"146660332.00\",\"file\":\"seller_report.txt\",\"location\":\"Page 16\"},{\"entity\":\"厦门联芯美企业管理合伙企业（有限合伙）\",\"attribute\":\"firstPayment\",\"value\":\"73,330,166.00 元\",\"normalizedValue\":\"73330166.00\",\"file\":\"seller_report.txt\",\"location\":\"Page 16-17\"},{\"entity\":\"厦门联芯美企业管理合伙企业（有限合伙）\",\"attribute\":\"secondPayment\",\"value\":\"73,330,166.00 元\",\"normalizedValue\":\"73330166.00\",\"file\":\"seller_report.txt\",\"location\":\"Page 17\"},{\"entity\":\"厦门联芯美企业管理合伙企业(有限合伙)\",\"attribute\":\"金額\",\"value\":\"146,660,332.00\",\"file\":\"seller_report.txt\",\"location\":\"チャンク 14・行 43\"},{\"entity\":\"物美集团\",\"attribute\":\"持股数量\",\"value\":\"81,570,343 股\",\"normalizedValue\":\"81570343\",\"file\":\"seller_report.txt\",\"location\":\"Page 19\"},{\"entity\":\"物美集团\",\"attribute\":\"持股比例\",\"value\":\"36.15%\",\"normalizedValue\":\"0.3615\",\"file\":\"seller_report.txt\",\"location\":\"Page 19\"},{\"entity\":\"物美津投\",\"attribute\":\"持股数量\",\"value\":\"8,922,900 股\",\"normalizedValue\":\"8922900\",\"file\":\"seller_report.txt\",\"location\":\"Page 19\"},{\"entity\":\"物美津投\",\"attribute\":\"持股比例\",\"value\":\"3.95%\",\"normalizedValue\":\"0.0395\",\"file\":\"seller_report.txt\",\"location\":\"Page 19\"},{\"entity\":\"北京绿农\",\"attribute\":\"持股数量\",\"value\":\"4,545,951 股\",\"normalizedValue\":\"4545951\",\"file\":\"seller_report.txt\",\"location\":\"Page 19\"},{\"entity\":\"北京绿农\",\"attribute\":\"持股比例\",\"value\":\"2.01%\",\"normalizedValue\":\"0.0201\",\"file\":\"seller_report.txt\",\"location\":\"Page 19\"},{\"entity\":\"情報披露義務人\",\"attribute\":\"持股数量\",\"value\":\"95,039,194 股\",\"normalizedValue\":\"95039194\",\"file\":\"seller_report.txt\",\"location\":\"Page 28\"},{\"entity\":\"情報披露義務人\",\"attribute\":\"持股比例\",\"value\":\"42.12%\",\"normalizedValue\":\"0.4212\",\"file\":\"seller_report.txt\",\"location\":\"Page 28\"},{\"entity\":\"银川新华百货商业集团股份有限公司\",\"attribute\":\"是否需批准\",\"value\":\"是\",\"normalizedValue\":\"Yes\",\"file\":\"seller_report.txt\",\"location\":\"Page 29\"},{\"entity\":\"银川新华百货商业集团股份有限公司\",\"attribute\":\"是否已得到批准\",\"value\":\"否\",\"normalizedValue\":\"No\",\"file\":\"seller_report.txt\",\"location\":\"Page 30\"}],\"structure\":{\"agreements\":[{\"name\":\"股权转让协议\",\"parties\":[{\"name\":\"物美科技集团有限公司\",\"role\":\"Transferor\"},{\"name\":\"杭州景祺电子信息合伙企业（有限合伙）\",\"role\":\"Transferee\"},{\"name\":\"厦门联芯美企业管理合伙企业（有限合伙）\",\"role\":\"Transferee\"}]},{\"name\":\"股份转让协议\",\"parties\":[{\"name\":\"物美集团\",\"role\":\"卖方\"},{\"name\":\"杭州景祺电子信息合伙企业（有限合伙）\",\"role\":\"买方\"},{\"name\":\"物美科技集团有限公司\",\"role\":\"transferor\"},{\"name\":\"厦门联芯美企业管理合伙企业（有限合伙）\",\"role\":\"recipient\"},{\"name\":\"物美科技集团有限公司\",\"role\":\"甲方（转让方)\"},{\"name\":\"杭州景祺电子信息合伙企业（有限合伙）\",\"role\":\"乙方（受让方)\"},{\"name\":\"厦门联芯美\",\"role\":\"乙方（受让方)\"},{\"name\":\"物美科技集团有限公司\",\"role\":\"甲方（转让方）\"},{\"name\":\"厦门联芯美企业管理合伙企业（有限合伙）\",\"role\":\"乙方（受让方）\"}]}],\"definitions\":[{\"short\":\"物美集团\",\"full\":\"物美科技集团有限公司\",\"file\":\"buyer1_report.txt\",\"location\":\"Page 4\"},{\"short\":\"本次权益变动\",\"full\":\"物美集团将其持有的11,281,564 股A 股股票（占上市公司总股本的5%）协议转让给杭州景祺，杭州景祺对上市公司持股比例由0%增加至5%的事项\",\"file\":\"buyer1_report.txt\",\"location\":\"Page 4\"},{\"short\":\"股份转让协议\",\"full\":\"物美集团与杭州景祺签署的《股份转让协议》\",\"file\":\"buyer1_report.txt\",\"location\":\"Page 4\"},{\"short\":\"股份转让协议\",\"full\":\"股份转让协议\",\"file\":\"buyer2_report.txt\",\"location\":\"Page 8\"}]},\"candidates\":[{\"entity\":\"杭州景祺电子信息合伙企业(有限合伙)\",\"attribute\":\"資金源泉\",\"values\":[{\"value\":\"自有资金\",\"normalizedValue\":\"funding:self\",\"file\":\"announcement.txt\",\"location\":\"チャンク 1・行 57\"},{\"value\":\"信息披露义务人向银行的借款\",\"normalizedValue\":\"funding:bank\",\"file\":\"buyer1_report.txt\",\"location\":\"Page 12\"}]},{\"entity\":\"厦门联芯美企业管理合伙企业(有限合伙)\",\"attribute\":\"金額\",\"values\":[{\"value\":\"146,660,323.00\",\"normalizedValue\":\"146660323\",\"file\":\"announcement.txt\",\"location\":\"チャンク 1・行 82\"},{\"value\":\"146,660,332.00\",\"normalizedValue\":\"146660332\",\"file\":\"announcement.txt\",\"location\":\"チャンク 3・行 43\"}]},{\"entity\":\"聚源盛业投资(宁波)有限公司\",\"attribute\":\"比率・持分\",\"values\":[{\"value\":\"45%\",\"normalizedValue\":\"45\",\"file\":\"announcement.txt\",\"location\":\"チャンク 1・行 235\"},{\"value\":\"40%\",\"normalizedValue\":\"40\",\"file\":\"buyer1_report.txt\",\"location\":\"チャンク 5・行 119\"}]}],\"coverage\":{\"totalChunks\":17,\"processedChunks\":17},\"chunkRange\":{\"offset\":16,\"count\":1},\"content\":\"prior rendering\"}";
+const PROD_BUNDLE_7185BC05_JSON = "{\"kind\":\"data-analysis\",\"outputKind\":\"findings\",\"findings\":[{\"claim\":\"Inconsistent identification of the share transfer recipient\",\"evidence\":\"受让方2 名称\\n厦门联芯美企业管理合伙企业（有限合伙）\",\"file\":\"announcement.txt\",\"location\":\"Page 5\",\"explanation\":\"The same transaction lists two different entities as the buyer – one on page 5 and another on page 6 – which cannot both be the sole assignee, indicating a material inconsistency.\",\"evidenceB\":\"乙方（受让方）：杭州景祺电子信息合伙企业（有限合伙）\",\"fileB\":\"announcement.txt\",\"locationB\":\"Page 6\"},{\"claim\":\"Information disclosure obligor claims to be the largest shareholder, but holds only 5% of shares\",\"evidence\":\"信息披露义务人是否为上市公司第一大股东 是\",\"file\":\"buyer1_report.txt\",\"location\":\"Page 18\",\"explanation\":\"The claim that the obligor is the largest shareholder contradicts the reported shareholding of only 5%\",\"evidenceB\":\"持股比例：5%\",\"fileB\":\"buyer1_report.txt\",\"locationB\":\"Page 19\"},{\"claim\":\"Information disclosure obligor claims to be the actual controller, but holds only 5% of shares\",\"evidence\":\"信息披露义务人是否为上市公司实际控制人 是\",\"file\":\"buyer1_report.txt\",\"location\":\"Page 18\",\"explanation\":\"The claim that the obligor is the actual controller contradicts the reported shareholding of only 5%\",\"evidenceB\":\"持股比例：5%\",\"fileB\":\"buyer1_report.txt\",\"locationB\":\"Page 19\"},{\"claim\":\"Entity name inconsistency for the transferor\",\"evidence\":\"物美集团与厦门联芯美签订了《股份转让协议》\",\"file\":\"buyer2_report.txt\",\"location\":\"Page 7\",\"explanation\":\"The transferor is referred to as 物美集团 in the introductory paragraph, but later identified as 物美科技集团有限公司 in the agreement section, indicating a discrepancy in the entity name used for the same party.\",\"evidenceB\":\"甲方（转让方）：物美科技集团有限公司\",\"fileB\":\"buyer2_report.txt\",\"locationB\":\"Page 8\"},{\"claim\":\"Mismatch between reporting entity and disclosed company name\",\"evidence\":\"银川新华百货商业集团股份有限公司简式权益变动报告书\",\"file\":\"seller_report.txt\",\"location\":\"Page 5\",\"explanation\":\"The report is titled as belonging to 银川新华百货商业集团股份有限公司, but the disclosed information lists the information disclosure obligor as 物美科技集团有限公司, indicating a material inconsistency in the identity of the reporting entity.\",\"evidenceB\":\"公司名称\\n物美科技集团有限公司\",\"fileB\":\"seller_report.txt\",\"locationB\":\"Page 5\"},{\"claim\":\"Share count mismatch between agreement and reported holdings\",\"evidence\":\"杭州景祺以现金人民币146,660,332.00 元受让物美集团持有的新华百货无限售流通股11,281,564 股股份（占上市公司股份总数的5%）。\",\"file\":\"seller_report.txt\",\"location\":\"Page 11\",\"explanation\":\"The agreement states 11,281,564 shares were transferred, but the change in holdings indicates 22,563,128 shares were transferred.\",\"evidenceB\":\"持股数量（股） 81,570,343 59,007,215 22,563,128\",\"fileB\":\"seller_report.txt\",\"locationB\":\"Page 11\"},{\"claim\":\"Approval requirement vs approval status conflict\",\"evidence\":\"本次权益变动是否需取得批准 是 ☑ ...\",\"file\":\"seller_report.txt\",\"location\":\"Page 29-30\",\"explanation\":\"The report states that the transaction requires approval, but also indicates that approval has not been obtained.\",\"evidenceB\":\"是否已得到批准 是 □ 否 ☑\"}],\"values\":[{\"entity\":\"厦门联芯美企业管理合伙企业（有限合伙）\",\"attribute\":\"受让方名称\",\"value\":\"厦门联芯美企业管理合伙企业（有限合伙）\",\"normalizedValue\":\"厦门联芯美企业管理合伙企业有限合伙\",\"file\":\"announcement.txt\",\"location\":\"Page 5\"},{\"entity\":\"杭州景祺电子信息合伙企业（有限合伙）\",\"attribute\":\"受让方名称\",\"value\":\"杭州景祺电子信息合伙企业（有限合伙）\",\"normalizedValue\":\"杭州景祺电子信息合伙企业有限合伙\",\"file\":\"announcement.txt\",\"location\":\"Page 6\"},{\"entity\":\"厦门联芯美企业管理合伙企业（有限合伙）\",\"attribute\":\"受让方性质\",\"value\":\"其他组织或机构\",\"normalizedValue\":\"Other organization\",\"file\":\"announcement.txt\",\"location\":\"Page 5\"},{\"entity\":\"杭州景祺电子信息合伙企业（有限合伙）\",\"attribute\":\"不减持期限\",\"value\":\"12 个月\",\"normalizedValue\":\"12 months\",\"file\":\"announcement.txt\",\"location\":\"Page 15\"},{\"entity\":\"厦门联芯美企业管理合伙企业（有限合伙）\",\"attribute\":\"不减持期限\",\"value\":\"12 个月\",\"normalizedValue\":\"12 months\",\"file\":\"announcement.txt\",\"location\":\"Page 15\"},{\"entity\":\"银川新华百货商业集团股份有限公司\",\"attribute\":\"公告日期\",\"value\":\"2026年1月13日\",\"normalizedValue\":\"2026-01-13\",\"file\":\"announcement.txt\",\"location\":\"Page 16\"},{\"entity\":\"杭州景祺电子信息合伙企业（有限合伙）\",\"attribute\":\"持股数量\",\"value\":\"11,281,564 股\",\"normalizedValue\":\"11281564\",\"file\":\"buyer1_report.txt\",\"location\":\"Page 8\"},{\"entity\":\"杭州景祺电子信息合伙企业（有限合伙）\",\"attribute\":\"持股比例\",\"value\":\"5%\",\"normalizedValue\":\"0.05\",\"file\":\"buyer1_report.txt\",\"location\":\"Page 8\"},{\"entity\":\"股份转让\",\"attribute\":\"单价\",\"value\":\"13.00 元/股\",\"normalizedValue\":\"13.00\",\"file\":\"buyer1_report.txt\",\"location\":\"Page 9\"},{\"entity\":\"股份转让\",\"attribute\":\"总价\",\"value\":\"146,660,332.00 元\",\"normalizedValue\":\"146660332\",\"file\":\"buyer1_report.txt\",\"location\":\"Page 9\"},{\"entity\":\"杭州景祺电子信息合伙企业（有限合伙）\",\"attribute\":\"首期付款\",\"value\":\"73,330,166.00 元\",\"normalizedValue\":\"73330166\",\"file\":\"buyer1_report.txt\",\"location\":\"Page 9\"},{\"entity\":\"杭州景祺电子信息合伙企业（有限合伙）\",\"attribute\":\"二期付款\",\"value\":\"73,330,166.00 元\",\"normalizedValue\":\"73330166\",\"file\":\"buyer1_report.txt\",\"location\":\"Page 10\"},{\"entity\":\"杭州景祺电子信息合伙企业（有限合伙）\",\"attribute\":\"持股比例\",\"value\":\"5%\",\"normalizedValue\":\"5%\",\"file\":\"buyer1_report.txt\",\"location\":\"Page 19\"},{\"entity\":\"杭州景祺电子信息合伙企业（有限合伙）\",\"attribute\":\"持股数量\",\"value\":\"11,281,564\",\"normalizedValue\":\"11281564\",\"file\":\"buyer1_report.txt\",\"location\":\"Page 19\"},{\"entity\":\"杭州景祺电子信息合伙企业（有限合伙）\",\"attribute\":\"是否为上市公司第一大股东\",\"value\":\"是\",\"normalizedValue\":\"true\",\"file\":\"buyer1_report.txt\",\"location\":\"Page 18\"},{\"entity\":\"杭州景祺电子信息合伙企业（有限合伙）\",\"attribute\":\"是否为上市公司实际控制人\",\"value\":\"是\",\"normalizedValue\":\"true\",\"file\":\"buyer1_report.txt\",\"location\":\"Page 18\"},{\"entity\":\"杭州景祺电子信息合伙企业（有限合伙）\",\"attribute\":\"资金来源\",\"value\":\"银行借款\",\"normalizedValue\":\"bank loan\",\"file\":\"buyer1_report.txt\",\"location\":\"Page 18\"},{\"entity\":\"杭州景祺电子信息合伙企业（有限合伙）\",\"attribute\":\"是否已充足披露资金来源\",\"value\":\"是\",\"normalizedValue\":\"true\",\"file\":\"buyer1_report.txt\",\"location\":\"Page 18\"},{\"entity\":\"杭州景祺电子信息合伙企业（有限合伙）\",\"attribute\":\"是否在未来12个月内继续增持\",\"value\":\"否\",\"normalizedValue\":\"false\",\"file\":\"buyer1_report.txt\",\"location\":\"Page 19\"},{\"entity\":\"杭州景祺电子信息合伙企业（有限合伙）\",\"attribute\":\"是否在二级市场买卖该上市公司股票\",\"value\":\"否\",\"normalizedValue\":\"false\",\"file\":\"buyer1_report.txt\",\"location\":\"Page 20\"},{\"entity\":\"杭州景祺电子信息合伙企业（有限合伙）\",\"attribute\":\"是否需取得批准\",\"value\":\"是\",\"normalizedValue\":\"true\",\"file\":\"buyer1_report.txt\",\"location\":\"Page 20\"},{\"entity\":\"杭州景祺电子信息合伙企业（有限合伙）\",\"attribute\":\"是否已得到批准\",\"value\":\"否\",\"normalizedValue\":\"false\",\"file\":\"buyer1_report.txt\",\"location\":\"Page 20\"},{\"entity\":\"厦门联芯美企业管理合伙企业（有限合伙）\",\"attribute\":\"出资额\",\"value\":\"20,000 万元\",\"normalizedValue\":\"2000000000元\",\"file\":\"buyer2_report.txt\",\"location\":\"Page 5\"},{\"entity\":\"厦门联芯美企业管理合伙企业（有限合伙）\",\"attribute\":\"持股比例（交易后）\",\"value\":\"5%\",\"normalizedValue\":\"0.05\",\"file\":\"buyer2_report.txt\",\"location\":\"Page 4\"},{\"entity\":\"厦门联芯美企业管理合伙企业（有限合伙）\",\"attribute\":\"持股比例（交易前）\",\"value\":\"0%\",\"normalizedValue\":\"0\",\"file\":\"buyer2_report.txt\",\"location\":\"Page 4\"},{\"entity\":\"物美集团\",\"attribute\":\"转让股份数量\",\"value\":\"11,281,564 股\",\"normalizedValue\":\"11281564\",\"file\":\"buyer2_report.txt\",\"location\":\"Page 4\"},{\"entity\":\"物美集团\",\"attribute\":\"持股比例（占总股本）\",\"value\":\"5%\",\"normalizedValue\":\"0.05\",\"file\":\"buyer2_report.txt\",\"location\":\"Page 4\"},{\"entity\":\"厦门市中亿资产管理有限公司\",\"attribute\":\"合伙份额\",\"value\":\"74%\",\"normalizedValue\":\"0.74\",\"file\":\"buyer2_report.txt\",\"location\":\"Page 5\"},{\"entity\":\"厦门市联和股权投资基金管理有限公司\",\"attribute\":\"合伙份额\",\"value\":\"25%\",\"normalizedValue\":\"0.25\",\"file\":\"buyer2_report.txt\",\"location\":\"Page 5\"},{\"entity\":\"厦门联芯盛投资合伙企业（有限合伙）\",\"attribute\":\"合伙份额\",\"value\":\"1%\",\"normalizedValue\":\"0.01\",\"file\":\"buyer2_report.txt\",\"location\":\"Page 5\"},{\"entity\":\"厦门联芯美企业管理合伙企业（有限合伙）\",\"attribute\":\"信息披露义务人\",\"value\":\"是\",\"normalizedValue\":\"true\",\"file\":\"buyer2_report.txt\",\"location\":\"Page 1\"},{\"entity\":\"厦门联芯美企业管理合伙企业（有限合伙）\",\"attribute\":\"签署日期\",\"value\":\"2026 年1 月13 日\",\"normalizedValue\":\"2026-01-13\",\"file\":\"buyer2_report.txt\",\"location\":\"Page 1\"},{\"entity\":\"物美集团\",\"attribute\":\"持股数量\",\"value\":\"0\",\"normalizedValue\":\"0\",\"file\":\"buyer2_report.txt\",\"location\":\"Page 7\"},{\"entity\":\"物美集团\",\"attribute\":\"持股比例\",\"value\":\"0%\",\"normalizedValue\":\"0%\",\"file\":\"buyer2_report.txt\",\"location\":\"Page 7\"},{\"entity\":\"厦门联芯美\",\"attribute\":\"持股数量\",\"value\":\"11,281,564\",\"normalizedValue\":\"11281564\",\"file\":\"buyer2_report.txt\",\"location\":\"Page 7\"},{\"entity\":\"厦门联芯美\",\"attribute\":\"持股比例\",\"value\":\"5%\",\"normalizedValue\":\"5%\",\"file\":\"buyer2_report.txt\",\"location\":\"Page 7\"},{\"entity\":\"股份转让协议\",\"attribute\":\"转让价格/股\",\"value\":\"13.00 元/股\",\"normalizedValue\":\"13.00\",\"file\":\"buyer2_report.txt\",\"location\":\"Page 8\"},{\"entity\":\"股份转让协议\",\"attribute\":\"总价款\",\"value\":\"146,660,332.00 元\",\"normalizedValue\":\"146660332\",\"file\":\"buyer2_report.txt\",\"location\":\"Page 8\"},{\"entity\":\"厦门联芯美企业管理合伙企业（有限合伙）\",\"attribute\":\"资金来源\",\"value\":\"自有资金\",\"normalizedValue\":\"自有资金\",\"file\":\"buyer2_report.txt\",\"location\":\"Page 11\"},{\"entity\":\"厦门联芯美企业管理合伙企业（有限合伙）\",\"attribute\":\"持股数量\",\"value\":\"11,281,564\",\"normalizedValue\":\"11281564\",\"file\":\"buyer2_report.txt\",\"location\":\"Page 18\"},{\"entity\":\"厦门联芯美企业管理合伙企业（有限合伙）\",\"attribute\":\"持股比例\",\"value\":\"5%\",\"normalizedValue\":\"5%\",\"file\":\"buyer2_report.txt\",\"location\":\"Page 18\"},{\"entity\":\"厦门联芯美企业管理合伙企业（有限合伙）\",\"attribute\":\"是否为第一大股东\",\"value\":\"是\",\"normalizedValue\":\"yes\",\"file\":\"buyer2_report.txt\",\"location\":\"Page 17\"},{\"entity\":\"厦门联芯美企业管理合伙企业（有限合伙）\",\"attribute\":\"是否为实际控制人\",\"value\":\"是\",\"normalizedValue\":\"yes\",\"file\":\"buyer2_report.txt\",\"location\":\"Page 17\"},{\"entity\":\"厦门联芯美企业管理合伙企业（有限合伙）\",\"attribute\":\"是否已充分披露资金来源\",\"value\":\"是\",\"normalizedValue\":\"yes\",\"file\":\"buyer2_report.txt\",\"location\":\"Page 18\"},{\"entity\":\"厦门联芯美企业管理合伙企业（有限合伙）\",\"attribute\":\"是否拟于未来12个月内继续增持\",\"value\":\"否\",\"normalizedValue\":\"no\",\"file\":\"buyer2_report.txt\",\"location\":\"Page 18\"},{\"entity\":\"厦门联芯美企业管理合伙企业（有限合伙）\",\"attribute\":\"是否在过去6个月买卖股票\",\"value\":\"否\",\"normalizedValue\":\"no\",\"file\":\"buyer2_report.txt\",\"location\":\"Page 19\"},{\"entity\":\"厦门联芯美企业管理合伙企业（有限合伙）\",\"attribute\":\"是否需取得批准\",\"value\":\"是\",\"normalizedValue\":\"yes\",\"file\":\"buyer2_report.txt\",\"location\":\"Page 19\"},{\"entity\":\"厦门联芯美企业管理合伙企业（有限合伙）\",\"attribute\":\"是否已得到批准\",\"value\":\"否\",\"normalizedValue\":\"no\",\"file\":\"buyer2_report.txt\",\"location\":\"Page 19\"},{\"entity\":\"厦门联芯美企业管理合伙企业（有限合伙）\",\"attribute\":\"签署日期\",\"value\":\"2026年1月13日\",\"normalizedValue\":\"2026-01-13\",\"file\":\"buyer2_report.txt\",\"location\":\"Page 16\"},{\"entity\":\"银川新华百货商业集团股份有限公司\",\"attribute\":\"主体名\",\"value\":\"银川新华百货商业集团股份有限公司\",\"normalizedValue\":\"银川新华百货商业集团股份有限公司\",\"file\":\"seller_report.txt\",\"location\":\"Page 5\"},{\"entity\":\"物美科技集团有限公司\",\"attribute\":\"主体名\",\"value\":\"物美科技集团有限公司\",\"normalizedValue\":\"物美科技集团有限公司\",\"file\":\"seller_report.txt\",\"location\":\"Page 5\"},{\"entity\":\"物美集团\",\"attribute\":\"持股数量\",\"value\":\"81,570,343\",\"normalizedValue\":\"81,570,343\",\"file\":\"seller_report.txt\",\"location\":\"Page 11\"},{\"entity\":\"物美集团\",\"attribute\":\"持股数量\",\"value\":\"59,007,215\",\"normalizedValue\":\"59,007,215\",\"file\":\"seller_report.txt\",\"location\":\"Page 11\"},{\"entity\":\"物美集团\",\"attribute\":\"转让股份数量\",\"value\":\"11,281,564\",\"normalizedValue\":\"11,281,564\",\"file\":\"seller_report.txt\",\"location\":\"Page 11\"},{\"entity\":\"物美集团\",\"attribute\":\"转让股份数量\",\"value\":\"22,563,128\",\"normalizedValue\":\"22,563,128\",\"file\":\"seller_report.txt\",\"location\":\"Page 11\"},{\"entity\":\"杭州景祺电子信息合伙企业（有限合伙）\",\"attribute\":\"受让股份数量\",\"value\":\"11,281,564\",\"normalizedValue\":\"11,281,564\",\"file\":\"seller_report.txt\",\"location\":\"Page 11\"},{\"entity\":\"物美科技集团有限公司\",\"attribute\":\"主体名\",\"value\":\"物美科技集团有限公司\",\"normalizedValue\":\"Wumei Technology Group Co., Ltd.\",\"file\":\"seller_report.txt\",\"location\":\"Page 15-16\"},{\"entity\":\"厦门联芯美企业管理合伙企业（有限合伙）\",\"attribute\":\"主体名\",\"value\":\"厦门联芯美企业管理合伙企业（有限合伙）\",\"normalizedValue\":\"Xiamen Lianxinmei Enterprise Management Partnership (Limited Partnership)\",\"file\":\"seller_report.txt\",\"location\":\"Page 15-16\"},{\"entity\":\"物美科技集团有限公司\",\"attribute\":\"持股数量\",\"value\":\"81,570,343\",\"normalizedValue\":\"81570343\",\"file\":\"seller_report.txt\",\"location\":\"Page 19\"},{\"entity\":\"物美科技集团有限公司\",\"attribute\":\"持股比例\",\"value\":\"36.15%\",\"normalizedValue\":\"0.3615\",\"file\":\"seller_report.txt\",\"location\":\"Page 19\"},{\"entity\":\"物美津投（天津）商业管理有限公司\",\"attribute\":\"持股数量\",\"value\":\"8,922,900\",\"normalizedValue\":\"8922900\",\"file\":\"seller_report.txt\",\"location\":\"Page 19\"},{\"entity\":\"物美津投（天津）商业管理有限公司\",\"attribute\":\"持股比例\",\"value\":\"3.95%\",\"normalizedValue\":\"0.0395\",\"file\":\"seller_report.txt\",\"location\":\"Page 19\"},{\"entity\":\"北京绿色安全农产品物流信息中心有限公司\",\"attribute\":\"持股数量\",\"value\":\"4,545,951\",\"normalizedValue\":\"4545951\",\"file\":\"seller_report.txt\",\"location\":\"Page 19\"},{\"entity\":\"北京绿色安全农产品物流信息中心有限公司\",\"attribute\":\"持股比例\",\"value\":\"2.01%\",\"normalizedValue\":\"0.0201\",\"file\":\"seller_report.txt\",\"location\":\"Page 19\"},{\"entity\":\"物美科技集团有限公司\",\"attribute\":\"持股数量（变动后）\",\"value\":\"72,476,066\",\"normalizedValue\":\"72476066\",\"file\":\"seller_report.txt\",\"location\":\"Page 28\"},{\"entity\":\"物美科技集团有限公司\",\"attribute\":\"持股比例（变动后）\",\"value\":\"32.12%\",\"normalizedValue\":\"0.3212\",\"file\":\"seller_report.txt\",\"location\":\"Page 28\"},{\"entity\":\"银川新华百货商业集团股份有限公司\",\"attribute\":\"批准\",\"value\":\"是\",\"normalizedValue\":\"required\",\"file\":\"seller_report.txt\",\"location\":\"Page 29\"},{\"entity\":\"银川新华百货商业集团股份有限公司\",\"attribute\":\"批准\",\"value\":\"否\",\"normalizedValue\":\"not obtained\",\"file\":\"seller_report.txt\",\"location\":\"Page 30\"}],\"structure\":{\"agreements\":[{\"name\":\"股份转让协议\",\"parties\":[{\"name\":\"物美科技集团有限公司\",\"role\":\"转让方\"},{\"name\":\"杭州景祺电子信息合伙企业（有限合伙）\",\"role\":\"受让方\"},{\"name\":\"物美科技集团有限公司\",\"role\":\"甲方（转让方）\"},{\"name\":\"杭州景祺电子信息合伙企业（有限合伙）\",\"role\":\"乙方（受让方）\"},{\"name\":\"物美集团\",\"role\":\"转让方\"},{\"name\":\"厦门联芯美企业管理合伙企业（有限合伙）\",\"role\":\"受让方\"},{\"name\":\"厦门联芯美\",\"role\":\"受让方\"}]},{\"name\":\"本次协议转让\",\"parties\":[{\"name\":\"杭州景祺电子信息合伙企业（有限合伙）\",\"role\":\"受让方\"},{\"name\":\"厦门联芯美企业管理合伙企业（有限合伙）\",\"role\":\"受让方\"}]},{\"name\":\"协议转让\",\"parties\":[{\"name\":\"物美科技集团有限公司\",\"role\":\"信息披露义务人\"},{\"name\":\"物美津投（天津）商业管理有限公司\",\"role\":\"一致行动人\"},{\"name\":\"北京绿色安全农产品物流信息中心有限公司\",\"role\":\"一致行动人\"}]}],\"definitions\":[{\"short\":\"甲方\",\"full\":\"物美科技集团有限公司\",\"file\":\"buyer1_report.txt\",\"location\":\"Page 9\"},{\"short\":\"乙方\",\"full\":\"杭州景祺电子信息合伙企业（有限合伙）\",\"file\":\"buyer1_report.txt\",\"location\":\"Page 9\"},{\"short\":\"厦门联芯美\",\"full\":\"厦门联芯美企业管理合伙企业（有限合伙）\",\"file\":\"buyer2_report.txt\",\"location\":\"Page 4\"},{\"short\":\"物美集团\",\"full\":\"物美科技集团有限公司\",\"file\":\"buyer2_report.txt\",\"location\":\"Page 4\"}]},\"candidates\":[{\"entity\":\"物美科技集团有限公司\",\"attribute\":\"持股比例\",\"values\":[{\"value\":\"0%\",\"normalizedValue\":\"0\",\"file\":\"buyer2_report.txt\",\"location\":\"Page 7\"},{\"value\":\"36.15%\",\"normalizedValue\":\"36.15\",\"file\":\"seller_report.txt\",\"location\":\"Page 19\"}]}],\"coverage\":{\"totalChunks\":17,\"processedChunks\":17},\"chunkRange\":{\"offset\":16,\"count\":1},\"content\":\"prior rendering\"}";
+
+describe('M&A gate follow-up: corrected anchor predicate, deterministic pickup, observability (案A・案B・案C, gate diagnosis 2026-11-26)', () => {
+  // The two production analyzer bundles below are embedded
+  // verbatim (the layer-1 sections the gate and the pickup read:
+  // findings, values, structure, candidates, coverage,
+  // chunkRange) from the recorded runs — 8c49293c (the run whose
+  // reconciliation failed with candidateCount=3, keptCount=0)
+  // and 7185bc05 (the earlier run whose seven findings were all
+  // misreadings). The replays pin the fixes against the measured
+  // material itself, not a paraphrase of it.
+  type ProdBundleShape = {
+    findings: {
+      claim: string; explanation?: string; evidence: string; file: string; location: string;
+      evidenceB?: string; fileB?: string; locationB?: string; origin?: 'deterministic-candidate';
+    }[];
+    values: AgentDataValue[];
+    structure: {
+      agreements: { name: string; parties: { name: string; role: string }[] }[];
+      definitions: { short: string; full: string; file: string; location: string }[];
+    };
+    candidates: {
+      entity: string; attribute: string;
+      values: { value: string; normalizedValue: string; file: string; location: string }[];
+    }[];
+  };
+  const prod8c = JSON.parse(PROD_BUNDLE_8C49293C_JSON) as ProdBundleShape;
+  const prod7185 = JSON.parse(PROD_BUNDLE_7185BC05_JSON) as ProdBundleShape;
+
+  it('案A: a first citation quoting BOTH values of the pair anchors — the production R1 shape', () => {
+    const material = {
+      values: [
+        { entity: '买方一', attribute: '金額', value: '146,660,323.00', file: 'announcement.txt', location: 'p.2' },
+        { entity: '买方一', attribute: '金額', value: '146,660,332.00', file: 'announcement.txt', location: 'p.3' },
+      ] as AgentDataValue[],
+      structure: { agreements: [], definitions: [] },
+      candidates: [],
+    };
+    const gateOne = (evidence: string, evidenceB: string) => {
+      const parsed = parseReconciliationOutput(JSON.stringify({
+        findings: [{
+          claim: '対価の金額が食い違う', explanation: '説明',
+          evidence, file: 'announcement.txt', location: 'p.2',
+          evidenceB, fileB: 'announcement.txt', locationB: 'p.2',
+          source: { kind: 'kept', index: 0 },
+        }],
+        dropped: [],
+      }), 1, 0);
+      expect(parsed.ok).toBe(true);
+      if (!parsed.ok) throw new Error('parse failed');
+      return applyAgentDataPairGate(parsed, material);
+    };
+    // Both amounts ride the first citation (what the analyzer
+    // actually quoted for R1); the second citation repeats one
+    // of them. The pre-fix difference-set predicate dropped
+    // exactly this shape; the corrected predicate keeps it.
+    expect(gateOne(
+      '协议转让对价146,660,332.00 价款支付方146,660,323.00',
+      '价款支付方146,660,323.00',
+    ).keptIndexes).toEqual([0]);
+    // A second citation quoting no group value still cannot
+    // anchor: the pair is not shown.
+    expect(gateOne(
+      '协议转让对价146,660,332.00 价款支付方146,660,323.00',
+      '协议转让单价13.00',
+    ).keptIndexes).toEqual([]);
+    // Both citations quoting the SAME one value is not a pair.
+    expect(gateOne(
+      '协议转让对价146,660,332.00',
+      '协议转让对价146,660,332.00',
+    ).keptIndexes).toEqual([]);
+  });
+
+  it('案A replay: the seven 7185bc05 misreadings still all gate out', () => {
+    // The earlier run's analyzer findings, judged as kept
+    // originals against their own bundle's table. Every one of
+    // the seven pulls no anchor-group value with its first
+    // citation (the gate diagnosis traced each), so the
+    // corrected predicate — which only re-decides findings
+    // whose citations DO pull group values — changes none of
+    // their outcomes.
+    const parsed = {
+      ok: true as const,
+      findings: prod7185.findings,
+      sources: prod7185.findings.map((_, index) => ({ kind: 'kept' as const, index })),
+      dropped: [] as { index: number; reason: string }[],
+      keptCount: prod7185.findings.length,
+      keptIndexes: prod7185.findings.map((_, index) => index),
+      pickedUpCount: 0,
+    };
+    const gated = applyAgentDataPairGate(parsed, prod7185);
+    expect(gated.findings).toEqual([]);
+    expect(gated.keptIndexes).toEqual([]);
+    expect(gated.gatedOutKeptIndexes).toEqual([0, 1, 2, 3, 4, 5, 6]);
+  });
+
+  it('案B: a covered candidate is not synthesized; an uncovered one is, marked as deterministic', () => {
+    const bundle = {
+      values: [] as AgentDataValue[],
+      structure: { agreements: [], definitions: [] },
+      candidates: [{
+        entity: '聚源盛业',
+        attribute: '比率・持分',
+        values: [
+          { value: '45%', normalizedValue: '45', file: 'announcement.txt', location: 'p.2' },
+          { value: '40%', normalizedValue: '40', file: 'buyer1_report.txt', location: 'p.4' },
+        ],
+      }],
+    };
+    const faithful = parseReconciliationOutput(JSON.stringify({
+      findings: [{
+        claim: '持分が食い違う', explanation: '説明',
+        evidence: '45%', file: 'announcement.txt', location: 'p.2',
+        evidenceB: '40%', fileB: 'buyer1_report.txt', locationB: 'p.4',
+        source: { kind: 'candidate', index: 0 },
+      }],
+    }), 0, 1);
+    expect(faithful.ok).toBe(true);
+    if (!faithful.ok) return;
+    const gatedFaithful = applyAgentDataPairGate(faithful, bundle);
+    expect(gatedFaithful.pickedUpCount).toBe(1);
+    // The model's own candidate finding survived: nothing to add.
+    expect(synthesizeDeterministicCandidatePickups(faithful, gatedFaithful, bundle, false))
+      .toEqual({ findings: [], pickedUpCount: 0 });
+    // The model built nothing: the pickup synthesizes the
+    // candidate's own pair, with its recorded sources, marked.
+    const empty = parseReconciliationOutput(JSON.stringify({ findings: [], dropped: [] }), 0, 1);
+    expect(empty.ok).toBe(true);
+    if (!empty.ok) return;
+    const pickup = synthesizeDeterministicCandidatePickups(
+      empty,
+      applyAgentDataPairGate(empty, bundle),
+      bundle,
+      false,
+    );
+    expect(pickup.pickedUpCount).toBe(1);
+    expect(pickup.findings[0]?.origin).toBe('deterministic-candidate');
+    expect(pickup.findings[0]?.evidence).toBe('45%');
+    expect(pickup.findings[0]?.evidenceB).toBe('40%');
+    expect(pickup.findings[0]?.file).toBe('announcement.txt');
+    expect(pickup.findings[0]?.fileB).toBe('buyer1_report.txt');
+  });
+
+  it('案B: a kept original stating the candidate pair covers it; a partial quote of a wider group does not', () => {
+    const pairBundle = {
+      values: [] as AgentDataValue[],
+      structure: { agreements: [], definitions: [] },
+      candidates: [{
+        entity: '聚源盛业',
+        attribute: '比率・持分',
+        values: [
+          { value: '45%', normalizedValue: '45', file: 'announcement.txt', location: 'p.2' },
+          { value: '40%', normalizedValue: '40', file: 'buyer1_report.txt', location: 'p.4' },
+        ],
+      }],
+    };
+    const keptPair = parseReconciliationOutput(JSON.stringify({
+      findings: [{
+        claim: '持分が食い違う', explanation: '説明',
+        evidence: '45%', file: 'announcement.txt', location: 'p.2',
+        evidenceB: '40%', fileB: 'buyer1_report.txt', locationB: 'p.4',
+        source: { kind: 'kept', index: 0 },
+      }],
+      dropped: [],
+    }), 1, 1);
+    expect(keptPair.ok).toBe(true);
+    if (!keptPair.ok) return;
+    const gatedKept = applyAgentDataPairGate(keptPair, pairBundle);
+    expect(gatedKept.keptIndexes).toEqual([0]);
+    expect(gatedKept.pickedUpCount).toBe(0);
+    // The surviving original is not candidate-built, but it
+    // anchors to the candidate's own group with exactly the
+    // candidate's pair: covered, nothing synthesized — the
+    // pair must not publish twice.
+    expect(synthesizeDeterministicCandidatePickups(keptPair, gatedKept, pairBundle, false))
+      .toEqual({ findings: [], pickedUpCount: 0 });
+
+    // Strictness: against a THREE-value candidate group, a
+    // kept original quoting only two of the values anchors but
+    // does not cover — the pair it states is narrower than the
+    // candidate's normalized value set — so the pickup still
+    // synthesizes from the candidate.
+    const wideBundle = {
+      values: [] as AgentDataValue[],
+      structure: { agreements: [], definitions: [] },
+      candidates: [{
+        entity: '聚源盛业',
+        attribute: '比率・持分',
+        values: [
+          { value: '45%', normalizedValue: '45', file: 'announcement.txt', location: 'p.2' },
+          { value: '40%', normalizedValue: '40', file: 'buyer1_report.txt', location: 'p.4' },
+          { value: '50%', normalizedValue: '50', file: 'buyer2_report.txt', location: 'p.6' },
+        ],
+      }],
+    };
+    const gatedWide = applyAgentDataPairGate(keptPair, wideBundle);
+    expect(gatedWide.keptIndexes).toEqual([0]);
+    const widePickup = synthesizeDeterministicCandidatePickups(keptPair, gatedWide, wideBundle, false);
+    expect(widePickup.pickedUpCount).toBe(1);
+    expect(widePickup.findings[0]?.origin).toBe('deterministic-candidate');
+    // A kept original quoting all three values covers the wide
+    // candidate exactly.
+    const keptAll = parseReconciliationOutput(JSON.stringify({
+      findings: [{
+        claim: '持分が食い違う', explanation: '説明',
+        evidence: '45% 50%', file: 'announcement.txt', location: 'p.2',
+        evidenceB: '40%', fileB: 'buyer1_report.txt', locationB: 'p.4',
+        source: { kind: 'kept', index: 0 },
+      }],
+      dropped: [],
+    }), 1, 1);
+    expect(keptAll.ok).toBe(true);
+    if (!keptAll.ok) return;
+    expect(synthesizeDeterministicCandidatePickups(
+      keptAll,
+      applyAgentDataPairGate(keptAll, wideBundle),
+      wideBundle,
+      false,
+    )).toEqual({ findings: [], pickedUpCount: 0 });
+  });
+
+  it('replay (production 8c49293c): R1 kept under 案A covers its candidate, R2・R3 picked up under 案B, exactly three findings, no fail-closed', async () => {
+    const files = [
+      { name: 'announcement.txt', text: '公告本文。' },
+      { name: 'buyer1_report.txt', text: '買主一報告本文。' },
+      { name: 'buyer2_report.txt', text: '買主二報告本文。' },
+      { name: 'seller_report.txt', text: '売主報告本文。' },
+    ];
+    const { store, setDigest } = await storeWithFiles(files);
+    // The model's output as the C0 diagnostic recorded it
+    // (step10 bundle): five vetted findings, original 1 declared
+    // dropped as 'other', no candidate findings — the most
+    // likely decomposition (gate diagnosis §1.2). The vetted
+    // findings re-emit the analyzer's own citations, as the
+    // reconciler instruction requires.
+    const modelOutput = JSON.stringify({
+      findings: [0, 2, 3, 4, 5].map((index) => {
+        const finding = prod8c.findings[index];
+        if (!finding) throw new Error('fixture finding missing');
+        return {
+          claim: finding.claim,
+          explanation: finding.explanation,
+          evidence: finding.evidence,
+          file: finding.file,
+          location: finding.location,
+          evidenceB: finding.evidenceB,
+          fileB: finding.fileB,
+          locationB: finding.locationB,
+          source: { kind: 'kept', index },
+        };
+      }),
+      dropped: [{ index: 1, reason: 'other' }],
+    });
+    const executor: AgentModelExecutor = async () => ({ ok: true, text: modelOutput });
+    const result = await toolRegistry.attachment_reconciler.execute(
+      {
+        attachmentSetId: SET_ID,
+        setDigest,
+        instruction: 'Audit the documents for inconsistencies and report each inconsistency with its explanation.',
+        content: PROD_BUNDLE_8C49293C_JSON,
+      },
+      {
+        ...contextFor(store, executor),
+        env: { ORIGIN_AGENT_FINDINGS_RECONCILIATION_ENABLED: 'enforce' },
+      },
+    );
+    // Before the fixes this exact material failed closed with
+    // AGENT_RECONCILIATION_NO_FINDINGS (kept 0, picked up 0).
+    expect(result.ok).toBe(true);
+    const bundle = JSON.parse(result.artifact ?? '{}') as {
+      findings: ProdBundleShape['findings'];
+      reconciliation: {
+        candidateCount: number; keptCount: number; droppedCount: number;
+        droppedReasons: Record<string, number>; pickedUpCount: number;
+        keptIndexes?: number[]; droppedIndexes?: { index: number; reason: string }[];
+      };
+    };
+    expect(bundle.reconciliation.candidateCount).toBe(3);
+    // 案A: R1 (original 0) survives the gate; the other four
+    // vetted originals pull no group value and gate out, and
+    // original 1 stays the model's own 'other' drop.
+    expect(bundle.reconciliation.keptIndexes).toEqual([0]);
+    // Five drops in total: the model's own 'other' plus the
+    // four gate removals — one fewer than the production
+    // record's six, because R1 is the one that now survives.
+    expect(bundle.reconciliation.droppedCount).toBe(5);
+    expect(bundle.reconciliation.droppedReasons).toEqual({ other: 1, 'no-pair': 4 });
+    // 案B: the amount candidate (R1) is covered by the model's
+    // surviving original — same group, exactly the same pair —
+    // so only the funding (R3) and ratio (R2) candidates are
+    // picked up deterministically, and no pair publishes twice:
+    // the final list is exactly R1 (model) + R3 + R2 (marked).
+    expect(bundle.reconciliation.pickedUpCount).toBe(2);
+    expect(bundle.findings).toHaveLength(3);
+    expect(bundle.findings[0]?.claim).toBe(prod8c.findings[0]?.claim);
+    expect(bundle.findings[0]?.origin).toBeUndefined();
+    const synthesized = bundle.findings.slice(1);
+    expect(synthesized.every((finding) => finding.origin === 'deterministic-candidate')).toBe(true);
+    // R3 (funding), R2 (ratio) — each synthesized from its
+    // candidate's own two values, in candidate order.
+    expect(synthesized.map((finding) => `${finding.evidence}||${finding.evidenceB}`)).toEqual([
+      '自有资金||信息披露义务人向银行的借款',
+      '45%||40%',
+    ]);
   });
 });
