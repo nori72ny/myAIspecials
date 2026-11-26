@@ -61,27 +61,55 @@ describe("buildGroundedResearchAbstainAnswer: long queries are never echoed (P1)
 });
 
 describe("buildGroundedResearchAbstainAnswer: short questions keep their echo", () => {
-  it("echoes a short Japanese question in the searched lead", () => {
+  it("echoes a short Japanese question in the lead", () => {
     const text = buildGroundedResearchAbstainAnswer({ query: "最新の物価を教えてください", language: "ja", reason: "no-sources" });
-    expect(text).toContain("「最新の物価を教えてください」について公開情報を調べましたが");
+    expect(text).toContain("「最新の物価を教えてください」については、確認できた情報がないため、推測で回答しません。");
   });
 
-  it("echoes a short Japanese question in the gate (unsearched) lead", () => {
+  it("echoes a short Japanese question in the gate landing with the same lead", () => {
     const text = buildGroundedResearchAbstainAnswer({ query: "空家等対策の推進に関する特別措置法は、いつ全面施行されましたか?", language: "ja", reason: "high-risk-insufficient-sources", searched: false });
-    expect(text).toContain("「空家等対策の推進に関する特別措置法は、いつ全面施行されましたか?」について、出典による裏付けが取れなかったため");
+    expect(text).toContain("「空家等対策の推進に関する特別措置法は、いつ全面施行されましたか?」については、確認できた情報がないため、推測で回答しません。");
+    // The gate performed no search, and neither the lead nor the
+    // high-risk reason text claims one.
+    expect(text).not.toContain("調べましたが");
+    expect(text).not.toContain("探しましたが");
   });
 
   it("echoes a short English question", () => {
     const text = buildGroundedResearchAbstainAnswer({ query: "latest consumer prices", language: "en", reason: "provider-error" });
-    expect(text).toContain('I searched public sources for "latest consumer prices"');
+    expect(text).toContain('For "latest consumer prices", I have no confirmed information, so I will not guess an answer.');
   });
 
   it("echoes a query of exactly 40 characters and not one of 41", () => {
     const forty = "あ".repeat(40);
     const fortyOne = "あ".repeat(41);
     expect(buildGroundedResearchAbstainAnswer({ query: forty, language: "ja", reason: "no-sources" }))
-      .toContain(`「${forty}」について公開情報を調べましたが`);
+      .toContain(`「${forty}」については、確認できた情報がないため`);
     expect(buildGroundedResearchAbstainAnswer({ query: fortyOne, language: "ja", reason: "no-sources" }))
       .toBe(buildGroundedResearchAbstainAnswer({ query: "", language: "ja", reason: "no-sources" }));
+  });
+});
+
+describe("buildGroundedResearchAbstainAnswer: shortened three-part shape (4-C)", () => {
+  it("states the point first, drops the repeated no-information tail, and names where to check", () => {
+    for (const reason of REASONS) {
+      const text = buildGroundedResearchAbstainAnswer({ query: "", language: "ja", reason });
+      expect(text.startsWith("確認できた情報がないため、推測で回答しません。")).toBe(true);
+      // The former tail repeated the lead in every reason text.
+      expect(text).not.toContain("確認できた情報はありませんでした");
+      // The closing names the definitive check destination.
+      expect(text).toContain("正確な情報は、公式の発表などでご確認ください。");
+    }
+    const en = buildGroundedResearchAbstainAnswer({ query: "", language: "en", reason: "no-sources" });
+    expect(en.startsWith("I have no confirmed information, so I will not guess an answer.")).toBe(true);
+    expect(en).not.toContain("There is no information I could confirm");
+    expect(en).toContain("please check the official announcement");
+  });
+
+  it("is shorter than the pre-shortening shape for the same landing", () => {
+    const text = buildGroundedResearchAbstainAnswer({ query: "最新の物価を教えてください", language: "ja", reason: "no-fresh-sources" });
+    // The pre-shortening text for this exact landing measured 184
+    // characters; the shortened shape measures 157.
+    expect(text.length).toBeLessThan(170);
   });
 });

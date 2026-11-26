@@ -5,6 +5,7 @@ import {
   executeOriginSearchGrounding,
   extractStatedPublicationMs,
   originSearchGroundingToResearchResult,
+  selectOriginSearchSourcesWithObservation,
   type OriginSearchGroundingDeps,
   type OriginSearchGroundingOutcome,
 } from "./originSearchGrounding";
@@ -791,5 +792,166 @@ describe("executeOriginSearchGrounding — round-8 measures A + B + D", () => {
     expect(national?.excerpt).toContain("1.19倍");
     const searchCalls = calls.filter((call) => call.url.includes("api.tavily.com/search"));
     expect(searchCalls).toHaveLength(3);
+  });
+});
+
+/* ------------------------------------------------------------------ */
+/* Follow-up measures 2a/2b/2c: edition targeting end to end           */
+/* (ANSWER_FOLLOWUP_DIAGNOSIS_2026-11-26). NOW is 2026-11-19 JST, so  */
+/* the edition that must exist for a monthly statistic is 2026年9月分. */
+/* ------------------------------------------------------------------ */
+
+describe("executeOriginSearchGrounding — follow-up measure 2 (editions)", () => {
+  it("F-05 follow-up shape: a stale-edition pool fires ONE edition-targeted retry and adopts the current release", async () => {
+    const staleRelease = {
+      title: "一般職業紹介状況（令和7年12月分）を公表しました 厚生労働省",
+      url: "https://www.mhlw.go.jp/stf/newdata/20251226.html",
+      content: "一般職業紹介状況の結果です。全国の有効求人倍率は1.18倍でした。2025年12月26日に公表しました。",
+      score: 0.85,
+    };
+    const currentRelease = {
+      title: "一般職業紹介状況（令和8年9月分）を公表しました 厚生労働省",
+      url: "https://www.mhlw.go.jp/stf/newdata/20261030.html",
+      content: "一般職業紹介状況の結果です。全国の有効求人倍率は1.19倍でした。2026年10月30日に公表しました。",
+      score: 0.95,
+    };
+    const blog = {
+      title: "有効求人倍率とは？意味を解説",
+      url: "https://blog.example.com/job-offers-ratio",
+      content: "有効求人倍率について分かりやすく解説します。求職者と求人の関係を示す指標です。",
+      score: 0.7,
+    };
+    const calls: RecordedCall[] = [];
+    const fetchImpl: OriginSearchFetch = async (url, init) => {
+      calls.push({ url, init });
+      if (url.includes("api.tavily.com/search")) {
+        const body = JSON.parse(init?.body ?? "{}") as { query?: string; include_domains?: string[] };
+        if (body.query === "一般職業紹介状況 令和8年9月分 2026年9月分") {
+          return jsonResponse({ results: [currentRelease] });
+        }
+        if (body.include_domains?.includes("mhlw.go.jp")) {
+          return jsonResponse({ results: [staleRelease] });
+        }
+        return jsonResponse({ results: [blog] });
+      }
+      if (url.includes("api.tavily.com/extract")) return jsonResponse({ results: [], failed_results: [] });
+      const host = new URL(url).hostname;
+      if (host === "wikipedia.org" || host.endsWith(".wikipedia.org")) return jsonResponse({ pages: [] });
+      throw new Error(`unexpected URL: ${url}`);
+    };
+    const deps = makeDeps({
+      fetchImpl,
+      env: { TAVILY_API_KEY: "tvly-test-key", ORIGIN_OFFICIAL_SOURCE_ROUTING_MODE: "true" },
+    });
+    const outcome = groundedOf(await executeOriginSearchGrounding(
+      "最新の有効求人倍率を教えてください。いつの分ですか？", deps,
+    ));
+    // The first-pass official query already aims at the edition
+    // that must exist (measure 2a).
+    const searchCalls = calls.filter((call) => call.url.includes("api.tavily.com/search"));
+    const bodies = searchCalls.map(
+      (call) => JSON.parse(call.init?.body ?? "{}") as { query?: string; include_domains?: string[] },
+    );
+    const firstOfficial = bodies.find((body) => body.include_domains?.includes("mhlw.go.jp"));
+    expect(firstOfficial?.query).toContain("一般職業紹介状況");
+    expect(firstOfficial?.query).toContain("令和8年9月分");
+    // The stale pool fired exactly one retry, edition-targeted
+    // (measure 2c), and the current release was adopted.
+    expect(outcome.candidateStats?.officialRetry).toEqual({
+      reason: "stale-edition", fired: true, candidateCount: 1, keptCount: 1, adoptedCount: 1,
+    });
+    expect(bodies[bodies.length - 1]?.query).toBe("一般職業紹介状況 令和8年9月分 2026年9月分");
+    const adopted = outcome.sources.find((source) => source.domain === "mhlw.go.jp");
+    expect(adopted?.title).toContain("令和8年9月分");
+    expect(adopted?.excerpt).toContain("1.19倍");
+    expect(searchCalls).toHaveLength(3);
+    // The same record reaches the research result's metadata.
+    const result = originSearchGroundingToResearchResult(outcome);
+    expect(result.grounding?.candidateStats?.officialRetry?.reason).toBe("stale-edition");
+  });
+
+  it("a current-edition pool fires no retry", async () => {
+    const currentRelease = {
+      title: "一般職業紹介状況（令和8年9月分）を公表しました 厚生労働省",
+      url: "https://www.mhlw.go.jp/stf/newdata/20261030.html",
+      content: "一般職業紹介状況の結果です。全国の有効求人倍率は1.19倍でした。2026年10月30日に公表しました。",
+      score: 0.95,
+    };
+    const calls: RecordedCall[] = [];
+    const fetchImpl: OriginSearchFetch = async (url, init) => {
+      calls.push({ url, init });
+      if (url.includes("api.tavily.com/search")) {
+        const body = JSON.parse(init?.body ?? "{}") as { include_domains?: string[] };
+        if (body.include_domains?.includes("mhlw.go.jp")) {
+          return jsonResponse({ results: [currentRelease] });
+        }
+        return jsonResponse({ results: [] });
+      }
+      if (url.includes("api.tavily.com/extract")) return jsonResponse({ results: [], failed_results: [] });
+      const host = new URL(url).hostname;
+      if (host === "wikipedia.org" || host.endsWith(".wikipedia.org")) return jsonResponse({ pages: [] });
+      throw new Error(`unexpected URL: ${url}`);
+    };
+    const deps = makeDeps({
+      fetchImpl,
+      env: { TAVILY_API_KEY: "tvly-test-key", ORIGIN_OFFICIAL_SOURCE_ROUTING_MODE: "true" },
+    });
+    const outcome = groundedOf(await executeOriginSearchGrounding(
+      "最新の有効求人倍率を教えてください。いつの分ですか？", deps,
+    ));
+    expect(outcome.candidateStats?.officialRetry).toBeUndefined();
+    const searchCalls = calls.filter((call) => call.url.includes("api.tavily.com/search"));
+    expect(searchCalls).toHaveLength(2);
+  });
+});
+
+describe("selectOriginSearchSourcesWithObservation — edition recency (measure 2b)", () => {
+  const editioned = (title: string, url: string, domain: string): OriginSearchSource => ({
+    title,
+    url,
+    excerpt: "抜粋",
+    providerId: "tavily",
+    domain,
+    authorityTier: "official",
+    evidenceLevel: "snippet",
+    providerScore: 0.9,
+  });
+
+  it("with the fallback on, the newer edition wins the recency key when publishedAt is absent", () => {
+    const older = editioned(
+      "一般職業紹介状況（令和7年12月分）", "https://www.stat.go.jp/a", "stat.go.jp",
+    );
+    const newer = editioned(
+      "一般職業紹介状況（令和8年9月分）", "https://www.e-stat.go.jp/b", "e-stat.go.jp",
+    );
+    const { selected } = selectOriginSearchSourcesWithObservation(
+      [older, newer], 5, { editionDateFallback: true },
+    );
+    expect(selected[0]?.title).toContain("令和8年9月分");
+  });
+
+  it("with the fallback off, dateless candidates keep their provider order", () => {
+    const older = editioned(
+      "一般職業紹介状況（令和7年12月分）", "https://www.stat.go.jp/a", "stat.go.jp",
+    );
+    const newer = editioned(
+      "一般職業紹介状況（令和8年9月分）", "https://www.e-stat.go.jp/b", "e-stat.go.jp",
+    );
+    const { selected } = selectOriginSearchSourcesWithObservation([older, newer], 5);
+    expect(selected[0]?.title).toContain("令和7年12月分");
+  });
+
+  it("a real publishedAt still outranks the edition fallback", () => {
+    const dated = {
+      ...editioned("日付のあるページ", "https://www.stat.go.jp/a", "stat.go.jp"),
+      publishedAt: "2026-11-01T00:00:00.000Z",
+    };
+    const editionOnly = editioned(
+      "一般職業紹介状況（令和8年9月分）", "https://www.e-stat.go.jp/b", "e-stat.go.jp",
+    );
+    const { selected } = selectOriginSearchSourcesWithObservation(
+      [editionOnly, dated], 5, { editionDateFallback: true },
+    );
+    expect(selected[0]?.title).toBe("日付のあるページ");
   });
 });

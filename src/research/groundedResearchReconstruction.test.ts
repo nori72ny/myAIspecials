@@ -241,4 +241,29 @@ describe("tryGroundedResearchReconstruction", () => {
     expect(attempt.text).toContain("- S2: Vega X1 価格まとめ（example.net）");
     expect(attempt.text).not.toContain("（出典の日付：2026年6月15日） （出典の日付");
   });
+
+  it("annotates an official statistics source by its EDITION, not its page date (follow-up measure 3)", () => {
+    // The F-05 follow-up shape: the release page was POSTED on
+    // 2026-10-30, but what makes its value current is the edition
+    // it reports （令和8年9月分）. The annotation names the
+    // edition; the page date must not pose as the value's vintage.
+    const sources = [
+      source({
+        title: "一般職業紹介状況（令和8年9月分）を公表しました",
+        url: "https://www.mhlw.go.jp/stf/newdata/20261030.html",
+        domain: "mhlw.go.jp",
+        excerpt: "全国の有効求人倍率は1.19倍でした。",
+        revisionTimestamp: "2026-10-30T00:00:00.000Z",
+      }),
+    ];
+    const attempt = tryGroundedResearchReconstruction({
+      question: "最新の有効求人倍率を教えてください。いつの分ですか？",
+      sources,
+      language: "ja",
+      nowMs: NOW,
+    });
+    expect(attempt.established).toBe(true);
+    expect(attempt.text).toContain("（対象：令和8年9月分）");
+    expect(attempt.text).not.toContain("（出典の日付：2026年10月30日）");
+  });
 });

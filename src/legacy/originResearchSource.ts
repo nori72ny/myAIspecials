@@ -107,7 +107,7 @@ export interface OriginResearchGroundingFreshnessDecision {
 }
 
 export interface OriginResearchGroundingOfficialRetry {
-  reason: "no-numeric-span" | "regional-only";
+  reason: "no-numeric-span" | "regional-only" | "stale-edition";
   fired: boolean;
   candidateCount: number;
   keptCount: number;

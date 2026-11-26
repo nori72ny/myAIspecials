@@ -63,6 +63,7 @@ import {
   resolveOriginOfficialSourceRoutingEnabled,
   type OriginOfficialSourcePlan,
 } from "./originOfficialSourceRouting.js";
+import { parseOriginOfficialEdition } from "./originOfficialEdition.js";
 
 /** §2.5: gate-failure answers must say what happened, not a bare refusal. */
 export const ORIGIN_GROUNDING_UNAVAILABLE_MESSAGE_JA =
@@ -159,7 +160,7 @@ export interface OriginSourceFreshnessDecision {
  * attributable instead of silent.
  */
 export interface OriginSearchOfficialRetryObservation {
-  reason: "no-numeric-span" | "regional-only";
+  reason: "no-numeric-span" | "regional-only" | "stale-edition";
   fired: boolean;
   /** Candidates the retry search returned (post relevance screen). */
   candidateCount: number;
@@ -719,6 +720,7 @@ export function selectOriginSearchSources<T extends OriginSearchSource>(
 export function selectOriginSearchSourcesWithObservation<T extends OriginSearchSource>(
   candidates: readonly T[],
   limit = MAX_SELECTED_SOURCES,
+  options?: { editionDateFallback?: boolean },
 ): { selected: T[]; observation: OriginSearchSelectionObservation } {
   const seenUrls = new Set<string>();
   const unique: T[] = [];
@@ -737,13 +739,31 @@ export function selectOriginSearchSourcesWithObservation<T extends OriginSearchS
     seenUrls.add(key);
     unique.push(source);
   }
+  // The recency key (follow-up measure 2b): the provider date when
+  // the source carries one; otherwise — only under the official
+  // routing switch — the EDITION the source's title states, at its
+  // reference month's start. A statistics release's currency is
+  // its edition, and providers return publication pages with no
+  // publishedAt at all: without the fallback, two editions of the
+  // same release tied at 0 and the provider's stale-first order
+  // decided which one the packet led with (production F-05).
+  const recencyMs = (source: T): number => {
+    if (source.publishedAt) {
+      const ms = Date.parse(source.publishedAt);
+      if (Number.isFinite(ms)) return ms;
+    }
+    if (options?.editionDateFallback) {
+      const edition = parseOriginOfficialEdition(source.title);
+      if (edition) return Date.UTC(edition.year, edition.month - 1, 1);
+    }
+    return 0;
+  };
   const sorted = [...unique].sort((a, b) => {
     const tierDiff = ORIGIN_TIER_WEIGHT[b.authorityTier] - ORIGIN_TIER_WEIGHT[a.authorityTier];
     if (tierDiff !== 0) return tierDiff;
     const scoreDiff = (b.providerScore ?? 0) - (a.providerScore ?? 0);
     if (scoreDiff !== 0) return scoreDiff;
-    const dateDiff = (b.publishedAt ? Date.parse(b.publishedAt) : 0) - (a.publishedAt ? Date.parse(a.publishedAt) : 0);
-    return dateDiff;
+    return recencyMs(b) - recencyMs(a);
   });
   const seenDomains = new Set<string>();
   const selected: T[] = [];
@@ -1023,7 +1043,7 @@ export async function executeOriginSearchGrounding(
   // cap were reached by the ordinary query alone.
   const officialRoutingEnabled = resolveOriginOfficialSourceRoutingEnabled(deps.env);
   const officialPlan = officialRoutingEnabled
-    ? planOriginOfficialSourceQueries(message)
+    ? planOriginOfficialSourceQueries(message, deps.now())
     : null;
 
   const tavilyAccess = providerAccess("tavily", deps, 1 + (officialPlan?.queries.length ?? 0));
@@ -1095,7 +1115,7 @@ export async function executeOriginSearchGrounding(
   // results beyond the tier they already carry.
   if (officialPlan && tavilyEnabled) {
     for (const officialQuery of officialPlan.queries) {
-      const officialQueryText = buildOfficialSourceQueryText(query, officialQuery.releaseTerms);
+      const officialQueryText = buildOfficialSourceQueryText(query, officialQuery.releaseTerms, officialQuery.editionTerms);
       addRoute("tavily", runTavilyRoute(
         deps,
         officialQueryText,
@@ -1213,7 +1233,11 @@ export async function executeOriginSearchGrounding(
     };
   }
 
-  let selection = selectOriginSearchSourcesWithObservation(kept);
+  let selection = selectOriginSearchSourcesWithObservation(
+    kept,
+    MAX_SELECTED_SOURCES,
+    { editionDateFallback: officialRoutingEnabled },
+  );
   let selected = selection.selected;
 
   // Material-insufficiency retry (round-8 measure B): the adopted
@@ -1230,7 +1254,9 @@ export async function executeOriginSearchGrounding(
   // when the gate emptied the pool (that is measure C's territory).
   let officialRetry: OriginSearchOfficialRetryObservation | undefined;
   if (officialPlan && tavilyEnabled) {
-    const assessment = assessOfficialMaterialInsufficiency(selected);
+    const assessment = assessOfficialMaterialInsufficiency(selected, {
+      expectedEdition: officialPlan.queries[0]?.expectedEdition ?? null,
+    });
     if (!assessment.sufficient && assessment.reason) {
       const retryTopic = officialPlan.queries[0];
       let fired = false;
@@ -1241,7 +1267,9 @@ export async function executeOriginSearchGrounding(
         const retryAccess = providerAccess("tavily", deps, 1);
         if (retryAccess.enabled) {
           fired = true;
-          const retryQueryText = buildOfficialRetryQueryText(retryTopic.releaseTerms);
+          const retryQueryText = assessment.reason === "stale-edition"
+            ? buildOfficialRetryQueryText(retryTopic.releaseTerms, retryTopic.editionTerms)
+            : buildOfficialRetryQueryText(retryTopic.releaseTerms);
           const retryResult = await runTavilyRoute(
             deps,
             retryQueryText,
@@ -1288,7 +1316,11 @@ export async function executeOriginSearchGrounding(
             retryKeptCount = newKept.length;
             if (newKept.length > 0) {
               kept = [...kept, ...newKept];
-              selection = selectOriginSearchSourcesWithObservation(kept);
+              selection = selectOriginSearchSourcesWithObservation(
+                kept,
+                MAX_SELECTED_SOURCES,
+                { editionDateFallback: officialRoutingEnabled },
+              );
               selected = selection.selected;
               const selectedUrls = new Set(selected.map((source) => source.url.split("#")[0]));
               retryAdoptedCount = newKept.filter((source) => selectedUrls.has(source.url.split("#")[0])).length;
@@ -1332,6 +1364,30 @@ export async function executeOriginSearchGrounding(
         // Extract is an enhancement only; snippets remain the evidence.
       }
     }
+  }
+
+  // Stated-date completion (follow-up measure 3, the extract-time
+  // half of measure E's material expansion): an adopted source the
+  // provider returned WITHOUT a publication date keeps the vintage
+  // its own text states, when that text states a full date
+  // deterministically — the same stated-date reading the freshness
+  // gate already trusts for official pages. This runs after the
+  // gate and selection, so it changes no admission decision; it
+  // only stops the adopted source's own stated date from being
+  // lost on the way to the answer, where the date annotation
+  // (measure E) reads it. No full date stated → no completion: an
+  // unknown vintage stays unknown.
+  if (officialRoutingEnabled) {
+    selected = selected.map((source) => {
+      if (source.publishedAt) return source;
+      const statedMs = extractStatedPublicationMs(
+        `${source.title}\n${source.excerpt}`,
+        startedAtMs,
+      );
+      return statedMs === null
+        ? source
+        : { ...source, publishedAt: new Date(statedMs).toISOString() };
+    });
   }
 
   return {

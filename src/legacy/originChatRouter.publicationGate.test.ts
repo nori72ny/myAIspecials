@@ -103,7 +103,7 @@ describe("publication gate enforcement mode (non-streaming router)", () => {
     // The stale figure never reaches the client; the app-generated
     // hold text does, without claiming a search that never happened.
     expect(response.body.content).not.toContain("245名");
-    expect(response.body.content).toContain("出典による裏付けが取れなかったため、推測で回答しません");
+    expect(response.body.content).toContain("確認できた情報がないため、推測で回答しません");
     expect(response.body.content).not.toContain("調べましたが");
     expect(response.body.routing.publicationGateMode).toBe("enforce");
     expect(response.body.routing.publicationGateAction).toBe("held");

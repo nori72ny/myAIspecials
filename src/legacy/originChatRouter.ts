@@ -25,6 +25,11 @@ import {
   fetchOriginWeatherAnswer,
   type OriginSearchGroundingDeps,
 } from "../search/originSearchGrounding.js";
+import {
+  buildOriginDeterministicDateAnswer,
+  parseOriginDeterministicDateQuestion,
+} from "../search/originDeterministicDateAnswer.js";
+import { resolveOriginOfficialSourceRoutingEnabled } from "../search/originOfficialSourceRouting.js";
 import { buildGroundedResearchPartialAnswer, buildGroundedResearchReport } from "../research/groundedResearchV11.js";
 import {
   buildGroundedResearchAbstainAnswer,
@@ -209,6 +214,56 @@ function groundedResearchAnswer(query: string, result: OriginResearchResult) {
     landing: researchLandingForPartialAnswer(),
   };
 }
+/**
+ * The client-readable grounding observation (follow-up measure 4,
+ * ANSWER_FOLLOWUP_DIAGNOSIS_2026-11-26). Round-8 measure D recorded
+ * the search layer's observation on the research result, but it
+ * reached only the server logs: the phased stream's events carried
+ * none of it and the routing record kept it nested out of the
+ * client's reach, so every measurement round re-diagnosed the
+ * search from zero. This projection is what the response carries:
+ * the issued queries (kind + minimized text), the freshness
+ * tallies and the gate's per-candidate decisions, the
+ * material-insufficiency retry record, and — per adopted source —
+ * whether a publication date reached the answer at all (the
+ * presence bit measure E's annotations depend on). Counts, codes,
+ * domains and minimized query text only — never excerpts or raw
+ * user text, the same discipline as the logs it mirrors.
+ */
+function groundingObservationForResponse(
+  result: OriginResearchResult,
+  adoptedSources: readonly OriginResearchSource[],
+): Record<string, unknown> | null {
+  const grounding = result.grounding;
+  if (!grounding) return null;
+  return {
+    queriesIssued: (grounding.queriesIssued ?? []).map((issued) => ({
+      provider: issued.provider,
+      kind: issued.kind,
+      query: issued.query,
+      ...(issued.includeDomains ? { includeDomains: issued.includeDomains } : {}),
+    })),
+    freshness: {
+      verifiedFreshCount: grounding.verifiedFreshSourceCount,
+      unknownDateCount: grounding.unknownDateSourceCount,
+      droppedStaleCount: grounding.droppedStaleSourceCount,
+      droppedUndatedCount: grounding.droppedUndatedSourceCount,
+    },
+    ...(grounding.candidateStats?.freshnessDecisions
+      ? { freshnessDecisions: grounding.candidateStats.freshnessDecisions }
+      : {}),
+    ...(grounding.candidateStats?.officialRetry
+      ? { officialRetry: grounding.candidateStats.officialRetry }
+      : {}),
+    adoptedSources: adoptedSources.map((source) => {
+      let domain = source.domain ?? "";
+      if (!domain) {
+        try { domain = new URL(source.url).hostname; } catch { domain = ""; }
+      }
+      return { domain, hasPublishedAt: Boolean(source.revisionTimestamp) };
+    }),
+  };
+}
 function firstAnswerBlock(content: string): string { const firstBlock = content.split(/\n\s*\n|\n/).map((part) => part.trim()).find(Boolean) ?? content.trim(); const withoutHeading = firstBlock.replace(/^#{1,6}\s+/, "").trim(); if (withoutHeading.length <= 500) return withoutHeading; const candidate = withoutHeading.slice(0, 500); const sentenceEnd = Math.max(candidate.lastIndexOf("。") + 1, candidate.lastIndexOf("！") + 1, candidate.lastIndexOf("？") + 1, candidate.lastIndexOf(". ") + 1); return sentenceEnd >= 40 ? candidate.slice(0, sentenceEnd).trim() : `${candidate.slice(0, 499).trimEnd()}…`; }
 function answerEnvelope(content: string, language: "ja" | "en", verificationStatus: OriginAnswerVerificationStatus, verificationSummary: string, evidence: readonly OriginAnswerEvidenceItem[] = [], limitations: readonly string[] = [], nextActions: readonly string[] = [], richOutputs: readonly OriginAnswerRichOutput[] = []): OriginAnswerEnvelope { const result = createOriginAnswerEnvelope({ language, conclusion: firstAnswerBlock(content), answer: content, evidence, verification: { status: verificationStatus, independentReviewPerformed: verificationStatus === "passed", summary: verificationSummary }, limitations, nextActions, richOutputs }); if (result.ok === false) throw new Error(result.code); return result.value; }
 
@@ -282,10 +337,20 @@ export function createOriginChatRouter(options: OriginChatRouterOptions = {}) {
             const researchTier = phaseRouting && typeof phaseRouting.researchTier === "string" ? phaseRouting.researchTier : null;
             const researchOutcome = phaseRouting && typeof phaseRouting.researchOutcome === "string" ? phaseRouting.researchOutcome : null;
             if (researchTier !== null || researchOutcome !== null) {
+              // Grounding observation (follow-up measure 4): the
+              // search layer's record rides the outcome event, so a
+              // streamed answer is as attributable as a logged one —
+              // issued queries, freshness decisions, the official
+              // retry, and per-source date presence. Metadata only,
+              // in the same sense as the tier/outcome above.
+              const groundingObservation = phaseRouting && phaseRouting.groundingObservation && typeof phaseRouting.groundingObservation === "object"
+                ? phaseRouting.groundingObservation
+                : null;
               writePhasedEvent({
                 type: "outcome",
                 ...(researchTier !== null ? { researchTier } : {}),
                 ...(researchOutcome !== null ? { researchOutcome } : {}),
+                ...(groundingObservation !== null ? { grounding: groundingObservation } : {}),
               });
             }
             const chunks = phaseContent.match(/.{1,48}(?:\s|$)|.{1,48}/gs) ?? [phaseContent];
@@ -378,6 +443,29 @@ export function createOriginChatRouter(options: OriginChatRouterOptions = {}) {
     const refinementOfPreviousAnswer = isRefinementOfPreviousAnswer(body, messages);
     const groundedResearchRequired = !refinementOfPreviousAnswer && requiresGroundedResearch(lastUserMessage, env);
     if (!refinementOfPreviousAnswer && isOriginWeatherRequest(lastUserMessage)) { const isEnglish = /[a-zA-Z]/.test(lastUserMessage); if (!hasOriginWeatherLocation(lastUserMessage, body.userLocation)) { const content = isEnglish ? "Which location would you like to know the weather for?" : "どの地域の天気をお調べしますか？"; const reason = "地域確認のため外部AIを呼びませんでした。"; return res.json({ content, answer: answerEnvelope(content, isEnglish ? "en" : "ja", "not-required", reason), routing: applicationRouting(requestId, reason) }); } const weather = await fetchOriginWeatherAnswer(lastUserMessage, body.userLocation, searchGroundingDeps); if (weather.ok) { const content = weather.text; const reason = isEnglish ? "Answered directly from the latest Open-Meteo forecast data without a model call." : "Open-Meteoの最新予報データから、モデルを使わずに回答しました。"; const weatherEvidence = [{ label: isEnglish ? `Open-Meteo weather forecast (${weather.forecast.place})` : `Open-Meteo 天気予報（${weather.forecast.place}）`, sourceUrl: weather.forecast.sourceUrl, evidenceLevel: "provided" as const, checks: { safeUrl: "passed" as const, content: "not-run" as const, freshness: "not-run" as const, claimSupport: "not-run" as const } }]; const weatherLimitations = [isEnglish ? "Forecast data by Open-Meteo (CC BY 4.0); conditions may change after retrieval." : "Open-Meteoの予報データ（CC BY 4.0）に基づきます。取得後に天気が変わる場合があります。"]; return res.json({ content, answer: answerEnvelope(content, isEnglish ? "en" : "ja", "not-run", reason, weatherEvidence, weatherLimitations), routing: { ...applicationRouting(requestId, reason, "not-run"), answerMode: "weather", weatherProvider: "Open-Meteo" } }); } const content = isEnglish ? "I tried to retrieve the latest weather information, but could not obtain it." : "最新の天気情報を取得しようとしましたが、取得できませんでした。"; const reason = isEnglish ? "Weather retrieval failed, so no forecast was guessed." : "天気情報を取得できなかったため、推測で回答しませんでした。"; return res.json({ content, answer: answerEnvelope(content, isEnglish ? "en" : "ja", "not-run", reason), routing: applicationRouting(requestId, reason, "not-run") }); }
+    // Deterministic date branch (follow-up measure 1,
+    // ANSWER_FOLLOWUP_DIAGNOSIS_2026-11-26): a question whose answer
+    // is a pure function of the clock — a relative day's weekday or
+    // date, or the weekday of a fully specified date — is answered
+    // from the server clock by the same civil-date arithmetic that
+    // verifies model-stated weekdays. No search, no model, no
+    // freshness gate: the gate's no-fresh-sources abstention for
+    // 「今日は何曜日ですか？」 (production-observed twice) was a
+    // category error, not a retrieval failure. The parser is
+    // whole-question strict, so date-CONTAINING questions
+    // (今日のニュース, 今日の天気) never land here. The branch
+    // rides the official-routing switch, the same gate as the other
+    // follow-up measures; with it off, behaviour is unchanged.
+    if (!refinementOfPreviousAnswer && resolveOriginOfficialSourceRoutingEnabled(env)) {
+      const dateQuestion = parseOriginDeterministicDateQuestion(lastUserMessage);
+      if (dateQuestion) {
+        const content = buildOriginDeterministicDateAnswer(dateQuestion, now());
+        const reason = dateQuestion.language === "en"
+          ? "Answered deterministically from the server clock (Asia/Tokyo) without a search or model call."
+          : "サーバーの時計（日本時間）から、検索もモデルも使わずに決定的に回答しました。";
+        return res.json({ content, answer: answerEnvelope(content, dateQuestion.language, "not-required", reason), routing: { ...applicationRouting(requestId, reason), answerMode: "deterministic-date" } });
+      }
+    }
     const screenResult = screenConversationForSend(messages);
     if (screenResult.outcome === "blocked") return res.status(422).json({ code: "SENSITIVE_INPUT_BLOCKED", messageKey: "errors.sensitiveInputBlocked", message: "秘密情報の可能性がある内容を検出したため、外部AIへの送信を停止しました。値を削除し、必要な内容だけを要約して再入力してください。", retryable: false, requestId, sensitiveKinds: screenResult.sensitiveKinds });
     if (screenResult.outcome === "sanitized") console.info("[origin-chat] sensitive input redacted from assistant history", { requestId, sensitiveKinds: screenResult.redactedKinds, redactionCount: screenResult.redactionCount, attribution: "assistant" });
@@ -889,7 +977,7 @@ export function createOriginChatRouter(options: OriginChatRouterOptions = {}) {
                       sourceCount: grounded.sourceCount,
                       researchProvider: grounded.provider,
                       conflictCount: grounded.conflicts,
-                      ...(researchResult.grounding ? { searchGrounding: researchResult.grounding } : {}),
+                      ...(researchResult.grounding ? { searchGrounding: researchResult.grounding, groundingObservation: groundingObservationForResponse(researchResult, grounded.sources) } : {}),
                       synthesisStatus: "records-validated",
                       synthesisPath: "records",
                       researchTier: "T0",
@@ -1309,7 +1397,7 @@ export function createOriginChatRouter(options: OriginChatRouterOptions = {}) {
                   sourceCount: grounded.sourceCount,
                   researchProvider: grounded.provider,
                   conflictCount: grounded.conflicts,
-                  ...(researchResult.grounding ? { searchGrounding: researchResult.grounding } : {}),
+                  ...(researchResult.grounding ? { searchGrounding: researchResult.grounding, groundingObservation: groundingObservationForResponse(researchResult, grounded.sources) } : {}),
                   synthesisStatus: "citation-validated",
                   researchTier: "T0",
                   researchOutcome: "ANSWERED",
@@ -1741,7 +1829,7 @@ export function createOriginChatRouter(options: OriginChatRouterOptions = {}) {
           sourceCount: grounded.sourceCount,
           researchProvider: grounded.provider,
           conflictCount: grounded.conflicts,
-          ...(researchResult.grounding ? { searchGrounding: researchResult.grounding } : {}),
+          ...(researchResult.grounding ? { searchGrounding: researchResult.grounding, groundingObservation: groundingObservationForResponse(researchResult, grounded.sources) } : {}),
           synthesisStatus,
           ...(synthesisFailureCode ? { synthesisFailureCode } : {}),
           researchTier: landing.tier,

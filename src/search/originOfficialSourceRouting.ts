@@ -89,6 +89,13 @@ import {
   classifyRecoveryAnswerType,
   type RecoveryAnswerType,
 } from "../research/groundedResearchValueExtraction.js";
+import {
+  expectedLatestOriginOfficialEdition,
+  originOfficialEditionQueryTerms,
+  parseOriginOfficialEdition,
+  type OriginOfficialEdition,
+  type OriginOfficialEditionSchedule,
+} from "./originOfficialEdition.js";
 
 /** Only the exact string "true" enables official-source routing. */
 export function resolveOriginOfficialSourceRoutingEnabled(
@@ -138,6 +145,22 @@ export interface OriginOfficialSourceTopic {
    * page is the publication) carry none and keep the bare query.
    */
   releaseTerms?: string;
+  /**
+   * The topic's publication schedule for edition targeting
+   * (follow-up measure 2, ANSWER_FOLLOWUP_DIAGNOSIS_2026-11-26):
+   * monthly statistics whose edition is certainly public two
+   * months behind the current month （一般職業紹介状況： 9月分は
+   * 10月30日公表、労働力調査： 9月分は10月31日公表 — the
+   * two-months-back edition exists on every day of every month),
+   * and the GDP preliminary, public about 45 days after the
+   * quarter ends (2026年7-9月期1次速報： 11月16日公表）. The
+   * schedule is the publisher's own calendar — the basis for the
+   * expected-latest-edition lower bound, never a freshness guess.
+   * Topics without a periodic edition （金融政策決定会合 is an
+   * event, not an edition; fuel prices are a weekly survey named
+   * by date) carry none.
+   */
+  edition?: OriginOfficialEditionSchedule;
 }
 
 /**
@@ -159,24 +182,28 @@ export const ORIGIN_OFFICIAL_SOURCE_TOPICS: readonly OriginOfficialSourceTopic[]
     pattern: /失業率|完全失業|労働力調査|就業者数/,
     domains: ["stat.go.jp", "e-stat.go.jp"],
     releaseTerms: "労働力調査 基本集計",
+    edition: { cycle: "monthly", lagMonths: 2 },
   },
   {
     id: "population-statistics",
     pattern: /人口/,
     domains: ["stat.go.jp", "e-stat.go.jp"],
     releaseTerms: "人口推計",
+    edition: { cycle: "monthly", lagMonths: 2 },
   },
   {
     id: "employment-and-pension",
     pattern: /求人倍率|有効求人|年金保険料|国民年金|雇用保険/,
     domains: ["mhlw.go.jp"],
     releaseTerms: "一般職業紹介状況",
+    edition: { cycle: "monthly", lagMonths: 2 },
   },
   {
     id: "gdp-and-economy",
     pattern: /GDP|国内総生産|経済成長率|景気動向/,
     domains: ["esri.cao.go.jp", "cao.go.jp"],
     releaseTerms: "四半期別GDP速報",
+    edition: { cycle: "quarterly", lagDaysAfterPeriodEnd: 45 },
   },
   {
     id: "fuel-prices",
@@ -204,6 +231,17 @@ export interface OriginOfficialSourceQuery {
   domains: readonly string[];
   /** The topic's publication name, when it has one (see the topic map). */
   releaseTerms?: string;
+  /**
+   * The newest edition that must exist at plan time (follow-up
+   * measure 2a/2c), computed from the topic's publication schedule
+   * and the caller's clock. Present only when a clock was supplied
+   * and the topic carries a schedule. It is a lower bound: the
+   * adopted pool is stale only when its newest adopted official
+   * edition is older than this.
+   */
+  expectedEdition?: OriginOfficialEdition;
+  /** The expected edition in both notations, for query text (measure 2a). */
+  editionTerms?: readonly string[];
 }
 
 export interface OriginOfficialSourcePlan {
@@ -221,6 +259,7 @@ export interface OriginOfficialSourcePlan {
  */
 export function planOriginOfficialSourceQueries(
   message: string,
+  nowMs?: number,
 ): OriginOfficialSourcePlan | null {
   const answerType = classifyRecoveryAnswerType(message);
   if (!STATISTICAL_ANSWER_TYPES.has(answerType)) return null;
@@ -233,10 +272,21 @@ export function planOriginOfficialSourceQueries(
     const domainKey = [...topic.domains].sort().join(",");
     if (plannedDomainSets.has(domainKey)) continue;
     plannedDomainSets.add(domainKey);
+    // Edition targeting (measure 2a): with a clock, the plan names
+    // the edition that must be the latest — computed from the
+    // topic's publication schedule, never a hardcoded string — so
+    // the restricted search aims at the current release page, not
+    // at whichever edition the provider happens to rank first.
+    const expectedEdition = topic.edition && nowMs !== undefined
+      ? expectedLatestOriginOfficialEdition(topic.edition, nowMs)
+      : null;
     queries.push({
       topic: topic.id,
       domains: topic.domains,
       ...(topic.releaseTerms ? { releaseTerms: topic.releaseTerms } : {}),
+      ...(expectedEdition
+        ? { expectedEdition, editionTerms: originOfficialEditionQueryTerms(expectedEdition) }
+        : {}),
     });
   }
   if (queries.length === 0) return null;
@@ -254,12 +304,18 @@ export function planOriginOfficialSourceQueries(
 export function buildOfficialSourceQueryText(
   baseQuery: string,
   releaseTerms: string | undefined,
+  editionTerms?: readonly string[],
 ): string {
   const base = baseQuery.trim();
-  if (!releaseTerms) return base;
+  const editionSuffix = editionTerms && editionTerms.length > 0
+    ? editionTerms.filter((term) => !base.includes(term)).join(" ")
+    : "";
+  const withEdition = (text: string): string =>
+    (editionSuffix ? `${text} ${editionSuffix}` : text).trim();
+  if (!releaseTerms) return withEdition(base);
   const headTerm = releaseTerms.split(/\s+/)[0];
-  if (headTerm && base.includes(headTerm)) return base;
-  return `${base} ${releaseTerms}`.trim();
+  if (headTerm && base.includes(headTerm)) return withEdition(base);
+  return withEdition(`${base} ${releaseTerms}`);
 }
 
 /**
@@ -269,8 +325,17 @@ export function buildOfficialSourceQueryText(
  * candidates, so the retry asks for the publication itself — the
  * release index / latest-release page is what the pool is missing.
  */
-export function buildOfficialRetryQueryText(releaseTerms: string): string {
-  return releaseTerms.trim();
+export function buildOfficialRetryQueryText(
+  releaseTerms: string,
+  editionTerms?: readonly string[],
+): string {
+  const base = releaseTerms.trim();
+  if (!editionTerms || editionTerms.length === 0) return base;
+  // The stale-edition retry (measure 2c): the pool HAS the release,
+  // only in an old edition — so the retry names the edition that
+  // must exist, in both notations, alongside the release name.
+  const suffix = editionTerms.filter((term) => !base.includes(term)).join(" ");
+  return (suffix ? `${base} ${suffix}` : base).trim();
 }
 
 /* ------------------------------------------------------------------ */
@@ -344,7 +409,10 @@ export function isRegionalOfficialSource(source: OfficialMaterialSourceShape): b
   return PREFECTURE_ROMAJI_SLUGS.some((slug) => url.includes(slug));
 }
 
-export type OfficialMaterialInsufficiencyReason = "no-numeric-span" | "regional-only";
+export type OfficialMaterialInsufficiencyReason =
+  | "no-numeric-span"
+  | "regional-only"
+  | "stale-edition";
 
 export interface OfficialMaterialAssessment {
   sufficient: boolean;
@@ -358,12 +426,17 @@ export interface OfficialMaterialAssessment {
 
 /**
  * Judge the ADOPTED pool of a statistical question (round-8 probe,
- * measure 2). Two insufficiency shapes, both measured in round 8:
+ * measure 2). Three insufficiency shapes, each measured in
+ * production:
  *  - "no-numeric-span" (F-06): no adopted excerpt carries the value
  *    at all — the pool is navigation text and metadata pages;
  *  - "regional-only" (F-05): values exist, but every value-bearing
  *    source is a regional publication and no national official
- *    source carries a value — the national figure never arrived.
+ *    source carries a value — the national figure never arrived;
+ *  - "stale-edition" (F-05 follow-up, 2026-11-26): values arrived
+ *    from national official publications, but only in editions
+ *    older than the one the publication schedule says must exist —
+ *    the current figure never arrived, an old one did.
  * A pool whose values ride unofficial NON-regional sources (the
  * F-03 shape) is NOT insufficient by this measure: the first-pass
  * official query is that case's remedy, and widening the retry
@@ -374,11 +447,13 @@ export interface OfficialMaterialAssessment {
  */
 export function assessOfficialMaterialInsufficiency(
   sources: readonly OfficialMaterialSourceShape[],
+  editionContext?: { expectedEdition?: OriginOfficialEdition | null },
 ): OfficialMaterialAssessment {
   const valueBearing = sources.filter((source) => excerptHasOfficialValueToken(source.excerpt));
-  const nationalOfficialValueCount = valueBearing.filter(
+  const nationalOfficialValue = valueBearing.filter(
     (source) => source.authorityTier === "official" && !isRegionalOfficialSource(source),
-  ).length;
+  );
+  const nationalOfficialValueCount = nationalOfficialValue.length;
   if (valueBearing.length === 0) {
     return { sufficient: false, reason: "no-numeric-span", valueBearingCount: 0, nationalOfficialValueCount: 0 };
   }
@@ -392,6 +467,33 @@ export function assessOfficialMaterialInsufficiency(
       valueBearingCount: valueBearing.length,
       nationalOfficialValueCount: 0,
     };
+  }
+  // Stale edition (follow-up measure 2c): values DID arrive from
+  // national official publications, but the newest edition among
+  // them is older than the edition the publisher's schedule says
+  // must already exist — the pool answered with an old release
+  // (the production F-05 shape: the newest adopted MHLW page was a
+  // years-old edition ranked first by the provider). The edition
+  // is read from the sources' own titles (then URLs); when no
+  // value-bearing official source states an edition, no stale
+  // judgement is made — an unreadable edition is not evidence of
+  // a stale one.
+  const expected = editionContext?.expectedEdition;
+  if (expected) {
+    const adoptedEditions = nationalOfficialValue
+      .map((source) => parseOriginOfficialEdition(source.title) ?? parseOriginOfficialEdition(source.url))
+      .filter((edition): edition is OriginOfficialEdition => edition !== null);
+    if (adoptedEditions.length > 0) {
+      const newestAdopted = Math.max(...adoptedEditions.map((edition) => edition.sortKey));
+      if (newestAdopted < expected.sortKey) {
+        return {
+          sufficient: false,
+          reason: "stale-edition",
+          valueBearingCount: valueBearing.length,
+          nationalOfficialValueCount,
+        };
+      }
+    }
   }
   return { sufficient: true, valueBearingCount: valueBearing.length, nationalOfficialValueCount };
 }

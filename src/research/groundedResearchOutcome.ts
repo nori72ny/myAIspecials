@@ -89,30 +89,39 @@ export function researchAbstainReasonForResearchResult(
   return "no-sources";
 }
 
+/**
+ * What was missing, per abstain reason — the middle of the hold's
+ * three parts (display measure 4-C; ANSWER_DISPLAY_COMPARISON_
+ * 2026-11-26 §4): what was tried and what fell short, in one short
+ * statement. The lead already states that nothing could be
+ * confirmed, so the former repeated tail ("確認できた情報は
+ * ありませんでした" / "There is no information I could confirm")
+ * is gone from every entry.
+ */
 const ABSTAIN_REASON_TEXT: Record<OriginResearchAbstainReason, { ja: string; en: string }> = {
   "no-sources": {
-    ja: "関連する公開情報源を探しましたが、条件に合う出典が見つからず、確認できた情報はありませんでした。",
-    en: "I searched for relevant public sources, but none met the conditions, so there is no information I could confirm.",
+    ja: "関連する公開情報源を探しましたが、条件に合う出典が見つかりませんでした。",
+    en: "I searched for relevant public sources, but none met the conditions.",
   },
   "no-fresh-sources": {
-    ja: "情報源自体は見つかりましたが、いずれもこの質問に必要な新しさを満たしていなかったため、古い情報を現在の情報として示すことはしませんでした。確認できた情報はありませんでした。",
-    en: "Sources were found, but none was fresh enough for this question, so older information was not presented as current. There is no information I could confirm.",
+    ja: "情報源は見つかりましたが、いずれも必要な新しさを満たしていなかったため、古い情報を現在の情報として示すことはしませんでした。",
+    en: "Sources were found, but none was fresh enough for this question, so older information was not presented as current.",
   },
   "provider-error": {
-    ja: "情報源を取得する処理で問題が発生し、出典を確認できませんでした。確認できた情報はありませんでした。",
-    en: "Something went wrong while retrieving sources, so no source could be checked. There is no information I could confirm.",
+    ja: "情報源を取得する処理で問題が発生し、出典を確認できませんでした。",
+    en: "Something went wrong while retrieving sources, so no source could be checked.",
   },
   "monthly-cap-reached": {
-    ja: "今月の検索利用の上限に達しているため、今回は検索を実行できませんでした。確認できた情報はありませんでした。",
-    en: "This month's search limit has been reached, so no search could be run this time. There is no information I could confirm.",
+    ja: "今月の検索利用の上限に達しているため、今回は検索を実行できませんでした。",
+    en: "This month's search limit has been reached, so no search could be run this time.",
   },
   "budget-exhausted": {
-    ja: "制限時間内に裏付けの確認を終えることができませんでした。確認できた情報はありませんでした。",
-    en: "The verification could not be completed within the time budget. There is no information I could confirm.",
+    ja: "制限時間内に裏付けの確認を終えることができませんでした。",
+    en: "The verification could not be completed within the time budget.",
   },
   "high-risk-insufficient-sources": {
-    ja: "重要な内容のため複数の独立した出典による裏付けが必要ですが、十分な出典が揃いませんでした。確認できた情報はありませんでした。",
-    en: "Because this is an important topic, backing from multiple independent sources is required, but not enough sources were available. There is no information I could confirm.",
+    ja: "重要な内容のため複数の独立した出典による裏付けが必要ですが、十分な出典が揃いませんでした。",
+    en: "Because this is an important topic, backing from multiple independent sources is required, but not enough sources were available.",
   },
 };
 
@@ -142,10 +151,20 @@ function displayQueryTopic(query: string): string {
 }
 
 /**
- * Tier-T4 hold body (§1.4): replaces the former fixed template. The
- * text says what was looked for, that nothing could be confirmed, and
- * the concrete reason — per abstain reason — in plain language. It
- * never contains internal vocabulary (no route names, error codes, or
+ * Tier-T4 hold body (§1.4): replaces the former fixed template.
+ * Shortened under display measure 4-C (ANSWER_DISPLAY_COMPARISON_
+ * 2026-11-26 §4) to three parts, the point first: (1) the lead —
+ * nothing could be confirmed, so no answer is guessed; (2) the
+ * reason — what was tried and what fell short, per abstain reason;
+ * (3) the closing — where the definitive information can be
+ * checked (the official announcement) and the remaining next
+ * action (providing a source; retrying is the display's unified
+ * もう一度試す button, so the text no longer repeats it). The
+ * lead makes no claim about whether a search ran; what
+ * was tried is stated by the reason text, so the direct path's
+ * gate landing (searched: false, whose only reason is the
+ * search-neutral high-risk one) stays truthful. The text never
+ * contains internal vocabulary (no route names, error codes, or
  * tier labels) and never guesses at the answer.
  */
 export function buildGroundedResearchAbstainAnswer(input: {
@@ -154,35 +173,30 @@ export function buildGroundedResearchAbstainAnswer(input: {
   reason: OriginResearchAbstainReason;
   /**
    * Whether a source search was actually performed before landing
-   * here. The research path always searches, so the default (true)
-   * keeps its wording unchanged. The direct path's publication gate
-   * (N-5b) lands on this same tier-T4 hold without having searched,
-   * and passes false so the lead does not claim a search that never
-   * happened; the reason text and the closing are shared.
+   * here. The research path always searches; the direct path's
+   * publication gate (N-5b) lands on this same tier-T4 hold without
+   * having searched and passes false. Since the 4-C shortening the
+   * text no longer depends on this flag: the lead claims no search
+   * either way, and what was tried is stated by the reason text —
+   * the only reason the gate landing uses
+   * (high-risk-insufficient-sources) is search-neutral, so both
+   * landings stay truthful. The flag remains part of the input so
+   * call sites keep recording which landing produced the hold.
    */
   searched?: boolean;
 }): string {
   const topic = displayQueryTopic(input.query);
   const reasonText = ABSTAIN_REASON_TEXT[input.reason][input.language];
-  const searched = input.searched !== false;
   if (input.language === "en") {
-    const lead = searched
-      ? topic
-        ? `I searched public sources for "${topic}", but could not verify reliable backing, so I will not guess an answer.`
-        : "I searched public sources, but could not verify reliable backing, so I will not guess an answer."
-      : topic
-        ? `I could not verify reliable backing for "${topic}", so I will not guess an answer.`
-        : "I could not verify reliable backing, so I will not guess an answer.";
-    return `${lead}\n\n${reasonText}\n\nPlease try again later, or provide a public source you would like checked.`;
+    const lead = topic
+      ? `For "${topic}", I have no confirmed information, so I will not guess an answer.`
+      : "I have no confirmed information, so I will not guess an answer.";
+    return `${lead}\n\n${reasonText}\n\nFor the definitive information, please check the official announcement, or provide a public source you would like checked.`;
   }
-  const lead = searched
-    ? topic
-      ? `「${topic}」について公開情報を調べましたが、裏付けが取れなかったため、推測で回答しません。`
-      : "公開情報を調べましたが、裏付けが取れなかったため、推測で回答しません。"
-    : topic
-      ? `「${topic}」について、出典による裏付けが取れなかったため、推測で回答しません。`
-      : "出典による裏付けが取れなかったため、推測で回答しません。";
-  return `${lead}\n\n${reasonText}\n\n時間をおいて再度お試しいただくか、確認したい公開情報源があれば提示してください。`;
+  const lead = topic
+    ? `「${topic}」については、確認できた情報がないため、推測で回答しません。`
+    : "確認できた情報がないため、推測で回答しません。";
+  return `${lead}\n\n${reasonText}\n\n正確な情報は、公式の発表などでご確認ください。確認したい公開情報源があれば提示してください。`;
 }
 
 /**

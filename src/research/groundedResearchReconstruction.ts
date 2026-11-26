@@ -46,6 +46,7 @@ import {
   type RecoveryTemplateFallbackResult,
 } from "./groundedResearchTemplateFallback.js";
 import { prepareGroundedResearchVerbatimSentence } from "./groundedResearchV11.js";
+import { originSourcePeriodAnnotation } from "../search/originOfficialEdition.js";
 
 /** At most this many verbatim sentences ride the reconstruction. */
 export const GROUNDED_RESEARCH_RECONSTRUCTION_MAX_SENTENCES = 5;
@@ -96,14 +97,15 @@ function sourceDomain(source: OriginResearchSource): string {
  * value with its as-of date.
  */
 function sourceDateAnnotation(source: OriginResearchSource, language: "ja" | "en"): string {
-  const raw = source.revisionTimestamp;
-  if (!raw) return "";
-  const match = raw.match(/^(\d{4})-(\d{2})-(\d{2})/);
-  if (!match) return "";
-  const [, year, month, day] = match;
-  return language === "en"
-    ? `(source date: ${year}-${month}-${day})`
-    : `（出典の日付：${year}年${Number(month)}月${Number(day)}日）`;
+  // Follow-up measure 3: the annotation names the source's
+  // EDITION when its title states one （対象：令和○年○月分） —
+  // a statistics release is current or stale by the period it
+  // reports, not by the day its page was posted — and falls back
+  // to the measure-E date rule otherwise. The shared reader
+  // (originSourcePeriodAnnotation) keeps both landings on one
+  // rule: edition first, stated date second, nothing when the
+  // source states neither.
+  return originSourcePeriodAnnotation(source, language);
 }
 
 /** The unified source list (all retrieved sources, grounded numbering). */
