@@ -217,10 +217,13 @@ describe("tryGroundedResearchReconstruction", () => {
 
   it("annotates each quoted sentence and source-list line with its source's date (round-8 measure E)", () => {
     // The F-03 shape: a quoted value whose vintage matters. The
-    // dated source's lines carry the date; the undated source's
-    // lines carry nothing — an unknown vintage stays visibly
-    // unknown, and the quote itself is untouched (annotation sits
-    // outside it).
+    // dated source's lines carry the date. The undated source's
+    // QUOTED VALUE carries the explicit unknown marker
+    // (certainty-display systematization, 推奨2): silence in the
+    // annotation slot read as "current", so the unknown is now
+    // stated, not implied. The quote itself stays untouched
+    // (the marker sits outside it), and the source LIST line
+    // still carries nothing — the list presents no value.
     const dated = vegaSources();
     dated[0] = { ...dated[0]!, revisionTimestamp: "2026-06-15T00:00:00.000Z" };
     const attempt = tryGroundedResearchReconstruction({
@@ -237,9 +240,50 @@ describe("tryGroundedResearchReconstruction", () => {
     expect(attempt.text).toContain(
       "- S1: 新型スマートフォン Vega X1 発表（example.com） （出典の日付：2026年6月15日）",
     );
-    expect(attempt.text).toContain("「Vega X1の価格は89,800円と発表されています。」 [S2](https://example.net/vega)");
+    expect(attempt.text).toContain(
+      "「Vega X1の価格は89,800円と発表されています。」 [S2](https://example.net/vega) （時点不明）",
+    );
     expect(attempt.text).toContain("- S2: Vega X1 価格まとめ（example.net）");
+    expect(attempt.text).not.toContain("- S2: Vega X1 価格まとめ（example.net） （時点不明）");
     expect(attempt.text).not.toContain("（出典の日付：2026年6月15日） （出典の日付");
+  });
+
+  it("marks an undated quoted value as period-unknown (推奨2)", () => {
+    // Both Vega sources are undated and neither quoted sentence
+    // dates itself, so both sentence lines carry the marker. (The
+    // English marker string is pinned at the helper level in
+    // originOfficialEdition.test.ts and on the partial-answer
+    // card in groundedResearchV11.test.ts; an English-question
+    // reconstruction cannot be pinned here because the packet's
+    // question-key extraction is Japanese-oriented — a
+    // pre-existing limitation outside this change's scope.)
+    const attempt = tryGroundedResearchReconstruction({
+      question: VEGA_QUESTION,
+      sources: vegaSources(),
+      language: "ja",
+      nowMs: NOW,
+    });
+    expect(attempt.established).toBe(true);
+    expect(attempt.text).toContain(
+      "「価格は税込89,800円です。」 [S1](https://example.com/vega-x1) （時点不明）",
+    );
+    expect(attempt.text).toContain(
+      "「Vega X1の価格は89,800円と発表されています。」 [S2](https://example.net/vega) （時点不明）",
+    );
+  });
+
+  it("adds no unknown marker when the quoted sentence dates its own value (推奨2)", () => {
+    // The gasoline sentences state their own publication point
+    // (2026年11月16日に公表した): the reader can place the value
+    // from the sentence itself, so the marker would be noise.
+    const attempt = tryGroundedResearchReconstruction({
+      question: GASOLINE_QUESTION,
+      sources: gasolineSources(),
+      language: "ja",
+      nowMs: NOW,
+    });
+    expect(attempt.established).toBe(true);
+    expect(attempt.text).not.toContain("時点不明");
   });
 
   it("annotates an official statistics source by its EDITION, not its page date (follow-up measure 3)", () => {

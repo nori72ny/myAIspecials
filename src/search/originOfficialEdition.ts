@@ -292,3 +292,53 @@ export function originSourcePeriodAnnotation(
     ? `(source date: ${year}-${month}-${day})`
     : `（出典の日付：${year}年${Number(month)}月${Number(day)}日）`;
 }
+
+/**
+ * The unknown-vintage marker (certainty-display systematization,
+ * REFERENCE_EVALUATION_MAXIMUM_2026-11-27 推奨2): the explicit
+ * label a verbatim-quote landing attaches when a quoted VALUE's
+ * source states neither an edition nor a date. Silence in the
+ * annotation slot was the F-03 failure shape — an undated stale
+ * value ("現在 1.00%") quoted bare reads as current, because
+ * nothing distinguishes "vintage unknown" from "vintage current".
+ * The marker invents no date and edits no quoted text; it makes
+ * the absence itself visible at the point where the value is read.
+ */
+export function originUnknownPeriodAnnotation(language: "ja" | "en"): string {
+  return language === "en" ? "(period not stated)" : "（時点不明）";
+}
+
+/**
+ * Whether a statement itself names the period its value belongs
+ * to, in a year-bearing form (2026年…, 令和8年…, 2026-11…): a
+ * quote that dates its own value ("令和8年9月の有効求人倍率は…")
+ * needs no external vintage label — the reader can place the
+ * value from the sentence itself. A bare month ("8月の…") does
+ * NOT count: without the year, the vintage stays ambiguous.
+ */
+export function originTextStatesPeriod(text: string): boolean {
+  return /(?:\d{4}\s*年|令和\s*\d+\s*年|平成\s*\d+\s*年|\d{4}[-/]\d{1,2})/.test(text);
+}
+
+/**
+ * The period annotation for a verbatim-quoted value: the source's
+ * own annotation (originSourcePeriodAnnotation) when it can be
+ * read; otherwise the unknown-vintage marker — but only when the
+ * quote actually carries a value (the caller judges with the
+ * packet's answer-bearing signal) and does not state its own
+ * period. A value-free quote, or one that dates itself, keeps the
+ * empty annotation exactly as before, so the marker never becomes
+ * decoration on text that presents no value to misread.
+ */
+export function originQuotedValuePeriodAnnotation(
+  source: { title: string; revisionTimestamp?: string },
+  language: "ja" | "en",
+  quoteText: string,
+  valueBearing: boolean,
+): string {
+  const annotation = originSourcePeriodAnnotation(source, language);
+  if (annotation) return annotation;
+  if (!valueBearing) return "";
+  if (originTextStatesPeriod(quoteText)) return "";
+  return originUnknownPeriodAnnotation(language);
+}

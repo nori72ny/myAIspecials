@@ -2,7 +2,10 @@ import { describe, expect, it } from "vitest";
 import {
   expectedLatestOriginOfficialEdition,
   originOfficialEditionQueryTerms,
+  originQuotedValuePeriodAnnotation,
   originSourcePeriodAnnotation,
+  originTextStatesPeriod,
+  originUnknownPeriodAnnotation,
   parseOriginOfficialEdition,
 } from "./originOfficialEdition.js";
 import {
@@ -240,5 +243,50 @@ describe("originSourcePeriodAnnotation — measure E material expansion", () => 
 
   it("a source stating neither gets no annotation", () => {
     expect(originSourcePeriodAnnotation({ title: "日付のないページ" }, "ja")).toBe("");
+  });
+});
+
+describe("certainty-display systematization — the unknown-vintage marker (推奨2)", () => {
+  it("originTextStatesPeriod requires a year-bearing period", () => {
+    expect(originTextStatesPeriod("令和8年9月の有効求人倍率は1.19倍でした。")).toBe(true);
+    expect(originTextStatesPeriod("2026年11月16日に公表した調査では170.0円でした。")).toBe(true);
+    expect(originTextStatesPeriod("申込期限は2026-03-31です。")).toBe(true);
+    // A bare month does not place the value: the year is the vintage.
+    expect(originTextStatesPeriod("8月の有効求人倍率は1.18倍でした。")).toBe(false);
+    expect(originTextStatesPeriod("現在の政策金利は1.00%です。")).toBe(false);
+  });
+
+  it("a readable vintage always wins over the marker", () => {
+    expect(originQuotedValuePeriodAnnotation(
+      { title: "一般職業紹介状況（令和8年9月分）", revisionTimestamp: "2026-10-30T00:00:00.000Z" },
+      "ja", "有効求人倍率は1.19倍でした。", true,
+    )).toBe("（対象：令和8年9月分）");
+    expect(originQuotedValuePeriodAnnotation(
+      { title: "価格調査", revisionTimestamp: "2026-06-15T00:00:00.000Z" },
+      "ja", "価格は170.0円でした。", true,
+    )).toBe("（出典の日付：2026年6月15日）");
+  });
+
+  it("an undated value-bearing quote that does not date itself gets the marker", () => {
+    // The F-03 shape: a stale figure asserted as current, from a
+    // source whose vintage cannot be read. Silence read as
+    // "current"; the marker makes the unknown visible instead.
+    expect(originQuotedValuePeriodAnnotation(
+      { title: "金利まとめページ" }, "ja", "現在の政策金利は1.00%です。", true,
+    )).toBe("（時点不明）");
+    expect(originQuotedValuePeriodAnnotation(
+      { title: "Rate roundup" }, "en", "The current policy rate is 1.00%.", true,
+    )).toBe("(period not stated)");
+    expect(originUnknownPeriodAnnotation("ja")).toBe("（時点不明）");
+    expect(originUnknownPeriodAnnotation("en")).toBe("(period not stated)");
+  });
+
+  it("no marker when the quote dates itself or carries no value", () => {
+    expect(originQuotedValuePeriodAnnotation(
+      { title: "日付のないページ" }, "ja", "令和8年9月の完全失業率は2.4%でした。", true,
+    )).toBe("");
+    expect(originQuotedValuePeriodAnnotation(
+      { title: "日付のないページ" }, "ja", "完全失業率は、月次で公表しています。", false,
+    )).toBe("");
   });
 });
