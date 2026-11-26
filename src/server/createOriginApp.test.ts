@@ -437,13 +437,42 @@ describe("createOriginApp Orin panel AI news outlet (expansion design §8.4)", (
     vi.unstubAllGlobals();
   });
 
-  it("returns GDELT headlines for the fixed server-side query only", async () => {
-    const fetchSpy = vi.fn(async (input: RequestInfo | URL) => new Response(JSON.stringify({
-      articles: [
-        { url: "https://example.com/ai-news-1", title: "AIの新しい発表", domain: "example.com", seendate: "20251125T030000Z" },
-        { url: "https://example.org/ai-news-2", title: "Another AI headline", domain: "example.org", seendate: "20251125T020000Z" },
-      ],
-    }), { status: 200, headers: { "Content-Type": "application/json" } }));
+  it("returns RSS headlines for the fixed server-side query only", async () => {
+    const rssXml = `<?xml version="1.0" encoding="UTF-8"?><rss version="2.0"><channel>
+<item><title>生成AIの新モデルを発表 - ITmedia</title><link>https://news.google.com/rss/articles/AAA</link><pubDate>Wed, 25 Nov 2026 03:30:00 GMT</pubDate><source url="https://www.itmedia.co.jp">ITmedia</source></item>
+<item><title>AI regulation &amp; policy update - Reuters</title><link>https://news.google.com/rss/articles/BBB</link><pubDate>Wed, 25 Nov 2026 01:00:00 GMT</pubDate><source url="https://www.reuters.com">Reuters</source></item>
+</channel></rss>`;
+    const fetchSpy = vi.fn(async (input: RequestInfo | URL) => new Response(rssXml, { status: 200, headers: { "Content-Type": "application/rss+xml" } }));
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const response = await request(createOriginApp({})).get("/api/orin/ai-news");
+    expect(response.status).toBe(200);
+    expect(response.body.ok).toBe(true);
+    expect(response.body.items).toEqual([
+      { title: "生成AIの新モデルを発表", url: "https://news.google.com/rss/articles/AAA", source: "ITmedia", publishedAt: "2026-11-25T03:30:00.000Z" },
+      { title: "AI regulation & policy update", url: "https://news.google.com/rss/articles/BBB", source: "Reuters", publishedAt: "2026-11-25T01:00:00.000Z" },
+    ]);
+    // The only outbound call is the RSS feed with the fixed topic
+    // query (the primary route since 2026-11-27) — nothing about a
+    // user is ever part of it.
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    const calledUrl = String(fetchSpy.mock.calls[0][0]);
+    expect(calledUrl).toContain("news.google.com/rss");
+    expect(decodeURIComponent(calledUrl)).toContain("人工知能");
+  });
+
+  it("falls back to GDELT headlines when the RSS route fails", async () => {
+    const fetchSpy = vi.fn(async (input: RequestInfo | URL) => {
+      if (String(input).includes("news.google.com/rss")) {
+        return new Response("server error", { status: 500 });
+      }
+      return new Response(JSON.stringify({
+        articles: [
+          { url: "https://example.com/ai-news-1", title: "AIの新しい発表", domain: "example.com", seendate: "20251125T030000Z" },
+          { url: "https://example.org/ai-news-2", title: "Another AI headline", domain: "example.org", seendate: "20251125T020000Z" },
+        ],
+      }), { status: 200, headers: { "Content-Type": "application/json" } });
+    });
     vi.stubGlobal("fetch", fetchSpy);
 
     const response = await request(createOriginApp({})).get("/api/orin/ai-news");
@@ -453,15 +482,11 @@ describe("createOriginApp Orin panel AI news outlet (expansion design §8.4)", (
       { title: "AIの新しい発表", url: "https://example.com/ai-news-1", source: "example.com", publishedAt: "2025-11-25T03:00:00Z" },
       { title: "Another AI headline", url: "https://example.org/ai-news-2", source: "example.org", publishedAt: "2025-11-25T02:00:00Z" },
     ]);
-    // The only outbound call is GDELT with the fixed topic query —
-    // nothing about a user is ever part of it.
-    expect(fetchSpy).toHaveBeenCalledTimes(1);
-    const calledUrl = String(fetchSpy.mock.calls[0][0]);
-    expect(calledUrl).toContain("api.gdeltproject.org");
-    expect(decodeURIComponent(calledUrl)).toContain("人工知能");
+    expect(fetchSpy).toHaveBeenCalledTimes(2);
+    expect(String(fetchSpy.mock.calls[1][0])).toContain("api.gdeltproject.org");
   });
 
-  it("fails closed (502, ok:false) when GDELT cannot be reached", async () => {
+  it("fails closed (502, ok:false) when no headline source can be reached", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => { throw new Error("network down"); }));
     const response = await request(createOriginApp({})).get("/api/orin/ai-news");
     expect(response.status).toBe(502);
@@ -472,17 +497,19 @@ describe("createOriginApp Orin panel AI news outlet (expansion design §8.4)", (
     // The old handler swallowed every failure into the same generic
     // body, which is why the production failure could not be told
     // apart (timeout vs rate limit vs network). The reason code now
-    // travels with the response (and is logged server-side).
+    // travels with the response (and is logged server-side). Since
+    // the 2026-11-27 order reversal the reported reason is the
+    // primary (RSS) route's.
     vi.stubGlobal("fetch", vi.fn(async () => { throw new Error("network down"); }));
     const response = await request(createOriginApp({})).get("/api/orin/ai-news");
     expect(response.status).toBe(502);
-    expect(response.body).toMatchObject({ ok: false, code: "AI_NEWS_UNAVAILABLE", reason: "network" });
+    expect(response.body).toMatchObject({ ok: false, code: "AI_NEWS_UNAVAILABLE", reason: "rss-network" });
   });
 
-  it("reports an upstream HTTP status (e.g. GDELT rate limit) in the 502 body", async () => {
+  it("reports the primary route's upstream HTTP status in the 502 body", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => new Response("server error", { status: 500 })));
     const response = await request(createOriginApp({})).get("/api/orin/ai-news");
     expect(response.status).toBe(502);
-    expect(response.body).toMatchObject({ ok: false, code: "AI_NEWS_UNAVAILABLE", reason: "http", upstreamStatus: 500 });
+    expect(response.body).toMatchObject({ ok: false, code: "AI_NEWS_UNAVAILABLE", reason: "rss-http", upstreamStatus: 500 });
   });
 });

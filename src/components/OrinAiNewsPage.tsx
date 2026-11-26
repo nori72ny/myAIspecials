@@ -27,7 +27,18 @@ import {
  * 取れない時はその層だけ畳み、ダイジェストは出し続ける。
  *
  * ページとして広く使えるため、要約は行数で切らず全文を出す。
+ *
+ * 見出し層の状態表示の是正（2026-11-27、診断
+ * AI_NEWS_HEADLINES_DIAGNOSIS_2026-11-27 の案B）：取得に時間が
+ * かかる時はその旨を出し、上限を超えたら失敗として扱って
+ * 「もう一度試す」で取り直せるようにする。「読み込み中のまま
+ * 無言」をなくし、遅いと失敗を必ず区別する。
  */
+/** 取得が長引いた時に「時間がかかっています」を出すまでの時間。 */
+const ORIN_AI_NEWS_SLOW_MS = 10_000;
+/** 取得の上限。これを超えたら中断して失敗として扱う。 */
+const ORIN_AI_NEWS_FETCH_LIMIT_MS = 30_000;
+
 type NewsState =
   | { kind: 'loading' }
   | { kind: 'ready'; payload: OrinAiNewsPayload }
@@ -36,6 +47,8 @@ type NewsState =
 export default function OrinAiNewsPage({ language }: { language: OriginLanguage }) {
   const ja = language !== 'en';
   const [newsState, setNewsState] = useState<NewsState>({ kind: 'loading' });
+  const [slowLoad, setSlowLoad] = useState(false);
+  const [reloadKey, setReloadKey] = useState(0);
 
   useEffect(() => {
     const cached = getOrinAiNewsCache(Date.now());
@@ -45,7 +58,15 @@ export default function OrinAiNewsPage({ language }: { language: OriginLanguage 
     }
     let cancelled = false;
     setNewsState({ kind: 'loading' });
-    void fetch('/api/orin/ai-news', { cache: 'no-store' })
+    setSlowLoad(false);
+    const controller = new AbortController();
+    const slowTimer = setTimeout(() => {
+      if (!cancelled) setSlowLoad(true);
+    }, ORIN_AI_NEWS_SLOW_MS);
+    const limitTimer = setTimeout(() => {
+      controller.abort();
+    }, ORIN_AI_NEWS_FETCH_LIMIT_MS);
+    void fetch('/api/orin/ai-news', { cache: 'no-store', signal: controller.signal })
       .then(async (response) => {
         const data = await response.json().catch(() => null) as unknown;
         if (cancelled) return;
@@ -59,9 +80,18 @@ export default function OrinAiNewsPage({ language }: { language: OriginLanguage 
       })
       .catch(() => {
         if (!cancelled) setNewsState({ kind: 'error' });
+      })
+      .finally(() => {
+        clearTimeout(slowTimer);
+        clearTimeout(limitTimer);
       });
-    return () => { cancelled = true; };
-  }, []);
+    return () => {
+      cancelled = true;
+      controller.abort();
+      clearTimeout(slowTimer);
+      clearTimeout(limitTimer);
+    };
+  }, [reloadKey]);
 
   const digestUpdatedText = orinAiNewsDigestUpdatedText(ORIN_AI_NEWS_DIGEST.updatedAt, ja);
   const fetchedAtText = newsState.kind === 'ready' ? orinAiNewsFetchedAtText(newsState.payload.fetchedAt, ja) : null;
@@ -105,12 +135,26 @@ export default function OrinAiNewsPage({ language }: { language: OriginLanguage 
             <span aria-hidden="true" className="origin-orin-panel__skeleton-bar" />
             <span aria-hidden="true" className="origin-orin-panel__skeleton-bar" />
             <span aria-hidden="true" className="origin-orin-panel__skeleton-bar" />
-            <p className="origin-orin-panel__row-sub">{ja ? '読み込んでいます' : 'Loading…'}</p>
+            <p className="origin-orin-panel__row-sub">
+              {slowLoad
+                ? (ja ? '読み込みに時間がかかっています' : 'Taking longer than usual…')
+                : (ja ? '読み込んでいます' : 'Loading…')}
+            </p>
           </div>
         ) : newsState.kind === 'error' ? (
-          <p data-testid="origin-ai-news-error" className="origin-orin-panel__row-sub">
-            {ja ? '最新の見出しを取得できませんでした' : 'Could not load the latest headlines.'}
-          </p>
+          <>
+            <p data-testid="origin-ai-news-error" className="origin-orin-panel__row-sub">
+              {ja ? '最新の見出しを取得できませんでした' : 'Could not load the latest headlines.'}
+            </p>
+            <button
+              type="button"
+              data-testid="origin-ai-news-retry"
+              onClick={() => setReloadKey((key) => key + 1)}
+              className="origin-secondary-button mt-2 inline-flex min-h-11 items-center px-3 text-sm font-semibold"
+            >
+              {ja ? 'もう一度試す' : 'Try again'}
+            </button>
+          </>
         ) : (
           <ul className="origin-orin-panel__rows">
             {newsState.payload.items.map((headline) => {
