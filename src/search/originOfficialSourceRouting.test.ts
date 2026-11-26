@@ -3,12 +3,19 @@ import { ORIGIN_SEARCH_FRESHNESS_REQUIREMENTS } from "./originSearchClassifier";
 import {
   evaluateOriginSourceFreshness,
   executeOriginSearchGrounding,
+  extractStatedPublicationMs,
+  originSearchGroundingToResearchResult,
   type OriginSearchGroundingDeps,
   type OriginSearchGroundingOutcome,
 } from "./originSearchGrounding";
 import { OriginSearchUsageCounter } from "./originSearchProviderCatalog";
 import { OriginSearchTtlCache } from "./originSearchCache";
 import {
+  assessOfficialMaterialInsufficiency,
+  buildOfficialRetryQueryText,
+  buildOfficialSourceQueryText,
+  excerptHasOfficialValueToken,
+  isRegionalOfficialSource,
   MAX_OFFICIAL_SOURCE_QUERIES,
   planOriginOfficialSourceQueries,
   resolveOriginOfficialSourceRoutingEnabled,
@@ -286,7 +293,9 @@ interface RecordedCall {
 const STAT_RESULT = {
   title: "労働力調査（基本集計）完全失業率 総務省統計局",
   url: "https://www.stat.go.jp/data/roudou/sokuhou/gaiyou.html",
-  content: LONG_EXCERPT,
+  // The value rides the excerpt, so the adopted pool is materially
+  // sufficient and the round-8 retry (measure B) does not fire.
+  content: `${LONG_EXCERPT} 完全失業率は2.4%でした。`,
   score: 0.9,
   // No published_date: the official statistics page states no date
   // in the extracted text — the round-6 failure shape.
@@ -383,5 +392,404 @@ describe("executeOriginSearchGrounding — official-source routing (B + C)", () 
     await executeOriginSearchGrounding("GoogleのPixelの最新モデルの日本の価格を教えてください。", deps);
     const searchCalls = calls.filter((call) => call.url.includes("api.tavily.com/search"));
     expect(searchCalls).toHaveLength(1);
+  });
+});
+/* ------------------------------------------------------------------ */
+/* Round-8 measure A: release-name targeting                           */
+/* ------------------------------------------------------------------ */
+
+describe("planOriginOfficialSourceQueries — release names (round-8 measure A)", () => {
+  const releaseCases: Array<{ question: string; releaseTerms: string }> = [
+    { question: "日銀の政策金利は今いくつですか？いつ決まったものですか？", releaseTerms: "金融政策決定会合" },
+    { question: "最新の完全失業率を教えてください。いつの分ですか？", releaseTerms: "労働力調査 基本集計" },
+    { question: "日本の総人口の最新の推計値と、その基準日を教えてください。", releaseTerms: "人口推計" },
+    { question: "最新の有効求人倍率を教えてください。いつの分ですか？", releaseTerms: "一般職業紹介状況" },
+    { question: "直近に公表された日本の実質GDP成長率（四半期）を教えてください。", releaseTerms: "四半期別GDP速報" },
+    { question: "レギュラーガソリンの全国平均価格は今いくらくらいですか？", releaseTerms: "石油製品価格調査" },
+  ];
+  for (const { question, releaseTerms } of releaseCases) {
+    it(`carries the release name for: ${question}`, () => {
+      expect(planOriginOfficialSourceQueries(question)?.queries[0]?.releaseTerms).toBe(releaseTerms);
+    });
+  }
+
+  it("carries no release name where the publication has no single stable title", () => {
+    expect(planOriginOfficialSourceQueries(
+      "直近の国政選挙（衆院選・参院選いずれか近い方）はいつ行われ、結果はどうでしたか？",
+    )?.queries[0]?.releaseTerms).toBeUndefined();
+    expect(planOriginOfficialSourceQueries(
+      "現在の日本の内閣総理大臣は誰ですか？",
+    )?.queries[0]?.releaseTerms).toBeUndefined();
+  });
+});
+
+describe("buildOfficialSourceQueryText / buildOfficialRetryQueryText (round-8 measures A/B)", () => {
+  it("appends the release name to the minimized query", () => {
+    expect(buildOfficialSourceQueryText("最新の完全失業率 いつの分", "労働力調査 基本集計"))
+      .toBe("最新の完全失業率 いつの分 労働力調査 基本集計");
+  });
+
+  it("does not duplicate the release name when the query already names it", () => {
+    expect(buildOfficialSourceQueryText("労働力調査の結果", "労働力調査 基本集計"))
+      .toBe("労働力調査の結果");
+  });
+
+  it("returns the base query unchanged when the topic has no release name", () => {
+    expect(buildOfficialSourceQueryText("直近の国政選挙", undefined)).toBe("直近の国政選挙");
+  });
+
+  it("the retry query is the release name alone (a different formulation)", () => {
+    expect(buildOfficialRetryQueryText("一般職業紹介状況")).toBe("一般職業紹介状況");
+  });
+});
+
+/* ------------------------------------------------------------------ */
+/* Round-8 measure B: material insufficiency detection                 */
+/* ------------------------------------------------------------------ */
+
+describe("excerptHasOfficialValueToken / isRegionalOfficialSource (round-8 measure B)", () => {
+  it("recognizes published-statistic value shapes", () => {
+    expect(excerptHasOfficialValueToken("完全失業率は2.4%でした。")).toBe(true);
+    expect(excerptHasOfficialValueToken("総人口は1億2,243万人です。")).toBe(true);
+    expect(excerptHasOfficialValueToken("有効求人倍率は0.67倍でした。")).toBe(true);
+    expect(excerptHasOfficialValueToken("価格は170.0円/Lです。")).toBe(true);
+    expect(excerptHasOfficialValueToken("実質GDPは前期比-0.0%でした。")).toBe(true);
+  });
+
+  it("does not mistake navigation text, figure numbers or reference periods for values", () => {
+    expect(excerptHasOfficialValueToken("印刷用PDF：図 一般職業紹介状況の公表資料一覧ページです。")).toBe(false);
+    expect(excerptHasOfficialValueToken("2026年9月分の結果については資料出所の注記をご覧ください。")).toBe(false);
+    expect(excerptHasOfficialValueToken("データセットのメタデータページです。")).toBe(false);
+    expect(excerptHasOfficialValueToken("")).toBe(false);
+  });
+
+  it("recognizes regional publications by host, title and URL", () => {
+    expect(isRegionalOfficialSource({
+      title: "一般職業紹介状況", url: "https://jsite.mhlw.go.jp/miyagi-roudoukyoku/x.pdf",
+      excerpt: "", domain: "jsite.mhlw.go.jp", authorityTier: "official",
+    })).toBe(true);
+    expect(isRegionalOfficialSource({
+      title: "宮城県の有効求人倍率について", url: "https://example.com/a",
+      excerpt: "", domain: "example.com", authorityTier: "general",
+    })).toBe(true);
+    expect(isRegionalOfficialSource({
+      title: "労働力調査（基本集計）結果", url: "https://www.stat.go.jp/data/roudou/sokuhou/gaiyou.html",
+      excerpt: "", domain: "stat.go.jp", authorityTier: "official",
+    })).toBe(false);
+  });
+});
+
+describe("assessOfficialMaterialInsufficiency (round-8 measure B)", () => {
+  const shape = (partial: Partial<OriginSearchSource>): OriginSearchSource => makeSource(partial);
+
+  it("F-06 shape: no value-bearing span at all → no-numeric-span", () => {
+    const assessment = assessOfficialMaterialInsufficiency([
+      shape({ domain: "jilpt.go.jp", authorityTier: "official", excerpt: "印刷用PDF：図 完全失業率の長期時系列データのページです。" }),
+      shape({ domain: "e-stat.go.jp", authorityTier: "official", excerpt: "労働力調査年報データセットのメタデータページです。" }),
+    ]);
+    expect(assessment.sufficient).toBe(false);
+    expect(assessment.reason).toBe("no-numeric-span");
+  });
+
+  it("F-05 shape: values only from a regional publication → regional-only", () => {
+    const assessment = assessOfficialMaterialInsufficiency([
+      shape({
+        title: "宮城県の有効求人倍率", domain: "jsite.mhlw.go.jp", authorityTier: "official",
+        url: "https://jsite.mhlw.go.jp/miyagi-roudoukyoku/x.pdf",
+        excerpt: "宮城県内の有効求人倍率は0.67倍でした。",
+      }),
+      shape({ domain: "jilpt.go.jp", authorityTier: "official", excerpt: "資料出所の注記のみのページです。" }),
+    ]);
+    expect(assessment.sufficient).toBe(false);
+    expect(assessment.reason).toBe("regional-only");
+    expect(assessment.valueBearingCount).toBe(1);
+  });
+
+  it("a national official value makes the pool sufficient", () => {
+    const assessment = assessOfficialMaterialInsufficiency([
+      shape({
+        title: "労働力調査（基本集計）", domain: "stat.go.jp", authorityTier: "official",
+        url: "https://www.stat.go.jp/data/roudou/sokuhou/gaiyou.html",
+        excerpt: "完全失業率は2.4%でした。",
+      }),
+    ]);
+    expect(assessment.sufficient).toBe(true);
+    expect(assessment.nationalOfficialValueCount).toBe(1);
+  });
+
+  it("F-03 shape: values on unofficial non-regional sources are NOT this measure's trigger", () => {
+    const assessment = assessOfficialMaterialInsufficiency([
+      shape({ domain: "nomura.co.jp", authorityTier: "general", excerpt: "政策金利は現在1.00%で、将来シナリオでは1.25%です。" }),
+    ]);
+    expect(assessment.sufficient).toBe(true);
+  });
+});
+
+/* ------------------------------------------------------------------ */
+/* Round-8 measure C: freshness by the stated publication date         */
+/* ------------------------------------------------------------------ */
+
+describe("extractStatedPublicationMs (round-8 measure C)", () => {
+  it("reads Gregorian, Reiwa and ISO full dates", () => {
+    expect(extractStatedPublicationMs("2026年10月30日公表", NOW)).toBe(Date.UTC(2026, 9, 30));
+    expect(extractStatedPublicationMs("令和8年11月17日に公表しました", NOW)).toBe(Date.UTC(2026, 10, 17));
+    expect(extractStatedPublicationMs("令和元年5月1日", NOW)).toBe(Date.UTC(2019, 4, 1));
+    expect(extractStatedPublicationMs("published 2026-10-30", NOW)).toBe(Date.UTC(2026, 9, 30));
+  });
+
+  it("ignores reference periods (no day) and future dates, and picks the newest date", () => {
+    expect(extractStatedPublicationMs("2026年9月分の結果です", NOW)).toBeNull();
+    expect(extractStatedPublicationMs("2027年1月1日に公表予定", NOW)).toBeNull();
+    expect(extractStatedPublicationMs("前回は2026年9月30日、今回は2026年10月30日公表", NOW))
+      .toBe(Date.UTC(2026, 9, 30));
+    expect(extractStatedPublicationMs("日付の無いページ", NOW)).toBeNull();
+  });
+});
+
+describe("evaluateOriginSourceFreshness — stated publication date (round-8 measure C)", () => {
+  const priceRequirement = ORIGIN_SEARCH_FRESHNESS_REQUIREMENTS.price_spec;
+
+  it("F-04 shape: an official survey page with a stale page date is kept on its stated publication date (one week old)", () => {
+    const enecho = makeSource({
+      title: "石油製品価格調査 結果 資源エネルギー庁",
+      url: "https://www.enecho.meti.go.jp/about/pamphlet/statistic/petroleum/",
+      domain: "enecho.meti.go.jp",
+      authorityTier: "official",
+      // The provider reports the page's old first-seen date…
+      publishedAt: "2025-06-01T00:00:00.000Z",
+      // …while the page itself states the current release's date.
+      excerpt: "石油製品価格調査の結果です。レギュラーガソリン全国平均価格は170.0円/Lでした（令和8年11月17日公表分）。",
+    });
+    const withOption = evaluateOriginSourceFreshness(
+      [enecho], priceRequirement, "price_spec", NOW, { officialStatedDate: true },
+    );
+    expect(withOption.kept).toHaveLength(1);
+    expect(withOption.kept[0]?.dateVerified).toBe(true);
+    expect(withOption.decisions).toEqual([
+      { domain: "enecho.meti.go.jp", tier: "official", outcome: "kept-verified", basis: "text-date", basisDate: "2026-11-17" },
+    ]);
+    // Without the option the same source falls to the page-age window.
+    const without = evaluateOriginSourceFreshness([enecho], priceRequirement, "price_spec", NOW);
+    expect(without.kept).toHaveLength(0);
+    expect(without.stats.droppedStaleCount).toBe(1);
+  });
+
+  it("an UNOFFICIAL source is judged by its provider date exactly as before (not relaxed)", () => {
+    const blog = makeSource({
+      title: "ガソリン価格の解説ブログ",
+      url: "https://blog.example.com/gas",
+      domain: "blog.example.com",
+      authorityTier: "general",
+      publishedAt: "2025-06-01T00:00:00.000Z",
+      excerpt: "ガソリン価格は170.0円/Lでした（令和8年11月17日公表分）。",
+    });
+    const { kept, stats, decisions } = evaluateOriginSourceFreshness(
+      [blog], priceRequirement, "price_spec", NOW, { officialStatedDate: true },
+    );
+    expect(kept).toHaveLength(0);
+    expect(stats.droppedStaleCount).toBe(1);
+    expect(decisions[0]?.basis).toBe("provider-date");
+  });
+
+  it("an official source whose stated date is also outside the window is dropped as stale (basis: text-date)", () => {
+    const oldRelease = makeSource({
+      title: "石油製品価格調査 結果 資源エネルギー庁",
+      url: "https://www.enecho.meti.go.jp/about/pamphlet/statistic/petroleum/",
+      domain: "enecho.meti.go.jp",
+      authorityTier: "official",
+      excerpt: "石油製品価格調査の結果です（令和7年11月17日公表分）。",
+    });
+    const { kept, decisions } = evaluateOriginSourceFreshness(
+      [oldRelease], priceRequirement, "price_spec", NOW, { officialStatedDate: true },
+    );
+    expect(kept).toHaveLength(0);
+    expect(decisions).toEqual([
+      { domain: "enecho.meti.go.jp", tier: "official", outcome: "dropped-stale", basis: "text-date", basisDate: "2025-11-17" },
+    ]);
+  });
+
+  it("F-14 shape: an undated official page is verified on the event date its text states; an undated blog is never upgraded", () => {
+    const requirement = ORIGIN_SEARCH_FRESHNESS_REQUIREMENTS.fresh_general;
+    const soumu = makeSource({
+      title: "衆議院議員総選挙の結果 総務省",
+      url: "https://www.soumu.go.jp/senkyo/senkyo_s/data/shugiin51/",
+      domain: "soumu.go.jp",
+      authorityTier: "official",
+      excerpt: "第51回衆議院議員総選挙は2026年2月8日に行われました。結果の詳細を掲載しています。",
+    });
+    const blog = makeSource({
+      title: "選挙結果の感想ブログ",
+      url: "https://blog.example.com/election",
+      domain: "blog.example.com",
+      authorityTier: "general",
+      excerpt: "選挙の結果について感想を書きます。",
+    });
+    const { kept, decisions } = evaluateOriginSourceFreshness(
+      [soumu, blog], requirement, "fresh_general", NOW,
+      { officialUndatedExempt: true, officialStatedDate: true },
+    );
+    const soumuKept = kept.find((source) => source.domain === "soumu.go.jp");
+    expect(soumuKept?.dateVerified).toBe(true);
+    const blogKept = kept.find((source) => source.domain === "blog.example.com");
+    expect(blogKept?.dateVerified).toBe(false);
+    expect(decisions).toEqual([
+      { domain: "soumu.go.jp", tier: "official", outcome: "kept-verified", basis: "text-date", basisDate: "2026-02-08" },
+      { domain: "blog.example.com", tier: "general", outcome: "kept-undated", basis: "none", basisDate: null },
+    ]);
+    // Without the stated-date option the same official page is only
+    // ever "official, undated" — the event date in its text is not
+    // a basis the old gate could use.
+    const without = evaluateOriginSourceFreshness(
+      [soumu], requirement, "fresh_general", NOW, { officialUndatedExempt: true },
+    );
+    expect(without.kept[0]?.dateVerified).toBe(false);
+  });
+});
+
+/* ------------------------------------------------------------------ */
+/* Round-8 measures A+B+D end to end                                   */
+/* ------------------------------------------------------------------ */
+
+const JILPT_NAV_RESULT = {
+  title: "最新の完全失業率の推移（長期時系列）",
+  url: "https://www.jilpt.go.jp/chousa/zenpan/term.html",
+  content: "完全失業率の長期時系列データを掲載しています。収録範囲がいつの分からかは資料出所の注記をご覧ください。",
+  score: 0.5,
+};
+const LABOUR_RELEASE_RESULT = {
+  title: "労働力調査（基本集計）2026年9月分 結果の概要 総務省統計局",
+  url: "https://www.stat.go.jp/data/roudou/sokuhou/gaiyou.html",
+  content: "労働力調査（基本集計）2026年9月分の結果です。完全失業率は2.4%でした。2026年10月30日に公表しました。",
+  score: 0.95,
+};
+
+function labourRetryFetch() {
+  const calls: RecordedCall[] = [];
+  const fetchImpl: OriginSearchFetch = async (url, init) => {
+    calls.push({ url, init });
+    if (url.includes("api.tavily.com/search")) {
+      const body = JSON.parse(init?.body ?? "{}") as { query?: string; include_domains?: string[] };
+      if (body.include_domains?.includes("stat.go.jp")) {
+        // First-pass official search misses; the retry — the release
+        // name alone — finds the publication page.
+        return jsonResponse({ results: body.query === "労働力調査 基本集計" ? [LABOUR_RELEASE_RESULT] : [] });
+      }
+      return jsonResponse({ results: [JILPT_NAV_RESULT] });
+    }
+    if (url.includes("api.tavily.com/extract")) return jsonResponse({ results: [], failed_results: [] });
+    const host = new URL(url).hostname;
+    if (host === "wikipedia.org" || host.endsWith(".wikipedia.org")) return jsonResponse({ pages: [] });
+    throw new Error(`unexpected URL: ${url}`);
+  };
+  return { fetchImpl, calls };
+}
+
+describe("executeOriginSearchGrounding — round-8 measures A + B + D", () => {
+  it("switch ON with a sufficient pool: the official search aims at the release page and no retry fires", async () => {
+    const { fetchImpl, calls } = officialAwareFetch();
+    const deps = makeDeps({
+      fetchImpl,
+      env: { TAVILY_API_KEY: "tvly-test-key", ORIGIN_OFFICIAL_SOURCE_ROUTING_MODE: "true" },
+    });
+    const outcome = groundedOf(await executeOriginSearchGrounding(F06_QUESTION, deps));
+    const searchCalls = calls.filter((call) => call.url.includes("api.tavily.com/search"));
+    expect(searchCalls).toHaveLength(2);
+    const restricted = searchCalls
+      .map((call) => JSON.parse(call.init?.body ?? "{}") as { query?: string; include_domains?: string[] })
+      .find((body) => body.include_domains);
+    // Measure A: the restricted query names the publication.
+    expect(restricted?.query).toContain("労働力調査 基本集計");
+    expect(outcome.candidateStats?.officialRetry).toBeUndefined();
+    expect(outcome.queriesIssued?.map((issued) => issued.kind)).toEqual(["ordinary", "ordinary", "official"]);
+  });
+
+  it("F-06 shape: a value-less pool fires exactly ONE retry (the release name alone), which brings the publication page", async () => {
+    const { fetchImpl, calls } = labourRetryFetch();
+    const deps = makeDeps({
+      fetchImpl,
+      env: { TAVILY_API_KEY: "tvly-test-key", ORIGIN_OFFICIAL_SOURCE_ROUTING_MODE: "true" },
+    });
+    const outcome = groundedOf(await executeOriginSearchGrounding(F06_QUESTION, deps));
+    const searchCalls = calls.filter((call) => call.url.includes("api.tavily.com/search"));
+    // ordinary + official + exactly one retry — never two.
+    expect(searchCalls).toHaveLength(3);
+    const bodies = searchCalls.map((call) => JSON.parse(call.init?.body ?? "{}") as { query?: string; include_domains?: string[] });
+    expect(bodies[2]?.query).toBe("労働力調査 基本集計");
+    expect(bodies[2]?.include_domains).toEqual(["stat.go.jp", "e-stat.go.jp"]);
+    expect(deps.counter?.usage("tavily", NOW)).toBe(3);
+    // The publication page was adopted, judged fresh on its stated date.
+    const release = outcome.sources.find((source) => source.domain === "stat.go.jp");
+    expect(release).toBeDefined();
+    expect(release?.dateVerified).toBe(true);
+    // Measure B observation.
+    expect(outcome.candidateStats?.officialRetry).toEqual({
+      reason: "no-numeric-span", fired: true, candidateCount: 1, keptCount: 1, adoptedCount: 1,
+    });
+    // Measure D: issued queries and per-candidate decisions are recorded.
+    expect(outcome.queriesIssued?.map((issued) => issued.kind)).toEqual([
+      "ordinary", "ordinary", "official", "official-retry",
+    ]);
+    expect(outcome.queriesIssued?.[3]).toEqual({
+      provider: "tavily", kind: "official-retry", query: "労働力調査 基本集計",
+      includeDomains: ["stat.go.jp", "e-stat.go.jp"],
+    });
+    const releaseDecision = outcome.candidateStats?.freshnessDecisions
+      .find((decision) => decision.domain === "stat.go.jp");
+    expect(releaseDecision).toEqual({
+      domain: "stat.go.jp", tier: "official", outcome: "kept-verified", basis: "text-date", basisDate: "2026-10-30",
+    });
+    // …and the same record reaches the research result's metadata.
+    const result = originSearchGroundingToResearchResult(outcome);
+    expect(result.grounding?.queriesIssued?.map((issued) => issued.kind)).toEqual([
+      "ordinary", "ordinary", "official", "official-retry",
+    ]);
+    expect(result.grounding?.candidateStats?.officialRetry?.reason).toBe("no-numeric-span");
+    expect(result.grounding?.candidateStats?.freshnessDecisions?.length).toBeGreaterThan(0);
+  });
+
+  it("F-05 shape: regional-only values fire the retry, and the national release page is adopted", async () => {
+    const miyagi = {
+      title: "最新の有効求人倍率（宮城県・令和8年6月分）",
+      url: "https://jsite.mhlw.go.jp/miyagi-roudoukyoku/roudoukyoku/gyoumu_naiyou_00001.html",
+      content: "宮城県内の有効求人倍率は0.67倍でした。いつの分かの詳細は公表資料をご覧ください。",
+      score: 0.9,
+      published_date: "2026-11-10T00:00:00.000Z",
+    };
+    const mhlwRelease = {
+      title: "一般職業紹介状況（令和8年10月分）を公表しました 厚生労働省",
+      url: "https://www.mhlw.go.jp/stf/newdata/20261128.html",
+      content: "一般職業紹介状況の結果です。全国の有効求人倍率は1.19倍でした。2026年10月30日に公表しました。",
+      score: 0.85,
+    };
+    const calls: RecordedCall[] = [];
+    const fetchImpl: OriginSearchFetch = async (url, init) => {
+      calls.push({ url, init });
+      if (url.includes("api.tavily.com/search")) {
+        const body = JSON.parse(init?.body ?? "{}") as { query?: string; include_domains?: string[] };
+        if (body.include_domains?.includes("mhlw.go.jp")) {
+          return jsonResponse({ results: body.query === "一般職業紹介状況" ? [mhlwRelease] : [] });
+        }
+        return jsonResponse({ results: [miyagi] });
+      }
+      if (url.includes("api.tavily.com/extract")) return jsonResponse({ results: [], failed_results: [] });
+      const host = new URL(url).hostname;
+      if (host === "wikipedia.org" || host.endsWith(".wikipedia.org")) return jsonResponse({ pages: [] });
+      throw new Error(`unexpected URL: ${url}`);
+    };
+    const deps = makeDeps({
+      fetchImpl,
+      env: { TAVILY_API_KEY: "tvly-test-key", ORIGIN_OFFICIAL_SOURCE_ROUTING_MODE: "true" },
+    });
+    const outcome = groundedOf(await executeOriginSearchGrounding(
+      "最新の有効求人倍率を教えてください。いつの分ですか？", deps,
+    ));
+    expect(outcome.candidateStats?.officialRetry).toEqual({
+      reason: "regional-only", fired: true, candidateCount: 1, keptCount: 1, adoptedCount: 1,
+    });
+    const national = outcome.sources.find((source) => source.domain === "mhlw.go.jp");
+    expect(national).toBeDefined();
+    expect(national?.excerpt).toContain("1.19倍");
+    const searchCalls = calls.filter((call) => call.url.includes("api.tavily.com/search"));
+    expect(searchCalls).toHaveLength(3);
   });
 });

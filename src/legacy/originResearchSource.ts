@@ -80,6 +80,51 @@ export interface OriginResearchGroundingCandidateStats {
   /** Relevance-screen drops across routes, with domain / tier tallies. */
   screenDropDomainCounts?: Readonly<Record<string, number>>;
   screenDropTierCounts?: Readonly<Record<string, number>>;
+  /**
+   * The freshness gate's per-candidate decisions with the basis date
+   * each decision rested on (round-8 measure D,
+   * F_GROUP_ROUND8_PROBE_2026-11-26): one entry per candidate that
+   * reached the gate — domain, tier, outcome, basis
+   * (provider-date / text-date / none) and the basis date itself.
+   * Present whenever the search layer produced the candidate stats.
+   */
+  freshnessDecisions?: readonly OriginResearchGroundingFreshnessDecision[];
+  /**
+   * The material-insufficiency retry (round-8 measure B): present
+   * only when the adopted pool of a statistical question was judged
+   * insufficient (no value-bearing span, or regional values only).
+   */
+  officialRetry?: OriginResearchGroundingOfficialRetry;
+}
+
+export interface OriginResearchGroundingFreshnessDecision {
+  domain: string;
+  tier: string;
+  outcome: "kept-verified" | "kept-undated" | "dropped-stale" | "dropped-undated";
+  basis: "provider-date" | "text-date" | "none";
+  /** ISO date (YYYY-MM-DD) the decision rested on; null when dateless. */
+  basisDate: string | null;
+}
+
+export interface OriginResearchGroundingOfficialRetry {
+  reason: "no-numeric-span" | "regional-only";
+  fired: boolean;
+  candidateCount: number;
+  keptCount: number;
+  adoptedCount: number;
+}
+
+/**
+ * One search the grounding pipeline issued (round-8 measure D): the
+ * route, the search kind, and the minimized query text (extracted
+ * keywords only — never the raw user text), with the official
+ * domains for domain-restricted searches.
+ */
+export interface OriginResearchGroundingIssuedQuery {
+  provider: string;
+  kind: "ordinary" | "official" | "official-retry" | "stable-fallback";
+  query: string;
+  includeDomains?: readonly string[];
 }
 
 export interface OriginResearchGroundingMetadata {
@@ -96,6 +141,12 @@ export interface OriginResearchGroundingMetadata {
    * candidate set to observe) and on legacy-path results.
    */
   candidateStats?: OriginResearchGroundingCandidateStats;
+  /**
+   * The searches this request issued, in order (round-8 measure D).
+   * Present on generic-pipeline outcomes; absent on the dedicated
+   * weather/market routes and legacy-path results.
+   */
+  queriesIssued?: readonly OriginResearchGroundingIssuedQuery[];
 }
 
 export interface OriginResearchResult {

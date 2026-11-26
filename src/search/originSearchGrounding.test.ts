@@ -956,6 +956,10 @@ describe("search packet relevance", () => {
       },
       screenDropDomainCounts: { "developers.google.com": 1, "cloud.google.com": 1 },
       screenDropTierCounts: { official: 0, "major-news": 0, specialist: 0, general: 2 },
+      freshnessDecisions: [
+        { domain: "store.google.com", tier: "official", outcome: "kept-verified", basis: "provider-date", basisDate: "2026-11-01" },
+        { domain: "kakaku.com", tier: "general", outcome: "kept-verified", basis: "provider-date", basisDate: "2026-11-03" },
+      ],
     });
   });
 
@@ -1106,6 +1110,9 @@ describe("search packet relevance", () => {
         },
         screenDropDomainCounts: {},
         screenDropTierCounts: { official: 0, "major-news": 0, specialist: 0, general: 0 },
+        freshnessDecisions: [
+          { domain: "www3.nhk.or.jp", tier: "major-news", outcome: "dropped-stale", basis: "provider-date", basisDate: "2026-10-01" },
+        ],
       });
     }
   });
