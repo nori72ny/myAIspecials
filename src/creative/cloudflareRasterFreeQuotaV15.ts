@@ -186,6 +186,24 @@ export type CloudflareDailyUsageV15 = {
   requests: number | null;
 };
 
+/**
+ * One daily-usage read in its un-narrowed form: when the analytics
+ * aggregation returns no groups at all, the read is UNMEASURED and
+ * usedNeurons is null — the absence of a measurement, not a measured
+ * zero. The distinction matters wherever a read is compared against an
+ * earlier one (the reconciliation delta below): an empty aggregation
+ * arriving after a real baseline otherwise manufactures a negative
+ * delta out of missing data (production R18 retry, 2026-11-26: a real
+ * baseline of 3,719.6 followed by empty reads recorded a -3,719.6
+ * "delta"). A group that is present with a zero total is a measured
+ * zero and stays the number 0.
+ */
+export type CloudflareDailyUsageSnapshotV15 = {
+  date: string;
+  usedNeurons: number | null;
+  requests: number | null;
+};
+
 const DAILY_USAGE_QUERY = `
   query OriginWorkersAiDailyUsage($accountTag: string, $date: Date) {
     viewer {
@@ -230,12 +248,17 @@ function neuronValue(sum: Record<string, unknown>): number {
  * group carries a uint64 `count`, and `sum.totalNeurons` is the only Neuron
  * total (there are no `sum.neurons` / `sum.requestCount` fields). The reader
  * still fails closed on any shape mismatch.
+ *
+ * A successful read whose aggregation carries no groups at all is
+ * unmeasured rather than zero (see CloudflareDailyUsageSnapshotV15):
+ * the snapshot reader reports it as null, and only the legacy wrapper
+ * below still maps it to a numeric zero for its existing consumers.
  */
-export async function fetchCloudflareDailyNeuronsUsedV15(
+export async function fetchCloudflareDailyNeuronsSnapshotV15(
   auth: { accountId: string; apiToken: string },
   fetchImpl: typeof fetch = fetch,
   nowMs: number = Date.now(),
-): Promise<CloudflareDailyUsageV15> {
+): Promise<CloudflareDailyUsageSnapshotV15> {
   const date = new Date(nowMs).toISOString().slice(0, 10);
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), USAGE_QUERY_TIMEOUT_MS);
@@ -285,6 +308,11 @@ export async function fetchCloudflareDailyNeuronsUsedV15(
     ? account.aiInferenceAdaptiveGroups
     : null;
   if (!groups) throw new Error('CLOUDFLARE_DAILY_USAGE_UNVERIFIED');
+  // No groups at all: the aggregation has not measured anything for
+  // this date yet (analytics lag routinely produces this shape). That
+  // is an unmeasured read, not a measured zero — return it as null so
+  // no caller can mistake missing data for a zero total.
+  if (groups.length === 0) return { date, usedNeurons: null, requests: null };
 
   let usedNeurons = 0;
   let requests: number | null = 0;
@@ -307,6 +335,27 @@ export async function fetchCloudflareDailyNeuronsUsedV15(
     }
   }
   return { date, usedNeurons: Math.round(usedNeurons * 1000) / 1000, requests };
+}
+
+/**
+ * Legacy numeric contract over the snapshot reader, kept for the
+ * consumers outside the raster proof (voice transcription pre-check,
+ * answer-verification shadow read): an unmeasured read (no aggregation
+ * groups) is reported as zero usage with zero requests, exactly as
+ * before the snapshot split. The raster reconciliation path below does
+ * NOT use this wrapper — it reads the snapshot directly, so an
+ * unmeasured read is never mistaken for a measured zero there.
+ */
+export async function fetchCloudflareDailyNeuronsUsedV15(
+  auth: { accountId: string; apiToken: string },
+  fetchImpl: typeof fetch = fetch,
+  nowMs: number = Date.now(),
+): Promise<CloudflareDailyUsageV15> {
+  const snapshot = await fetchCloudflareDailyNeuronsSnapshotV15(auth, fetchImpl, nowMs);
+  if (snapshot.usedNeurons === null) {
+    return { date: snapshot.date, usedNeurons: 0, requests: 0 };
+  }
+  return { date: snapshot.date, usedNeurons: snapshot.usedNeurons, requests: snapshot.requests };
 }
 
 export type CloudflareUsageReconciliationOptionsV15 = {
@@ -334,7 +383,10 @@ const DELTA_EPSILON = 0.001;
  * polling; an over-bound delta ends the observation immediately (it can
  * never shrink back into bounds). Transport failures during polling are
  * read-only and never escape as generation errors; they simply leave the
- * aggregate unreconciled. Whether an unreconciled aggregate withholds the
+ * aggregate unreconciled. Reads whose aggregation carried no groups are
+ * unmeasured, not zero, and are skipped the same way: they are not an
+ * observation, so they neither become the last reading nor produce a
+ * delta (see fetchCloudflareDailyNeuronsSnapshotV15). Whether an unreconciled aggregate withholds the
  * image is the decision function's call (decideCloudflareUsageReconciliationV15):
  * the aggregate is secondary evidence behind the request's own usage
  * reports, so its absence or size alone no longer decides delivery.
@@ -360,14 +412,21 @@ export async function reconcileCloudflareRasterUsageV15(
       await new Promise((resolve) => setTimeout(resolve, delayMs));
     }
     if (deadline - Date.now() <= 0) break;
-    let snapshot: CloudflareDailyUsageV15;
+    let snapshot: CloudflareDailyUsageSnapshotV15;
     try {
-      snapshot = await fetchCloudflareDailyNeuronsUsedV15(auth, fetchImpl);
+      snapshot = await fetchCloudflareDailyNeuronsSnapshotV15(auth, fetchImpl);
     } catch {
       requests += 1;
       continue;
     }
     requests += 1;
+    // An unmeasured read (the aggregation returned no groups) is not an
+    // observation: it must not become the last reading or produce a
+    // delta. Read as zero it manufactures deltas out of missing data —
+    // after a real baseline of 3,719.6, empty reads recorded a -3,719.6
+    // "delta" in production (R18 retry, 2026-11-26). Keep polling; only
+    // a measured read can move the observation.
+    if (snapshot.usedNeurons === null) continue;
     lastUsed = snapshot.usedNeurons;
     const delta = snapshot.usedNeurons - baselineUsedNeurons;
     if (delta > maxDeltaNeurons + DELTA_EPSILON) {

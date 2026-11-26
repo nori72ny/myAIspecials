@@ -593,6 +593,75 @@ describe('cloudflareRasterFreeGenerationV15', () => {
     }
   });
 
+  it('records the critic failure classification behind an unreported critic call (scenario C)', async () => {
+    const infoSpy = vi.spyOn(console, 'info').mockImplementation(() => {});
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      // Diagnosis scenario C (2026-11-26), the shape behind every
+      // production reconciliation failure in batches 3-4: one
+      // candidate's semantic-critic call fails with an HTTP 500 while
+      // the other candidate passes with complete reports, and the
+      // aggregate lags past the polling window. The delivery is still
+      // withheld — the evidence set is incomplete exactly as before,
+      // and no decision condition changes — but the failure record now
+      // names the classification the exception path captured, so the
+      // trigger kind is recoverable from the record and the log alone.
+      const state = baseState({
+        lagUsage: true,
+        generationReportedNeurons: 140,
+        criticReportedNeurons: 35,
+        criticFailFirstCalls: 1,
+      });
+      const fetchMock = dispatchFetch(state);
+      const error = await generateCloudflareRasterImageFreeProofV15(
+        INPUT, ENV, fetchMock as unknown as typeof fetch,
+        { now: NOW_IN_WINDOW, usageVerification: RECONCILE_FAST, maxCandidates: 2 },
+      ).catch((caught: unknown) => caught);
+      expect(error).toBeInstanceOf(CloudflareRasterUsageReconciliationErrorV15);
+      const failure = error as CloudflareRasterUsageReconciliationErrorV15;
+      expect(failure.usage.reconciliationReason).toBe('per-request-usage-incomplete');
+      expect(failure.usage.unreportedCalls).toHaveLength(1);
+      const unreported = failure.usage.unreportedCalls[0]!;
+      expect(unreported.call).toBe('semantic-critic');
+      expect(unreported.errorCode).toBe('CLOUDFLARE_SEMANTIC_CRITIC_HTTP_500');
+      expect(unreported.errorDetail).toBeNull();
+      // The same classification is recorded per candidate, for the same
+      // attempt the unreported call belongs to.
+      expect(failure.usage.candidateErrors).toEqual([
+        {
+          candidateIndex: unreported.candidateIndex,
+          retried: false,
+          errorCode: 'CLOUDFLARE_SEMANTIC_CRITIC_HTTP_500',
+          errorDetail: null,
+        },
+      ]);
+      // The server log carries both, so the record survives the response.
+      const records = infoSpy.mock.calls
+        .filter(call => call[0] === '[raster-free-generation] usage reconciliation failed')
+        .map(call => call[1] as Record<string, unknown>);
+      expect(records).toHaveLength(1);
+      expect(records[0]).toMatchObject({
+        unreportedCalls: [
+          { call: 'semantic-critic', errorCode: 'CLOUDFLARE_SEMANTIC_CRITIC_HTTP_500', errorDetail: null },
+        ],
+        candidateErrors: [
+          { errorCode: 'CLOUDFLARE_SEMANTIC_CRITIC_HTTP_500', errorDetail: null },
+        ],
+      });
+      // The critic module itself also records the failure kind, once,
+      // at the point the chain failed.
+      const criticFailures = errorSpy.mock.calls
+        .filter(call => call[0] === '[raster-semantic-critic] request failed')
+        .map(call => call[1] as Record<string, unknown>);
+      expect(criticFailures).toEqual([
+        { code: 'CLOUDFLARE_SEMANTIC_CRITIC_HTTP_500', attempt: 1 },
+      ]);
+    } finally {
+      infoSpy.mockRestore();
+      errorSpy.mockRestore();
+    }
+  });
+
   it('withholds the image under analytics lag when any single call reported no usage', async () => {
     // Critic reported, generation did not.
     const noGenerationReport = baseState({ lagUsage: true, criticReportedNeurons: 35 });
@@ -757,10 +826,14 @@ describe('cloudflareRasterFreeGenerationV15', () => {
       const failure = error as CloudflareRasterUsageReconciliationErrorV15;
       // The failure snapshot names exactly which calls reported nothing:
       // the generation call and the semantic-critic call of candidate 0.
+      // Both calls completed but reported nothing usable, so no thrown
+      // error explains the gaps and the classifications stay null; the
+      // attempt returned normally, so candidateErrors is empty too.
       expect(failure.usage.unreportedCalls).toEqual([
-        { candidateIndex: 0, retried: false, call: 'generation' },
-        { candidateIndex: 0, retried: false, call: 'semantic-critic' },
+        { candidateIndex: 0, retried: false, call: 'generation', errorCode: null, errorDetail: null },
+        { candidateIndex: 0, retried: false, call: 'semantic-critic', errorCode: null, errorDetail: null },
       ]);
+      expect(failure.usage.candidateErrors).toEqual([]);
       // The same snapshot is recorded in the server log, with every
       // call's own report, so the block stays triageable after the API
       // response is gone.
@@ -778,9 +851,10 @@ describe('cloudflareRasterFreeGenerationV15', () => {
           { candidateIndex: 0, retried: false, call: 'semantic-critic', reportedNeurons: null },
         ],
         unreportedCalls: [
-          { candidateIndex: 0, retried: false, call: 'generation' },
-          { candidateIndex: 0, retried: false, call: 'semantic-critic' },
+          { candidateIndex: 0, retried: false, call: 'generation', errorCode: null, errorDetail: null },
+          { candidateIndex: 0, retried: false, call: 'semantic-critic', errorCode: null, errorDetail: null },
         ],
+        candidateErrors: [],
       });
       // Identifiers and numbers only: the prompt never reaches the record.
       expect(JSON.stringify(records[0])).not.toContain('静かな湖と朝焼け');
@@ -805,7 +879,7 @@ describe('cloudflareRasterFreeGenerationV15', () => {
       const failure = error as CloudflareRasterUsageReconciliationErrorV15;
       expect(failure.usage.reconciliationReason).toBe('per-request-usage-incomplete');
       expect(failure.usage.unreportedCalls).toEqual([
-        { candidateIndex: 0, retried: false, call: 'semantic-critic' },
+        { candidateIndex: 0, retried: false, call: 'semantic-critic', errorCode: null, errorDetail: null },
       ]);
       const records = infoSpy.mock.calls
         .filter(call => call[0] === '[raster-free-generation] usage reconciliation failed')

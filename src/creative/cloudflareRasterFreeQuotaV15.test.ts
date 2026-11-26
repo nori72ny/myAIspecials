@@ -3,6 +3,7 @@ import {
   assertCloudflareRasterPricingEvidenceCurrentV15,
   decideCloudflareUsageReconciliationV15,
   estimateCloudflareRasterGenerationNeuronsV15,
+  fetchCloudflareDailyNeuronsSnapshotV15,
   fetchCloudflareDailyNeuronsUsedV15,
   reconcileCloudflareRasterUsageV15,
   type CloudflareUsageReconciliationV15,
@@ -85,6 +86,25 @@ describe('cloudflareRasterFreeQuotaV15 daily usage reader', () => {
   it('treats an empty group list as zero measured usage', async () => {
     const fetchMock = vi.fn(async () => jsonResponse(graphqlBody([]))) as unknown as typeof fetch;
     await expect(fetchCloudflareDailyNeuronsUsedV15(AUTH, fetchMock, NOW_IN_WINDOW))
+      .resolves.toEqual({ date: '2026-11-27', usedNeurons: 0, requests: 0 });
+  });
+
+  it('reads an empty group list as unmeasured in the snapshot reader', async () => {
+    // The legacy numeric reader above keeps mapping an empty
+    // aggregation to zero for its existing consumers, but the snapshot
+    // reader keeps the distinction the reconciliation path depends on:
+    // no groups means the analytics have not measured anything yet —
+    // the absence of a measurement, not a measured zero.
+    const fetchMock = vi.fn(async () => jsonResponse(graphqlBody([]))) as unknown as typeof fetch;
+    await expect(fetchCloudflareDailyNeuronsSnapshotV15(AUTH, fetchMock, NOW_IN_WINDOW))
+      .resolves.toEqual({ date: '2026-11-27', usedNeurons: null, requests: null });
+
+    // A group that is present with a zero total is a measured zero and
+    // stays the number 0 in the snapshot as well.
+    const zeroGroup = vi.fn(async () => jsonResponse(graphqlBody([
+      { count: 0, sum: { totalNeurons: 0 } },
+    ]))) as unknown as typeof fetch;
+    await expect(fetchCloudflareDailyNeuronsSnapshotV15(AUTH, zeroGroup, NOW_IN_WINDOW))
       .resolves.toEqual({ date: '2026-11-27', usedNeurons: 0, requests: 0 });
   });
 
@@ -183,6 +203,43 @@ describe('cloudflareRasterFreeQuotaV15 reconciliation', () => {
     const fetchMock = vi.fn(async () => { throw new Error('offline'); }) as unknown as typeof fetch;
     await expect(reconcileCloudflareRasterUsageV15(AUTH, 100, 382, fetchMock, { attempts: 2, delayMs: 0 }))
       .resolves.toMatchObject({ reconciled: false, observedDeltaNeurons: null, requests: 2 });
+  });
+
+  it('does not manufacture a delta from empty aggregation reads', async () => {
+    // Production R18 retry shape (2026-11-26): the baseline read was a
+    // real 3,719.6, and every polling read then returned an aggregation
+    // with no groups. Read as zero, those empty reads recorded a
+    // -3,719.6 observed delta; as unmeasured reads they are no
+    // observation at all, and the aggregate simply stays unobserved.
+    const fetchMock = vi.fn(async () => jsonResponse(graphqlBody([]))) as unknown as typeof fetch;
+    await expect(reconcileCloudflareRasterUsageV15(AUTH, 3719.6, 1146, fetchMock, { attempts: 3, delayMs: 0 }))
+      .resolves.toMatchObject({ reconciled: false, observedDeltaNeurons: null, finalUsedNeurons: null, requests: 3 });
+  });
+
+  it('keeps polling through empty aggregation reads until a measured delta appears', async () => {
+    let calls = 0;
+    const fetchMock = vi.fn(async () => {
+      calls += 1;
+      return calls < 3
+        ? jsonResponse(graphqlBody([]))
+        : jsonResponse(graphqlBody([{ count: 1, sum: { totalNeurons: 260 } }]));
+    }) as unknown as typeof fetch;
+    await expect(reconcileCloudflareRasterUsageV15(AUTH, 100, 382, fetchMock, { attempts: 4, delayMs: 0 }))
+      .resolves.toMatchObject({ reconciled: true, observedDeltaNeurons: 160, finalUsedNeurons: 260, requests: 3 });
+  });
+
+  it('keeps a measured reading when later reads come back empty', async () => {
+    // The measured zero-delta reading is an observation; the empty
+    // reads after it must not erase it back to "never observed".
+    let calls = 0;
+    const fetchMock = vi.fn(async () => {
+      calls += 1;
+      return calls === 1
+        ? jsonResponse(graphqlBody([{ count: 1, sum: { totalNeurons: 100 } }]))
+        : jsonResponse(graphqlBody([]));
+    }) as unknown as typeof fetch;
+    await expect(reconcileCloudflareRasterUsageV15(AUTH, 100, 382, fetchMock, { attempts: 3, delayMs: 0 }))
+      .resolves.toMatchObject({ reconciled: false, observedDeltaNeurons: 0, finalUsedNeurons: 100, requests: 3 });
   });
 });
 

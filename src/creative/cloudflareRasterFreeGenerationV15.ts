@@ -171,6 +171,46 @@ export type CloudflareRasterReconciliationFailureUsageV15 = {
     candidateIndex: number;
     retried: boolean;
     call: 'generation' | 'semantic-critic';
+    /**
+     * Classification of the error that ended the owning attempt's
+     * chain, recorded when this call's report is missing BECAUSE the
+     * chain threw at or before it: for a semantic-critic entry, the
+     * chain was inside the critic call when it threw, so this is the
+     * critic failure's own code (a classified provider HTTP failure, a
+     * repeated format failure, a free-model proof failure, a timeout);
+     * for a generation entry, the chain ended before the critic was
+     * entered, where the generation call is the only inference call in
+     * that span. errorDetail carries the sanitized sub-reason when the
+     * code collapsed to the generic RASTER_GENERATION_FAILED fallback.
+     * Both stay null when the gap has a different shape — the call
+     * completed but reported nothing usable — because then no thrown
+     * error explains it. Until this was recorded, the codes were
+     * captured on the attempt and discarded, and the trigger kind of a
+     * withheld delivery could not be recovered from any record
+     * (diagnosis 2026-11-26: ten production reconciliation failures,
+     * none attributable from the preserved records alone).
+     */
+    errorCode: string | null;
+    errorDetail: string | null;
+  }[];
+  /**
+   * Every attempt whose chain ended by throwing (the exception path),
+   * with the classification captured at the throw: the coded error and,
+   * when the code collapsed to the generic fallback, its sanitized
+   * sub-reason. One entry per such attempt, in attempt order. Attempts
+   * that returned normally — delivered, gate-rejected, structurally
+   * rejected — are not listed: their outcomes are already named by
+   * their own fields. This is the per-candidate companion to
+   * unreportedCalls' error fields: it also covers an exception-path
+   * attempt whose calls all happened to report (e.g. the local
+   * structural check threw after the generation call had reported), so
+   * no captured classification is silently dropped.
+   */
+  candidateErrors: readonly {
+    candidateIndex: number;
+    retried: boolean;
+    errorCode: string;
+    errorDetail: string | null;
   }[];
 };
 
@@ -609,10 +649,40 @@ export async function generateCloudflareRasterImageFreeProofV15(
       reconciliationReason: decision.reason,
       unreportedCalls: reportedCalls
         .filter((call) => call.reportedNeurons === null)
-        .map((call) => ({
-          candidateIndex: call.candidateIndex,
-          retried: call.retried,
-          call: call.call,
+        .map((call) => {
+          const attempt = attempts.find(
+            (candidate) => candidate.index === call.candidateIndex && candidate.retried === call.retried,
+          );
+          // Attach the attempt's captured classification only where the
+          // throw is what left this call without a report: the chain
+          // was inside the semantic-critic call when it threw
+          // (criticAttempted), or it ended before the critic was
+          // entered, where the generation call is the only inference
+          // call in that span. A call that completed but reported
+          // nothing usable keeps nulls — no thrown error explains it.
+          const chainError = attempt?.preservedReports
+            && (call.call === 'semantic-critic'
+              ? attempt.preservedReports.criticAttempted
+              : !attempt.preservedReports.criticAttempted)
+            ? attempt
+            : null;
+          return {
+            candidateIndex: call.candidateIndex,
+            retried: call.retried,
+            call: call.call,
+            errorCode: chainError?.errorCode ?? null,
+            errorDetail: chainError?.errorDetail ?? null,
+          };
+        }),
+      candidateErrors: attempts
+        .filter((candidate) => candidate.preservedReports !== null)
+        .map((candidate) => ({
+          candidateIndex: candidate.index,
+          retried: candidate.retried,
+          // The exception path always captures a coded error; the
+          // fallback only satisfies the type if that ever changed.
+          errorCode: candidate.errorCode ?? 'RASTER_GENERATION_FAILED',
+          errorDetail: candidate.errorDetail,
         })),
     };
     // Server-side diagnostics only: the snapshot above travels with the
@@ -642,6 +712,7 @@ export async function generateCloudflareRasterImageFreeProofV15(
       usedAfterNeurons: failureUsage.usedAfterNeurons,
       reportedCalls,
       unreportedCalls: failureUsage.unreportedCalls,
+      candidateErrors: failureUsage.candidateErrors,
     });
     throw new CloudflareRasterUsageReconciliationErrorV15(failureUsage);
   }
