@@ -55,6 +55,21 @@ describe('OrinPanel (panel design 2026-11-24, expansion 2026-11-25)', () => {
     expect(within(panel).getByTestId('origin-orin-panel-tab-indicator')).toBeTruthy();
   });
 
+  it('shows the Christmas profile art without a season figure in December (appearance patterns Phase 1, 2026-11-26)', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(2026, 11, 25, 12, 0));
+    try {
+      renderPanel();
+      const panel = screen.getByTestId('origin-orin-panel');
+      // 12月は待機姿がクリスマス差し替えになる。
+      expect(within(panel).getByTestId('origin-cat-state').getAttribute('src')).toBe('/brand/origin-cat-christmas.webp');
+      // クリスマスは完成イラストが無いため、季節図版は出さない。
+      expect(within(panel).queryByTestId('origin-orin-profile-season')).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('slides the tab page from the side of the tab being opened (direction by tab index)', () => {
     const { container } = renderPanel();
     fireEvent.click(screen.getByTestId('origin-orin-panel-tab-features'));

@@ -8,6 +8,7 @@ import OriginCatState, {
   ORIGIN_CAT_IDLE_MOTION_MAX_SHIFT_PX,
   ORIGIN_CAT_IDLE_MOTION_PERIOD_MS,
   ORIGIN_CAT_DARK_IDLE_SRC,
+  ORIGIN_CAT_CHRISTMAS_IDLE_SRC,
   ORIGIN_CAT_JOY_DURATION_MS,
   ORIGIN_CAT_NEWYEAR_FULL_SRC,
   ORIGIN_CAT_NEWYEAR_IDLE_SRC,
@@ -48,7 +49,7 @@ describe('OriginCatState', () => {
 
   it('renders a still image for states without a motion video', () => {
     stubReducedMotion(false);
-    for (const state of ['thinking', 'making', 'waiting', 'done', 'sorry', 'sleep'] as const) {
+    for (const state of ['thinking', 'making', 'waiting', 'done', 'sorry', 'sleep', 'listening', 'celebration'] as const) {
       const { unmount } = render(<OriginCatState state={state} />);
       const visual = screen.getByTestId('origin-cat-state');
       expect(visual.tagName).toBe('IMG');
@@ -73,7 +74,7 @@ describe('OriginCatState', () => {
     // そのため実在チェックの対象は、既に出荷済みの静止画一式と
     // working 動画に限る。searching 動画のパス自体は対応表のテスト
     // （下記）で文字列として固定し、配置先とずれないようにする。
-    for (const src of [...Object.values(ORIGIN_CAT_STILL_SRC), ORIGIN_CAT_WINTER_IDLE_SRC, ORIGIN_CAT_NEWYEAR_IDLE_SRC, ORIGIN_CAT_DARK_IDLE_SRC, ORIGIN_CAT_WINTER_FULL_SRC, ORIGIN_CAT_NEWYEAR_FULL_SRC, ORIGIN_CAT_WORKING_VIDEO_SRC]) {
+    for (const src of [...Object.values(ORIGIN_CAT_STILL_SRC), ORIGIN_CAT_WINTER_IDLE_SRC, ORIGIN_CAT_NEWYEAR_IDLE_SRC, ORIGIN_CAT_CHRISTMAS_IDLE_SRC, ORIGIN_CAT_DARK_IDLE_SRC, ORIGIN_CAT_WINTER_FULL_SRC, ORIGIN_CAT_NEWYEAR_FULL_SRC, ORIGIN_CAT_WORKING_VIDEO_SRC]) {
       expect(existsSync(resolve(process.cwd(), 'public', src.replace(/^\//, ''))), src).toBe(true);
     }
   });
@@ -107,7 +108,7 @@ describe('OriginCatState', () => {
     stubReducedMotion(false);
     vi.setSystemTime(new Date(2026, 11, 25, 12, 0));
     const winter = render(<OriginCatState state="idle" />);
-    expect(screen.getByTestId('origin-cat-state').getAttribute('src')).toBe(ORIGIN_CAT_WINTER_IDLE_SRC);
+    expect(screen.getByTestId('origin-cat-state').getAttribute('src')).toBe(ORIGIN_CAT_CHRISTMAS_IDLE_SRC);
     expect(screen.queryByTestId('origin-cat-state-dark')).toBeNull();
     winter.unmount();
     const thinking = render(<OriginCatState state="thinking" />);
@@ -126,14 +127,26 @@ describe('OriginCatState', () => {
     expect(lightHidden).toContain('display: none;');
   });
 
-  it('swaps the idle still to the winter artwork from December to February', () => {
+  it('swaps the idle still to the winter artwork from January to February', () => {
     stubReducedMotion(false);
-    for (const date of [new Date(2026, 11, 1, 0, 0), new Date(2027, 0, 20, 12, 0), new Date(2027, 1, 28, 23, 59)]) {
+    for (const date of [new Date(2027, 0, 20, 12, 0), new Date(2027, 1, 28, 23, 59)]) {
       vi.setSystemTime(date);
       const { unmount } = render(<OriginCatState state="idle" />);
       const visual = screen.getByTestId('origin-cat-state');
       expect(visual.tagName).toBe('IMG');
       expect(visual.getAttribute('src')).toBe(ORIGIN_CAT_WINTER_IDLE_SRC);
+      unmount();
+    }
+  });
+
+  it('swaps the idle still to the Christmas artwork throughout December', () => {
+    stubReducedMotion(false);
+    for (const date of [new Date(2026, 11, 1, 0, 0), new Date(2026, 11, 25, 12, 0), new Date(2026, 11, 31, 23, 59)]) {
+      vi.setSystemTime(date);
+      const { unmount } = render(<OriginCatState state="idle" />);
+      const visual = screen.getByTestId('origin-cat-state');
+      expect(visual.tagName).toBe('IMG');
+      expect(visual.getAttribute('src')).toBe(ORIGIN_CAT_CHRISTMAS_IDLE_SRC);
       unmount();
     }
   });
@@ -311,14 +324,19 @@ describe('resolveOriginCatIdleSrc', () => {
     expect(resolveOriginCatIdleSrc(new Date(2026, 5, 15, 12, 0))).toBe('/brand/origin-cat.webp');
   });
 
-  it('returns the winter src from December 1 to the end of February', () => {
-    expect(resolveOriginCatIdleSrc(new Date(2026, 11, 1, 0, 0))).toBe(ORIGIN_CAT_WINTER_IDLE_SRC);
-    expect(resolveOriginCatIdleSrc(new Date(2026, 11, 31, 23, 59))).toBe(ORIGIN_CAT_WINTER_IDLE_SRC);
+  it('returns the winter src from January 11 to the end of February', () => {
     expect(resolveOriginCatIdleSrc(new Date(2027, 0, 11, 0, 0))).toBe(ORIGIN_CAT_WINTER_IDLE_SRC);
     expect(resolveOriginCatIdleSrc(new Date(2027, 1, 28, 23, 59))).toBe(ORIGIN_CAT_WINTER_IDLE_SRC);
     // うるう年の2月29日も冬に含む。
     expect(resolveOriginCatIdleSrc(new Date(2028, 1, 29, 23, 59))).toBe(ORIGIN_CAT_WINTER_IDLE_SRC);
     expect(ORIGIN_CAT_WINTER_IDLE_SRC).toBe('/brand/origin-cat-winter.webp');
+  });
+
+  it('returns the Christmas src throughout December, ahead of the winter src', () => {
+    expect(resolveOriginCatIdleSrc(new Date(2026, 11, 1, 0, 0))).toBe(ORIGIN_CAT_CHRISTMAS_IDLE_SRC);
+    expect(resolveOriginCatIdleSrc(new Date(2026, 11, 25, 12, 0))).toBe(ORIGIN_CAT_CHRISTMAS_IDLE_SRC);
+    expect(resolveOriginCatIdleSrc(new Date(2026, 11, 31, 23, 59))).toBe(ORIGIN_CAT_CHRISTMAS_IDLE_SRC);
+    expect(ORIGIN_CAT_CHRISTMAS_IDLE_SRC).toBe('/brand/origin-cat-christmas.webp');
   });
 
   it('returns the New Year src on January 1-10, ahead of the winter src', () => {
@@ -336,13 +354,17 @@ describe('resolveOriginCatSeason', () => {
     expect(resolveOriginCatSeason(new Date(2026, 10, 30, 23, 59))).toBeNull();
   });
 
-  it('returns winter from December 1 to the end of February', () => {
-    expect(resolveOriginCatSeason(new Date(2026, 11, 1, 0, 0))).toBe('winter');
-    expect(resolveOriginCatSeason(new Date(2026, 11, 31, 23, 59))).toBe('winter');
+  it('returns winter from January 11 to the end of February', () => {
     expect(resolveOriginCatSeason(new Date(2027, 0, 11, 0, 0))).toBe('winter');
     expect(resolveOriginCatSeason(new Date(2027, 1, 28, 23, 59))).toBe('winter');
     // うるう年の2月29日も冬に含む（待機姿の解決と判定を共有する）。
     expect(resolveOriginCatSeason(new Date(2028, 1, 29, 23, 59))).toBe('winter');
+  });
+
+  it('returns christmas throughout December', () => {
+    expect(resolveOriginCatSeason(new Date(2026, 11, 1, 0, 0))).toBe('christmas');
+    expect(resolveOriginCatSeason(new Date(2026, 11, 25, 12, 0))).toBe('christmas');
+    expect(resolveOriginCatSeason(new Date(2026, 11, 31, 23, 59))).toBe('christmas');
   });
 
   it('returns newyear on January 1-10, ahead of winter', () => {
@@ -354,8 +376,8 @@ describe('resolveOriginCatSeason', () => {
   it('agrees with the resident idle src resolution on every boundary', () => {
     // 常駐の待機姿とプロフィール内の完成イラストは同じ季節判定を使う
     // ため、境界日で両者がずれないことを固定する。
-    const cases: Array<[Date, 'winter' | 'newyear' | null, string]> = [
-      [new Date(2026, 11, 15, 12, 0), 'winter', ORIGIN_CAT_WINTER_IDLE_SRC],
+    const cases: Array<[Date, 'winter' | 'newyear' | 'christmas' | null, string]> = [
+      [new Date(2026, 11, 15, 12, 0), 'christmas', ORIGIN_CAT_CHRISTMAS_IDLE_SRC],
       [new Date(2027, 0, 5, 12, 0), 'newyear', ORIGIN_CAT_NEWYEAR_IDLE_SRC],
       [new Date(2027, 0, 20, 12, 0), 'winter', ORIGIN_CAT_WINTER_IDLE_SRC],
       [new Date(2026, 5, 15, 12, 0), null, ORIGIN_CAT_STILL_SRC.idle],
@@ -371,6 +393,8 @@ describe('resolveOriginCatSeason', () => {
     expect(ORIGIN_CAT_SEASON_FULL_SRC.newyear).toBe('/brand/origin-cat-newyear-full.webp');
     expect(ORIGIN_CAT_WINTER_FULL_SRC).toBe(ORIGIN_CAT_SEASON_FULL_SRC.winter);
     expect(ORIGIN_CAT_NEWYEAR_FULL_SRC).toBe(ORIGIN_CAT_SEASON_FULL_SRC.newyear);
+    // クリスマスは完成イラストを持たない（待機姿の差し替えのみ）。
+    expect(ORIGIN_CAT_SEASON_FULL_SRC.christmas).toBeUndefined();
   });
 });
 

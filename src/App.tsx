@@ -3112,17 +3112,34 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenAg
     () => voiceSpeech.getActiveId(),
   );
   const orinSpeaking = speechActiveId !== null;
+  // 聞き取り中はヘッドセット姿にする（見た目パターン Phase 1、
+  // 2026-11-26 組み込み）。フェーズの正本は音声会話コントローラで、
+  // 会話モードが有効な間だけ 'listening' になる。音声のスイッチが
+  // OFF の間はコントローラがそのフェーズにならないため、この分岐
+  // はスイッチに触れずに不発のままになる。
+  const voiceConversationState = useSyncExternalStore(
+    (listener) => voiceConversation.subscribe(listener),
+    () => voiceConversation.getState(),
+    () => voiceConversation.getState(),
+  );
+  const orinListening = voiceConversationState.mode === 'on' && voiceConversationState.phase === 'listening';
+  // 完了キュー（headerDoneCue）の間は 'done' ではなくお祝い姿
+  // （金の蝶ネクタイ＋紙吹雪）を出す（同じく Phase 1）。ピル文は
+  // 従来どおり完了文（doneText）が担い、姿だけを差し替える。
+  // エージェント側の状態チップ等の 'done' は従来のまま。
   const orinPresenceState: OriginCatStateKind = headerDoneCue
-    ? 'done'
-    : imagePhase
-      ? 'making'
-      : researchRun || streamPhase === 'searching'
-        ? 'searching'
-        : isLoading
-          ? 'working'
-          : agentActivityFresh && agentActivity?.active
+    ? 'celebration'
+    : orinListening
+      ? 'listening'
+      : imagePhase
+        ? 'making'
+        : researchRun || streamPhase === 'searching'
+          ? 'searching'
+          : isLoading
             ? 'working'
-            : 'idle';
+            : agentActivityFresh && agentActivity?.active
+              ? 'working'
+              : 'idle';
   const sheetStageTitle = (text: string) => text.replace(/[…。.]+$/u, '');
   // 画像フェーズ文：段階ごとの要約表現だけにし、依頼文は埋め
   // 込まない（2026-11-20 18:17 の実機判定）。文の組み立ては

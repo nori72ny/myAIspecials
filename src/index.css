@@ -940,10 +940,16 @@ a[href]:focus-visible {
 :root[data-theme="light"][data-season="winter"] {
   --bg-primary: oklch(0.994 0.005 252);
 }
+:root[data-theme="light"][data-season="christmas"] {
+  --bg-primary: oklch(0.994 0.005 252);
+}
 :root[data-theme="light"][data-season="newyear"] {
   --bg-primary: oklch(0.997 0.004 55);
 }
 :root[data-theme="dark"][data-season="winter"] {
+  --bg-primary: oklch(0.150 0.018 262);
+}
+:root[data-theme="dark"][data-season="christmas"] {
   --bg-primary: oklch(0.150 0.018 262);
 }
 /* The !important is load-bearing: .origin-personal-shell pins
@@ -953,7 +959,13 @@ a[href]:focus-visible {
 :root[data-theme="light"][data-season="winter"] .origin-app {
   background-image: radial-gradient(120% 55% at 50% -10%, oklch(0.905 0.028 250 / 0.24), oklch(0.905 0.028 250 / 0) 62%) !important;
 }
+:root[data-theme="light"][data-season="christmas"] .origin-app {
+  background-image: radial-gradient(120% 55% at 50% -10%, oklch(0.905 0.028 250 / 0.24), oklch(0.905 0.028 250 / 0) 62%) !important;
+}
 :root[data-theme="dark"][data-season="winter"] main {
+  background-image: radial-gradient(120% 55% at 50% -10%, oklch(0.38 0.045 250 / 0.12), oklch(0.38 0.045 250 / 0) 62%);
+}
+:root[data-theme="dark"][data-season="christmas"] main {
   background-image: radial-gradient(120% 55% at 50% -10%, oklch(0.38 0.045 250 / 0.12), oklch(0.38 0.045 250 / 0) 62%);
 }
 :root[data-theme="dark"][data-season="newyear"] main {
