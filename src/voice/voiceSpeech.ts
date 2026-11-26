@@ -343,9 +343,11 @@ export class VoiceSpeechController {
 
   /**
    * The voice playback will use: the owner's stored choice while it
-   * still exists on the device, otherwise the first Japanese voice in
-   * catalogue order (on-device first). Null when the device has no
-   * Japanese voice at all.
+   * still exists on the device, otherwise the default — the first
+   * known male Japanese voice in catalogue order (on-device first),
+   * because Orin's canonical voice is male; when no voice on the
+   * device is known to be male, the catalogue head (on-device first).
+   * Null when the device has no Japanese voice at all.
    */
   resolveVoice(): SpeechVoiceLike | null {
     const selected = this.getSelectedVoiceURI();
@@ -357,7 +359,8 @@ export class VoiceSpeechController {
     if (!synthesis) return null;
     const japanese = this.listJapaneseVoices();
     if (japanese.length === 0) return null;
-    return this.findVoice(japanese[0]!.voiceURI);
+    const preferred = japanese.find((voice) => voice.gender === 'male') ?? japanese[0]!;
+    return this.findVoice(preferred.voiceURI);
   }
 
   // -- Stored choice ----------------------------------------------------
