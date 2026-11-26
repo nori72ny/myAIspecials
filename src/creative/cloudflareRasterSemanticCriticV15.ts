@@ -621,6 +621,20 @@ function questionFor(input: RasterSemanticCriticInputV15, formatReminder = false
   ].join('\n');
 }
 
+/**
+ * Log-safe classification of a non-format critic failure: the error's
+ * own code-shaped message when it carries one (provider HTTP failures
+ * reach this module already classified into codes, e.g.
+ * CLOUDFLARE_SEMANTIC_CRITIC_HTTP_500), otherwise its class name
+ * (AbortError for the request timeout, TypeError for a failed fetch).
+ * Error messages and response bodies are never read into the record.
+ */
+function criticFailureLogCode(error: unknown): string {
+  if (!(error instanceof Error)) return 'non-error-thrown';
+  if (/^[A-Z0-9_]{3,80}$/.test(error.message)) return error.message;
+  return /^[A-Za-z][A-Za-z0-9_-]{0,63}$/.test(error.name) ? error.name : 'Error';
+}
+
 export async function critiqueCloudflareRasterSemanticV15(
   input: RasterSemanticCriticInputV15,
   env: NodeJS.ProcessEnv = process.env,
@@ -638,6 +652,18 @@ export async function critiqueCloudflareRasterSemanticV15(
   const status = await verifyCloudflareRasterFreeModelV15(CLOUDFLARE_RASTER_SEMANTIC_MODEL_V15, env, fetchImpl);
   if (!status.ready || !(status.zeroCostVerified || status.freeAllocationEligible === true)
     || status.paymentMethodRequired || status.paidFallbackEnabled) {
+    // Server-side diagnostics only: a free-plan proof failure ends the
+    // critic chain before any run call, and until now left no record in
+    // this module — upstream, the chain's only trace was a missing
+    // usage report, so the failure kind could not be recovered from
+    // any record (diagnosis 2026-11-26). The reason is the module's own
+    // coded identifier; anything not code-shaped is recorded as the
+    // fallback code the throw below uses.
+    console.error('[raster-semantic-critic] model verification failed', {
+      reason: status.reason && /^[A-Z0-9_]{3,80}$/.test(status.reason)
+        ? status.reason
+        : 'CLOUDFLARE_WORKERS_PLAN_UNVERIFIED',
+    });
     throw new Error(status.reason ?? 'CLOUDFLARE_WORKERS_PLAN_UNVERIFIED');
   }
 
@@ -804,6 +830,19 @@ export async function critiqueCloudflareRasterSemanticV15(
           callReports.push(error.reportedNeurons);
           continue;
         }
+      } else {
+        // Server-side diagnostics only: a non-format failure (provider
+        // HTTP error, transport failure, timeout) is never retried, and
+        // until now this module left no record of it — upstream, the
+        // chain's only trace was a missing usage report, so a withheld
+        // delivery could not be attributed to its trigger kind from any
+        // record (diagnosis 2026-11-26). Record the failure's
+        // classification code only; nothing here reaches the client and
+        // the error itself is rethrown unchanged.
+        console.error('[raster-semantic-critic] request failed', {
+          code: criticFailureLogCode(error),
+          attempt: attemptsUsed,
+        });
       }
       throw error;
     }

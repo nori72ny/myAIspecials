@@ -1603,6 +1603,36 @@ describe('cloudflareRasterSemanticCriticV15', () => {
     }, ENV, fetchMock as unknown as typeof fetch)).rejects.toThrow(expectedCode);
   });
 
+  it('records the classification of a non-format failure in the server log', async () => {
+    // A provider HTTP failure is never retried and previously left no
+    // record in this module: upstream, the failed chain's only trace
+    // was a missing usage report, so a withheld delivery could not be
+    // attributed to its trigger kind from any record (diagnosis
+    // 2026-11-26). The thrown error is unchanged; the log gains the
+    // classification code, once, at the failure point.
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      const fetchMock = vi.fn()
+        .mockResolvedValueOnce(envelope({ default_usage_model: 'bundled' }))
+        .mockResolvedValueOnce(envelope([]))
+        .mockResolvedValueOnce(envelope({ input: {}, output: {} }))
+        .mockResolvedValueOnce(failure(500, 5000));
+
+      await expect(critiqueCloudflareRasterSemanticV15({
+        originalRequest: '静かな湖の写真',
+        bytes: png(),
+        mimeType: 'image/png',
+      }, ENV, fetchMock as unknown as typeof fetch)).rejects.toThrow('CLOUDFLARE_SEMANTIC_CRITIC_HTTP_500');
+
+      const records = errorSpy.mock.calls
+        .filter(call => call[0] === '[raster-semantic-critic] request failed')
+        .map(call => call[1] as Record<string, unknown>);
+      expect(records).toEqual([{ code: 'CLOUDFLARE_SEMANTIC_CRITIC_HTTP_500', attempt: 1 }]);
+    } finally {
+      errorSpy.mockRestore();
+    }
+  });
+
   // Shadow axis ipSimilarity (copyright policy, 2026-11-16): the
   // critic's ipSimilarity list is recorded on the verdict for
   // calibration, and must never reach the gate — not the axis floor,

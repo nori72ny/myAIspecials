@@ -869,12 +869,15 @@ describe('rasterImageV15Router', () => {
     });
     // The diagnostics also name which calls reported nothing, per
     // candidate: both generation calls and both semantic-critic calls.
+    // Every call completed but reported nothing usable, so no thrown
+    // error explains any gap and the classifications stay null.
     expect(response.body.usage.unreportedCalls).toEqual([
-      { candidateIndex: 0, retried: false, call: 'generation' },
-      { candidateIndex: 0, retried: false, call: 'semantic-critic' },
-      { candidateIndex: 1, retried: false, call: 'generation' },
-      { candidateIndex: 1, retried: false, call: 'semantic-critic' },
+      { candidateIndex: 0, retried: false, call: 'generation', errorCode: null, errorDetail: null },
+      { candidateIndex: 0, retried: false, call: 'semantic-critic', errorCode: null, errorDetail: null },
+      { candidateIndex: 1, retried: false, call: 'generation', errorCode: null, errorDetail: null },
+      { candidateIndex: 1, retried: false, call: 'semantic-critic', errorCode: null, errorDetail: null },
     ]);
+    expect(response.body.usage.candidateErrors).toEqual([]);
     expect(state.imageRuns).toBe(2);
   });
 
