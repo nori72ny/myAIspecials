@@ -14,9 +14,11 @@ import {
   agentGoalDirectedOutputLanguage,
   agentGoalUsesCjk,
   applyAgentDataPairGate,
+  applyAgentDataValueSeeds,
   canonicalAgentDataAttribute,
   canonicalAgentDataFundingKey,
   computeAgentDataValueMismatches,
+  extractAgentDataValueSeeds,
   mergeAgentDataStructures,
   normalizeAgentDataValueText,
   parseChunkOutputDetailed,
@@ -1519,9 +1521,16 @@ describe('misreading countermeasure layer 1: normalization and mismatch candidat
       agreements: [],
       definitions: [{ short: '物美集团', full: '物美科技集团有限公司', file: 'buyer2_report.txt', location: '釈義' }],
     };
+    // C2 (diagnosis 2026-11-26): abbreviation identification
+    // groups only when the stated scope matches — an unscoped
+    // resolved value groups only with its identical raw name
+    // (the production phantom: buyer2's pre-transaction 0% for
+    // 厦门联芯美, mis-attributed to 物美集团, rode the
+    // abbreviation onto the seller's 36.15%). The no-scope case
+    // is pinned by the C2 replay test below.
     const candidates = computeAgentDataValueMismatches([
-      value('物美集团', '持股比例', '60%', 'announcement.txt'),
-      value('物美科技集团有限公司', '持股比例', '55%', 'buyer2_report.txt'),
+      { ...value('物美集团', '持股比例', '60%', 'announcement.txt'), scope: '交易前' },
+      { ...value('物美科技集团有限公司', '持股比例', '55%', 'buyer2_report.txt'), scope: '交易前' },
     ], structure);
     expect(candidates).toHaveLength(1);
     expect(candidates[0]?.entity).toBe('物美科技集团有限公司');
@@ -1886,6 +1895,52 @@ describe('misreading countermeasure layer 2: attachment_reconciler tool', () => 
     );
     expect(result.ok).toBe(false);
     expect(result.message).toBe('AGENT_RECONCILIATION_NO_FINDINGS');
+  });
+
+  it('enforce: a NO_FINDINGS failure carries the reconciliation summary on the diagnostic channel (C0)', async () => {
+    const { store, setDigest } = await storeWithFiles(RECONCILER_FILES);
+    // The model vetted one finding, but its pair (999,999 vs
+    // 888,888) stands nowhere in the value table, so the pair
+    // gate drops it — the production M&A shape, where the record
+    // could not tell the model from the gate apart.
+    const executor: AgentModelExecutor = async () => ({
+      ok: true,
+      text: JSON.stringify({
+        findings: [{
+          claim: '対価の金額が食い違う',
+          explanation: '公告と買主1報告で同一主体の対価が異なる',
+          evidence: '999,999.00元', file: 'announcement.txt', location: 'p.2',
+          evidenceB: '888,888.00元', fileB: 'buyer1_report.txt', locationB: 'p.3',
+          source: { kind: 'kept', index: 0 },
+        }],
+        dropped: [{ index: 1, reason: 'boilerplate' }],
+      }),
+    });
+    const result = await toolRegistry.attachment_reconciler.execute(
+      reconcilerParams(setDigest),
+      contextWithMode(store, executor, 'enforce'),
+    );
+    expect(result.ok).toBe(false);
+    expect(result.message).toBe('AGENT_RECONCILIATION_NO_FINDINGS');
+    const diagnostic = JSON.parse(result.diagnosticArtifact ?? '{}') as {
+      kind: string;
+      reconciliation: { mode: string; candidateCount: number; keptCount: number; droppedCount: number; droppedReasons: Record<string, number>; pickedUpCount: number; keptIndexes: number[]; droppedIndexes: { index: number; reason: string }[] };
+      parsedFindingsCount: number;
+    };
+    expect(diagnostic.kind).toBe('attachment-reconciliation-failure');
+    // One candidate existed, the model kept one finding (so the
+    // model did not empty the list), the gate dropped it.
+    expect(diagnostic.parsedFindingsCount).toBe(1);
+    expect(diagnostic.reconciliation).toEqual({
+      mode: 'enforce',
+      candidateCount: 1,
+      keptCount: 0,
+      droppedCount: 2,
+      droppedReasons: { boilerplate: 1, 'no-pair': 1 },
+      pickedUpCount: 0,
+      keptIndexes: [],
+      droppedIndexes: [{ index: 1, reason: 'boilerplate' }, { index: 0, reason: 'no-pair' }],
+    });
   });
 
   it('enforce: repairs an output that misses the pair discipline, then accepts the repair', async () => {
@@ -2999,5 +3054,231 @@ describe('model call timing channel (D7 countermeasure A)', () => {
     );
     expect(result.ok).toBe(true);
     expect(result).not.toHaveProperty('modelCallTimings');
+  });
+});
+
+describe('deterministic value seeds (C1/C2, diagnosis 2026-11-26)', () => {
+  // Deterministic excerpts of the production M&A fixture: the
+  // announcement's summary tables (label on one line, value on
+  // the next — the fragmentation the model drops), the buyers'
+  // pre/post holding tables, and the funding sentences. The
+  // full four-document run is verified offline (scratch), these
+  // excerpts pin the extractor's contract in CI.
+  const ANNOUNCEMENT_EXCERPT = [
+    '受让方1 名称',
+    '杭州景祺电子信息合伙企业（有限合伙）',
+    '转让股份数量（股）',
+    '11,281,564',
+    '转让股份比例（%）',
+    '5.00',
+    '转让价格（元/股）',
+    '13.00',
+    '协议转让对价',
+    '146,660,332.00',
+    '资金来源',
+    '√自有资金',
+    '受让方2 名称',
+    '厦门联芯美企业管理合伙企业（有限合伙）',
+    '转让股份数量（股）',
+    '11,281,564',
+    '转让股份比例（%）',
+    '5.00',
+    '协议转让对价',
+    '146,660,323.00',
+    '资金来源',
+    '√自有资金',
+    '聚源盛业投资（宁波）有限公司持有45%合伙份额',
+  ].join('\n');
+
+  const BUYER1_HOLDING_TABLE = [
+    '本次权益变动前，信息披露义务人不持有上市公司股份。',
+    '本次权益变动前后，信息披露义务人持有上市公司股份变动的情况如下：',
+    '信息披露义务人',
+    '本次权益变动前',
+    '本次权益变动后',
+    '持股数量',
+    '（股）',
+    '占上市公司',
+    '总股本比例',
+    '持股数量',
+    '（股）',
+    '占上市公司',
+    '总股本比例',
+    '杭州景祺',
+    '0',
+    '0%',
+    '11,281,564',
+    '5%',
+  ].join('\n');
+
+  const BUYER1_FUNDING = [
+    '信息披露义务人：杭州景祺电子信息合伙企业（有限合伙）',
+    '本次权益变动资金来源部分来源于信息披露义务人向银行的借款。',
+    '聚源盛业投资（宁波）有限公司持有40%合伙份额',
+  ].join('\n');
+
+  const hasSeed = (
+    seeds: AgentDataValue[],
+    entity: string,
+    attribute: string,
+    value: string,
+    scope?: string,
+  ): boolean => seeds.some((seed) =>
+    seed.entity === entity && seed.attribute === attribute && seed.value === value && (seed.scope ?? undefined) === scope,
+  );
+
+  it('seeds the announcement table: amounts, share counts and checked funding, but never the per-share price', () => {
+    const seeds = extractAgentDataValueSeeds({ index: 0, fileName: 'announcement.txt', text: ANNOUNCEMENT_EXCERPT });
+    expect(hasSeed(seeds, '杭州景祺电子信息合伙企业(有限合伙)', '金額', '146,660,332.00')).toBe(true);
+    expect(hasSeed(seeds, '厦门联芯美企业管理合伙企业(有限合伙)', '金額', '146,660,323.00')).toBe(true);
+    expect(hasSeed(seeds, '杭州景祺电子信息合伙企业(有限合伙)', '株数', '11,281,564')).toBe(true);
+    expect(hasSeed(seeds, '杭州景祺电子信息合伙企业(有限合伙)', '資金源泉', '自有资金')).toBe(true);
+    expect(hasSeed(seeds, '厦门联芯美企业管理合伙企业(有限合伙)', '資金源泉', '自有资金')).toBe(true);
+    expect(hasSeed(seeds, '聚源盛业投资(宁波)有限公司', '比率・持分', '45%')).toBe(true);
+    // 13.00 is the per-share price (元/股), not a total: seeding
+    // it as 金額 would pair a unit price with the totals.
+    expect(seeds.some((seed) => seed.value === '13.00')).toBe(false);
+  });
+
+  it('seeds a pre/post holding table with the scope each row states', () => {
+    const seeds = extractAgentDataValueSeeds({ index: 4, fileName: 'buyer1_report.txt', text: BUYER1_HOLDING_TABLE });
+    expect(hasSeed(seeds, '杭州景祺', '株数', '0', '交易前')).toBe(true);
+    expect(hasSeed(seeds, '杭州景祺', '比率・持分', '0%', '交易前')).toBe(true);
+    expect(hasSeed(seeds, '杭州景祺', '株数', '11,281,564', '交易后')).toBe(true);
+    expect(hasSeed(seeds, '杭州景祺', '比率・持分', '5%', '交易后')).toBe(true);
+    expect(seeds).toHaveLength(4);
+  });
+
+  it('seeds the funding sentence under the discloser, and the holding ratio on the line', () => {
+    const seeds = extractAgentDataValueSeeds({ index: 5, fileName: 'buyer1_report.txt', text: BUYER1_FUNDING });
+    expect(hasSeed(seeds, '杭州景祺电子信息合伙企业(有限合伙)', '資金源泉', '银行借款')).toBe(true);
+    expect(hasSeed(seeds, '聚源盛业投资(宁波)有限公司', '比率・持分', '40%')).toBe(true);
+  });
+
+  it('never seeds a holder that is a fragment of a name', () => {
+    const seeds = extractAgentDataValueSeeds({
+      index: 0,
+      fileName: 'announcement.txt',
+      text: ['直接持有5%合伙份额', '集团股份有限公司持有100%股份'].join('\n'),
+    });
+    expect(seeds).toHaveLength(0);
+  });
+
+  it('C2 replay: the production phantom (buyer2 0% mis-attributed to 物美集团) no longer candidates', () => {
+    const values: AgentDataValue[] = [
+      { entity: '物美集团', attribute: '持股比例', value: '0%', file: 'buyer2_report.txt', location: 'Page 7' },
+      { entity: '物美科技集团有限公司', attribute: '持股比例', value: '36.15%', file: 'seller_report.txt', location: 'Page 19' },
+      // A control pair that must still candidate: the grouping
+      // itself is intact, only the abbreviation ride is closed.
+      { entity: '聚源盛业', attribute: '持股比例', value: '45%', file: 'announcement.txt', location: 'p.2' },
+      { entity: '聚源盛业', attribute: '持股比例', value: '40%', file: 'buyer1_report.txt', location: 'p.4' },
+    ];
+    const structure = {
+      agreements: [],
+      definitions: [{ short: '物美集团', full: '物美科技集团有限公司', file: 'buyer2_report.txt', location: 'Page 4' }],
+    };
+    const mismatches = computeAgentDataValueMismatches(values, structure);
+    expect(mismatches).toHaveLength(1);
+    expect(mismatches[0]?.entity).toBe('聚源盛业');
+  });
+
+  it('C2: the same pair with a stated, equal scope does candidate through the abbreviation', () => {
+    const values: AgentDataValue[] = [
+      { entity: '物美集团', attribute: '持股比例', value: '0%', file: 'buyer2_report.txt', location: 'Page 7', scope: '交易前' },
+      { entity: '物美科技集团有限公司', attribute: '持股比例', value: '36.15%', file: 'seller_report.txt', location: 'Page 19', scope: '交易前' },
+    ];
+    const structure = {
+      agreements: [],
+      definitions: [{ short: '物美集团', full: '物美科技集团有限公司', file: 'buyer2_report.txt', location: 'Page 4' }],
+    };
+    const mismatches = computeAgentDataValueMismatches(values, structure);
+    expect(mismatches).toHaveLength(1);
+    expect(mismatches[0]?.values.map((value) => value.normalizedValue).sort()).toEqual(['0', '36.15']);
+  });
+
+  it('seed merge corrects a model row of the same fact to the table row subject, and fills in its scope', () => {
+    const structure = {
+      agreements: [],
+      definitions: [{ short: '杭州景祺', full: '杭州景祺电子信息合伙企业（有限合伙）', file: 'buyer1_report.txt', location: 'Page 4' }],
+    };
+    const merged = applyAgentDataValueSeeds(
+      [{ entity: '杭州景祺', attribute: '比率・持分', value: '0%', file: 'buyer1_report.txt', location: 'Page 8' }],
+      [{ entity: '杭州景祺电子信息合伙企业（有限合伙）', attribute: '比率・持分', value: '0%', file: 'buyer1_report.txt', location: 'チャンク 6・行 26', scope: '交易前' }],
+      structure,
+    );
+    expect(merged).toHaveLength(1);
+    expect(merged[0]?.entity).toBe('杭州景祺电子信息合伙企业（有限合伙）');
+    expect(merged[0]?.scope).toBe('交易前');
+  });
+
+  it('seed merge never overwrites one holder with another holding the same value', () => {
+    const merged = applyAgentDataValueSeeds(
+      [{ entity: '杭州景祺电子信息合伙企业（有限合伙）', attribute: '資金源泉', value: '自有资金', file: 'announcement.txt', location: 'チャンク 1・行 57' }],
+      [{ entity: '厦门联芯美企业管理合伙企业（有限合伙）', attribute: '資金源泉', value: '自有资金', file: 'announcement.txt', location: 'チャンク 1・行 93' }],
+      { agreements: [], definitions: [] },
+    );
+    expect(merged).toHaveLength(2);
+    expect(merged.map((value) => value.entity).sort()).toEqual([
+      '厦门联芯美企业管理合伙企业（有限合伙）',
+      '杭州景祺电子信息合伙企业（有限合伙）',
+    ]);
+  });
+
+  it('offline analyzer run: with the model returning nothing, the seeds alone raise the three real pairs', async () => {
+    const files = [
+      { name: 'announcement.txt', text: ANNOUNCEMENT_EXCERPT },
+      { name: 'buyer1_report.txt', text: BUYER1_FUNDING },
+      {
+        name: 'buyer2_report.txt',
+        text: [
+          '乙方（受让方）：厦门联芯美企业管理合伙企业（有限合伙）',
+          '股份转让中，乙方应当向甲方支付的股份转让价款总额为人民币146,660,332.00',
+        ].join('\n'),
+      },
+    ];
+    const { store, setDigest } = await storeWithFiles(files);
+    const view = buildAgentAttachmentDataView(files);
+    expect(view.totalChunks).toBe(3);
+    const emptyExecutor: AgentModelExecutor = async () => ({
+      ok: true,
+      text: JSON.stringify({ findings: [], values: [], structure: { agreements: [], definitions: [] } }),
+    });
+    const analyzerParams = (offset: number, count: number, content?: string) => ({
+      attachmentSetId: SET_ID,
+      setDigest,
+      instruction: '文書の不整合を監査してください',
+      outputKind: 'findings',
+      chunkOffset: offset,
+      chunkCount: count,
+      auditMode: true,
+      ...(content ? { content } : {}),
+    });
+    const step1 = await toolRegistry.attachment_analyzer.execute(
+      analyzerParams(0, 2),
+      contextFor(store, emptyExecutor),
+    );
+    expect(step1.ok).toBe(true);
+    const step2 = await toolRegistry.attachment_analyzer.execute(
+      analyzerParams(2, 1, step1.artifact),
+      contextFor(store, emptyExecutor),
+    );
+    expect(step2.ok).toBe(true);
+    const bundle = JSON.parse(step2.artifact ?? '{}') as {
+      candidates: { entity: string; attribute: string; values: { normalizedValue: string }[] }[];
+    };
+    const pair = (a: string, b: string): boolean => bundle.candidates.some((candidate) => {
+      const normalized = candidate.values.map((value) => value.normalizedValue);
+      return normalized.includes(a) && normalized.includes(b);
+    });
+    expect(pair('146660323', '146660332')).toBe(true);
+    expect(pair('45', '40')).toBe(true);
+    expect(bundle.candidates.some((candidate) => {
+      const normalized = candidate.values.map((value) => value.normalizedValue);
+      return normalized.includes('funding:self') && normalized.includes('funding:bank');
+    })).toBe(true);
+    expect(bundle.candidates.some((candidate) => {
+      const normalized = candidate.values.map((value) => value.normalizedValue);
+      return normalized.includes('0') && normalized.includes('36.15');
+    })).toBe(false);
   });
 });

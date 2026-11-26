@@ -307,6 +307,60 @@ export function canonicalAgentDataAttribute(raw: string): string | undefined {
   return AGENT_AUDIT_ATTRIBUTE_BY_FOLDED_LABEL.get(foldAgentDataAttributeLabel(raw));
 }
 
+/**
+ * The closed set of value scopes (C2, diagnosis 2026-11-26):
+ * a holding's range — before or after the transaction. Only
+ * these two strings are ever a scope; anything else is not one
+ * (fail closed: an unknown qualifier states no scope).
+ */
+export const AGENT_DATA_VALUE_SCOPES: readonly string[] = ['交易前', '交易后'];
+
+/**
+ * The scope a written attribute label states, from its trailing
+ * qualifier — `持股比例（交易前）` states 交易前, `持股数量
+ * （变动后）` states 交易后. A label without a known qualifier
+ * states no scope. The qualifier is read, never invented: a
+ * label whose qualifier is outside the closed set has none.
+ */
+export function agentDataValueScopeFromQualifier(raw: string): string | undefined {
+  const text = raw.normalize('NFKC').trim();
+  const match = /[（(]([^（）()]+)[）)]\s*$/.exec(text);
+  if (!match) return undefined;
+  const qualifier = match[1].trim();
+  if (/交易前|变动前/.test(qualifier)) return '交易前';
+  if (/交易后|变动后/.test(qualifier)) return '交易后';
+  return undefined;
+}
+
+/**
+ * The canonical attribute of a written label together with the
+ * scope its trailing qualifier states: the qualifier is stripped
+ * before the vocabulary lookup, so `持股比例（交易前）` is the
+ * 比率・持分 attribute in the 交易前 scope instead of a label
+ * outside the vocabulary that could never pair.
+ */
+function canonicalAgentDataAttributeAndScope(raw: string): {
+  canonicalAttribute: string | undefined;
+  scope: string | undefined;
+} {
+  const scope = agentDataValueScopeFromQualifier(raw);
+  const base = scope !== undefined
+    ? raw.normalize('NFKC').trim().replace(/[（(][^（）()]+[）)]\s*$/, '').trim()
+    : raw;
+  return { canonicalAttribute: canonicalAgentDataAttribute(base), scope };
+}
+
+/**
+ * The effective scope of one table value: the scope recorded at
+ * extraction, else the scope its attribute label's qualifier
+ * states, else none. A recorded scope outside the closed set is
+ * not one — the qualifier is the only fallback, never a guess.
+ */
+export function agentDataValueEffectiveScope(entry: AgentDataValue): string | undefined {
+  if (entry.scope && AGENT_DATA_VALUE_SCOPES.includes(entry.scope)) return entry.scope;
+  return agentDataValueScopeFromQualifier(entry.attribute);
+}
+
 function analyzerInstruction(
   outputKind: AgentDataOutputKind,
   goalInstruction: string,
@@ -501,6 +555,12 @@ export type AgentDataValue = {
   normalizedValue?: string;
   file: string;
   location: string;
+  /** The value's scope when the extraction states one (C2): one
+   * of AGENT_DATA_VALUE_SCOPES — a holding before or after the
+   * transaction. Absent when the source states none; the
+   * candidate computation then reads the attribute label's
+   * qualifier, if it states one. */
+  scope?: string;
 };
 
 /** One abbreviation definition a chunk reports (layer 1, C-2). */
@@ -598,6 +658,9 @@ export function parseAgentDataValues(raw: unknown): AgentDataValue[] {
     const value = trimmedAuditText(record.value, 200);
     if (!entity || !attribute || !value) continue;
     const normalizedValue = trimmedAuditText(record.normalizedValue, 200);
+    // Scope is one of the closed set only; anything else is
+    // dropped, never trusted as a grouping dimension.
+    const scope = trimmedAuditText(record.scope, 20);
     values.push({
       entity,
       attribute,
@@ -605,6 +668,7 @@ export function parseAgentDataValues(raw: unknown): AgentDataValue[] {
       ...(normalizedValue ? { normalizedValue } : {}),
       file: trimmedAuditText(record.file, 200),
       location: trimmedAuditText(record.location, 200),
+      ...(scope && AGENT_DATA_VALUE_SCOPES.includes(scope) ? { scope } : {}),
     });
   }
   return values;
@@ -839,8 +903,39 @@ function effectiveAgentDataValue(entry: AgentDataValue, canonicalAttribute: stri
 }
 
 /**
+ * The grouping key of one table value (C2, diagnosis 2026-11-26):
+ * (resolved entity, canonical attribute, scope). Two values pair
+ * only within one scope — a pre-transaction holding never pairs
+ * with a post-transaction one. And identification through an
+ * abbreviation is only a grouping when the scope is stated and
+ * equal: a value whose entity resolved through a definition, with
+ * no scope stated, groups only with the identical raw name, so a
+ * row the model mis-attributed to a prose name cannot ride the
+ * abbreviation into another holder's group (the production M&A
+ * phantom: buyer2's pre-transaction 0% for 厦门联芯美, reported
+ * under 物美集团, resolved onto the seller's 36.15%). Values
+ * whose entities resolve to themselves are unaffected.
+ */
+function agentDataValueGroupKey(
+  entry: AgentDataValue,
+  structure: AgentDataStructure,
+): { key: string; resolvedEntity: string; canonicalAttribute: string | undefined } {
+  const resolvedEntity = resolveAgentDataEntity(entry.entity, structure);
+  const { canonicalAttribute, scope: qualifierScope } = canonicalAgentDataAttributeAndScope(entry.attribute);
+  const scope = agentDataValueEffectiveScope(entry) ?? qualifierScope;
+  const rawEntity = entry.entity.normalize('NFKC').trim();
+  const needsScope = resolvedEntity !== rawEntity;
+  const scopePart = scope ?? (needsScope ? `raw:${rawEntity}` : '');
+  return {
+    key: `${resolvedEntity}\u0001${canonicalAttribute ?? ''}\u0001${scopePart}`,
+    resolvedEntity,
+    canonicalAttribute,
+  };
+}
+
+/**
  * The deterministic cross-check (layer 1, C-1): group the value
- * table by (resolved entity, canonical attribute); a group holding two or
+ * table by (resolved entity, canonical attribute, scope); a group holding two or
  * more distinct effective values is a mismatch candidate. The same
  * value cited from several places is one entry (first-seen) — a
  * candidate needs differing values, not differing citations.
@@ -856,15 +951,13 @@ export function computeAgentDataValueMismatches(
     byValue: Map<string, AgentDataValueMismatch['values'][number]>;
   }>();
   for (const entry of values) {
-    const entity = resolveAgentDataEntity(entry.entity, structure);
+    const { key, resolvedEntity: entity, canonicalAttribute } = agentDataValueGroupKey(entry, structure);
     // The pairing contract (D2): grouping is by the canonical
     // attribute, so the same attribute written two ways groups
     // together; a label outside the controlled vocabulary does
     // not pair at all. The candidate keeps the first-seen
     // written label for display, as the merges elsewhere do.
-    const canonicalAttribute = canonicalAgentDataAttribute(entry.attribute);
     if (!entity || !canonicalAttribute) continue;
-    const key = `${entity}\u0001${canonicalAttribute}`;
     let group = groups.get(key);
     if (!group) {
       group = { entity, attribute: entry.attribute.normalize('NFKC').trim(), byValue: new Map() };
@@ -896,9 +989,10 @@ export function computeAgentDataValueMismatches(
 /**
  * The recorded summary of one bundle's value table (failure
  * diagnosis 2026-11-24, 対策1(d)): how many entries the table
- * holds and how they group — the (entity, attribute) group keys
- * with their entry counts and distinct-value counts, in the same
- * grouping the candidate computation uses. The production M&A run
+ * holds and how they group — the (entity, attribute, scope)
+ * group keys with their entry counts and distinct-value counts,
+ * in the same grouping the candidate computation uses. The
+ * production M&A run
  * recorded candidateCount 0 with no way to tell whether the table
  * itself was empty or its keys simply never aligned; this summary
  * separates the two (entryCount 0 vs groups whose every entry
@@ -925,14 +1019,12 @@ export function summarizeAgentDataValueTable(
     distinct: Set<string>;
   }>();
   for (const entry of values) {
-    const entity = resolveAgentDataEntity(entry.entity, structure);
+    const { key, resolvedEntity: entity, canonicalAttribute } = agentDataValueGroupKey(entry, structure);
     // The same canonical grouping the candidate computation
     // uses (D2): an entry whose label is outside the controlled
     // vocabulary belongs to no group here either, so the summary
     // can say the table held entries that could not pair.
-    const canonicalAttribute = canonicalAgentDataAttribute(entry.attribute);
     if (!entity || !canonicalAttribute) continue;
-    const key = `${entity}\u0001${canonicalAttribute}`;
     let group = groups.get(key);
     if (!group) {
       group = { entity, attribute: entry.attribute.normalize('NFKC').trim(), entries: 0, distinct: new Set() };
@@ -948,6 +1040,374 @@ export function summarizeAgentDataValueTable(
     distinctValues: group.distinct.size,
   }));
   return { entryCount: values.length, groupCount: groups.size, groups: listed };
+}
+
+/**
+ * Deterministic numeric value seeds (C1, diagnosis 2026-11-26):
+ * values read from the chunk text itself — never from a model —
+ * with the entity and attribute the surrounding text states. The
+ * model's extraction drops numbers the PDF fragmentation splits
+ * across lines (label on one line, value on the next) and values
+ * it never looks for; the seeds are the deterministic complement,
+ * not a replacement: they merge into the value table beside the
+ * model's rows, and correct a model row's entity only when the
+ * row's own subject says otherwise (C2). Every pattern below is
+ * closed and crisp; anything ambiguous emits nothing (fail
+ * closed). Seeds always carry a canonical attribute label and,
+ * for pre/post holding tables, the scope the table states.
+ */
+
+const AGENT_DATA_SEED_AMOUNT_LABELS: Readonly<Record<string, string>> = {
+  '协议转让对价': '金額',
+  '价款支付方': '金額',
+  '股份转让价款总额': '金額',
+  '总价': '金額',
+  '总价款': '金額',
+  // `转让价格` is deliberately absent: it is the per-share price
+  // (元/股), and seeding it as 金額 would pair a unit price with
+  // the total amounts. `转让价款` stays — it is a total.
+  '转让价款': '金額',
+  '转让股份数量': '株数',
+  '转让股份比例': '比率・持分',
+};
+
+const AGENT_DATA_SEED_FUNDING_MARKERS: readonly string[] = ['自有资金', '自筹资金', '银行借款'];
+
+/** A fragment of a pre/post holding table's header: skipped
+ * while looking for the next row subject, never a subject. */
+const AGENT_DATA_SEED_TABLE_HEADER_FRAGMENTS: readonly string[] = [
+  '本次权益变动', '持股数量', '持股比例', '占上市公司', '总股本比例', '信息披露义务人', '（股）', '（%）',
+];
+
+function seedEntityName(raw: string): string | undefined {
+  const name = raw.normalize('NFKC').trim();
+  if (name.length < 2 || name.length > 60) return undefined;
+  if (/[、，。；：？！\s]/.test(name)) return undefined;
+  if (/^[的及与在向为]/.test(name)) return undefined;
+  // Parentheses must balance: a stray closing paren is a
+  // fragment of a longer name, not a name.
+  const open = (name.match(/[（(]/g) ?? []).length;
+  const close = (name.match(/[）)]/g) ?? []).length;
+  if (open !== close) return undefined;
+  return name;
+}
+
+function seedStripLabelQualifier(line: string): string {
+  return line.normalize('NFKC').trim().replace(/[（(][^（）()]*[）)]\s*$/, '').trim();
+}
+
+function seedIsLoneNumber(line: string): boolean {
+  return /^[+-]?\d[\d,]*(?:\.\d+)?\s*(?:元|%)?$/.test(line.normalize('NFKC').trim());
+}
+
+function seedIsPercent(line: string): boolean {
+  return /^\d[\d,]*(?:\.\d+)?\s*[%％]$/.test(line.normalize('NFKC').trim());
+}
+
+function seedIsCount(line: string): boolean {
+  return /^\d[\d,]*$/.test(line.normalize('NFKC').trim());
+}
+
+function seedIsTableHeaderFragment(line: string): boolean {
+  const text = line.normalize('NFKC').trim();
+  if (!text) return true;
+  // Fragments are compared against the NFKC text, so a fragment
+  // written with full-width parens (`（股）`) must match its
+  // half-width form (`(股)`).
+  return AGENT_DATA_SEED_TABLE_HEADER_FRAGMENTS.some((fragment) => text.includes(fragment.normalize('NFKC')));
+}
+
+/**
+ * Whether a name read off a holding line is a holder rather than
+ * a fragment of one: at least 3 characters, and stripping the
+ * corporate-suffix tokens must leave something behind — a bare
+ * suffix sequence (`集团股份有限公司`, a wrapped line's tail) or
+ * a bare adverb (`直接`, a wrapped line's head) is not a holder.
+ */
+function seedIsPlausibleHolder(name: string): boolean {
+  if (name.length < 3) return false;
+  const suffixes = ['股份有限公司', '有限公司', '合伙企业', '投资中心', '中心', '集团', '（有限合伙）', '(有限合伙)', '（普通合伙）', '(普通合伙)'];
+  let rest = name;
+  for (const suffix of suffixes) rest = rest.split(suffix).join('');
+  return rest.trim().length > 0;
+}
+
+type AgentDataSeedContext = {
+  /** The file's discloser, from its `信息披露义务人：<full>` line. */
+  discloser?: string;
+  /** The buyer of the table currently being read (`受让方N 名称`
+   * followed by its full name). */
+  currentBuyer?: string;
+};
+
+function seedChunkContext(lines: readonly string[]): AgentDataSeedContext {
+  const context: AgentDataSeedContext = {};
+  for (const line of lines) {
+    const text = line.normalize('NFKC').trim();
+    if (text.includes('信息披露义务人')) {
+      const colon = Math.max(text.lastIndexOf('：'), text.lastIndexOf(':'));
+      if (colon >= 0) {
+        const name = seedEntityName(text.slice(colon + 1));
+        if (name && !context.discloser) context.discloser = name;
+      }
+    }
+  }
+  return context;
+}
+
+function seedLocation(chunk: AgentDataChunk, lineIndex: number): string {
+  return `チャンク ${chunk.index + 1}・行 ${lineIndex + 1}`;
+}
+
+/**
+ * Deterministic value seeds for one chunk, in first-seen order.
+ * Patterns (all chunk-local, all fail-closed):
+ * (A) label/value table rows — a closed label set (`协议转让对价`
+ * etc.) with a lone number on the same or a following line, and
+ * `股份转让价款总额…人民币<amount>元` prose; the entity is the
+ * table's buyer (`受让方N 名称`) or the file's discloser.
+ * (B) `<holder>持有<ratio>%` / `<holder>持股<ratio>%` on one
+ * line (or the verb ending the line and the ratio on the next);
+ * the entity is the holder named on the line.
+ * (C) funding source — a checked `√<marker>` line, or a sentence
+ * stating the funding source (`资金来源…自有资金` /
+ * `…向银行的借款`); the entity is the table's buyer or the
+ * file's discloser. An unchecked `□` marker never seeds.
+ * (D) pre/post holding tables — a `本次权益变动前/后` header
+ * followed by rows of [subject, pre-count, pre-ratio, post-count,
+ * post-ratio]; the entity is the row's subject, the scopes are
+ * 交易前/交易后. A row whose four values do not match the shape
+ * ends the table.
+ */
+export function extractAgentDataValueSeeds(chunk: AgentDataChunk): AgentDataValue[] {
+  const lines = chunk.text.split('\n');
+  const context = seedChunkContext(lines);
+  const seeds: AgentDataValue[] = [];
+  const push = (seed: AgentDataValue): void => {
+    // The scope is part of the identity: a pre-transaction row
+    // and a post-transaction row may carry the same number.
+    const key = `${seed.entity}|${seed.attribute}|${seed.value}|${seed.file}|${seed.location}|${seed.scope ?? ''}`;
+    if (!seeds.some((existing) => `${existing.entity}|${existing.attribute}|${existing.value}|${existing.file}|${existing.location}|${existing.scope ?? ''}` === key)) {
+      seeds.push(seed);
+    }
+  };
+  const buyerEntity = (): string | undefined => context.currentBuyer ?? context.discloser;
+
+  let i = 0;
+  while (i < lines.length) {
+    const rawLine = lines[i];
+    const line = rawLine.normalize('NFKC').trim();
+
+    // Table-buyer tracking: `受让方N 名称` names the buyer of
+    // the table that follows, on the next non-empty line; an
+    // agreement's `乙方（受让方）：<name>` line names it too.
+    const buyerMark = /^受让方\d+\s*名称$/.exec(line);
+    if (buyerMark) {
+      let j = i + 1;
+      while (j < lines.length && !lines[j].normalize('NFKC').trim()) j += 1;
+      const name = j < lines.length ? seedEntityName(lines[j]) : undefined;
+      if (name) context.currentBuyer = name;
+      i += 1;
+      continue;
+    }
+    // Parens and the colon are matched in both widths: the line
+    // is NFKC-normalized, so a full-width `（受让方）：` in the
+    // source reads as the half-width `(受让方):` here.
+    const agreementBuyer = /^乙方[（(]受让方[）)][：:]\s*(.+)$/.exec(line);
+    if (agreementBuyer) {
+      const name = seedEntityName(agreementBuyer[1]);
+      if (name) context.currentBuyer = name;
+      i += 1;
+      continue;
+    }
+
+    // (D) Pre/post holding table.
+    if (line.includes('本次权益变动前')) {
+      let k = i + 1;
+      let hasAfter = false;
+      while (k < lines.length && k <= i + 3) {
+        if (lines[k].normalize('NFKC').includes('本次权益变动后')) { hasAfter = true; break; }
+        k += 1;
+      }
+      if (hasAfter) {
+        let j = k + 1;
+        let advanced = false;
+        while (j < lines.length) {
+          const subjectLine = lines[j].normalize('NFKC').trim();
+          if (seedIsTableHeaderFragment(subjectLine)) { j += 1; continue; }
+          const subject = seedEntityName(subjectLine);
+          if (!subject || !seedIsPlausibleHolder(subject)) break;
+          const quad = [j + 1, j + 2, j + 3, j + 4]
+            .map((index) => (index < lines.length ? lines[index].normalize('NFKC').trim() : ''));
+          if (!seedIsCount(quad[0]) || !seedIsPercent(quad[1]) || !seedIsCount(quad[2]) || !seedIsPercent(quad[3])) break;
+          const location = seedLocation(chunk, j);
+          push({ entity: subject, attribute: '株数', value: quad[0], file: chunk.fileName, location, scope: '交易前' });
+          push({ entity: subject, attribute: '比率・持分', value: quad[1], file: chunk.fileName, location, scope: '交易前' });
+          push({ entity: subject, attribute: '株数', value: quad[2], file: chunk.fileName, location, scope: '交易后' });
+          push({ entity: subject, attribute: '比率・持分', value: quad[3], file: chunk.fileName, location, scope: '交易后' });
+          j += 5;
+          advanced = true;
+        }
+        if (advanced) { i = j; continue; }
+      }
+    }
+
+    // (A) Label/value table rows: label on this line, lone
+    // number on this or a following line (within 3 lines).
+    const labelAttribute = AGENT_DATA_SEED_AMOUNT_LABELS[seedStripLabelQualifier(line)];
+    if (labelAttribute) {
+      const entity = buyerEntity();
+      if (entity) {
+        for (let k = i + 1; k < lines.length && k <= i + 3; k += 1) {
+          const valueLine = lines[k].normalize('NFKC').trim();
+          if (!valueLine) continue;
+          if (seedIsLoneNumber(valueLine)) {
+            push({ entity, attribute: labelAttribute, value: valueLine, file: chunk.fileName, location: seedLocation(chunk, k) });
+          }
+          break;
+        }
+      }
+      i += 1;
+      continue;
+    }
+    // Same-line label + value (`协议转让对价 146,660,332.00`).
+    const sameLine = /^(.+?)\s+([+-]?\d[\d,]*(?:\.\d+)?)\s*(?:元|%)?$/.exec(line);
+    if (sameLine) {
+      const attribute = AGENT_DATA_SEED_AMOUNT_LABELS[seedStripLabelQualifier(sameLine[1])];
+      const entity = buyerEntity();
+      if (attribute && entity) {
+        push({ entity, attribute, value: sameLine[2], file: chunk.fileName, location: seedLocation(chunk, i) });
+      }
+    }
+    // (A, prose) `股份转让价款总额…人民币<amount>元` — the 元
+    // is optional: the fragmented text ends some lines on the
+    // bare number. `总额的50%…` never matches: 的 follows 总额.
+    const totalPrice = /股份转让价款总额[（(]?为?人民币?([+-]?\d[\d,]*(?:\.\d+)?)\s*元?/.exec(line);
+    if (totalPrice) {
+      const entity = buyerEntity();
+      if (entity) {
+        push({ entity, attribute: '金額', value: totalPrice[1], file: chunk.fileName, location: seedLocation(chunk, i) });
+      }
+    }
+
+    // (B) Holding ratios: `<holder>持有<ratio>%` on one line,
+    // or the verb ending the line and the ratio on the next.
+    const holding = /^(.+?)(?:持有|持股)\s*([\d,]+(?:\.\d+)?)\s*[%％]/.exec(line);
+    if (holding) {
+      const holder = seedEntityName(holding[1]);
+      if (holder && seedIsPlausibleHolder(holder)) {
+        push({ entity: holder, attribute: '比率・持分', value: `${holding[2]}%`, file: chunk.fileName, location: seedLocation(chunk, i) });
+      }
+    } else {
+      const holdingSplit = /^(.+?)(?:持有|持股)\s*$/.exec(line);
+      if (holdingSplit && i + 1 < lines.length) {
+        const next = lines[i + 1].normalize('NFKC').trim();
+        const ratio = /^([\d,]+(?:\.\d+)?)\s*[%％]/.exec(next);
+        const holder = seedEntityName(holdingSplit[1]);
+        if (ratio && holder && seedIsPlausibleHolder(holder)) {
+          push({ entity: holder, attribute: '比率・持分', value: `${ratio[1]}%`, file: chunk.fileName, location: seedLocation(chunk, i + 1) });
+        }
+      }
+    }
+
+    // (C) Funding source.
+    const checked = /^√\s*(.+)$/.exec(line);
+    if (checked) {
+      const marker = AGENT_DATA_SEED_FUNDING_MARKERS.find((candidate) => checked[1].trim() === candidate);
+      const entity = buyerEntity();
+      if (marker && entity) {
+        push({ entity, attribute: '資金源泉', value: marker, file: chunk.fileName, location: seedLocation(chunk, i) });
+      }
+    } else if (line.includes('资金来源')) {
+      const hasSelf = line.includes('自有资金');
+      const hasBank = line.includes('银行') && /借款|贷款|借入/.test(line);
+      const entity = context.discloser ?? context.currentBuyer;
+      if (entity && (hasSelf || hasBank)) {
+        push({
+          entity,
+          attribute: '資金源泉',
+          value: hasSelf && hasBank ? '自有资金及银行借款' : hasSelf ? '自有资金' : '银行借款',
+          file: chunk.fileName,
+          location: seedLocation(chunk, i),
+        });
+      }
+    }
+
+    i += 1;
+  }
+  return seeds;
+}
+
+/**
+ * Merges deterministic seeds into the value table (C1/C2):
+ * a seed whose (file, canonical attribute, effective value)
+ * matches exactly one model row of the same fact — the two
+ * entities resolve to the same holder — corrects that row: the
+ * row's entity becomes the seed's (the table row's own subject,
+ * not a prose name) and a scope the seed states is filled in
+ * when the row states none; the seed itself is then not added
+ * twice. A seed matching a row of a different holder is a
+ * distinct row (two holders may hold the same value), as is a
+ * seed with no (or an ambiguous) match — added unless the same
+ * entity, canonical attribute, effective value, file and scope
+ * are already present (a number seeded from several chunks of
+ * one file is one row). Returns a new array; the input is
+ * untouched.
+ */
+export function applyAgentDataValueSeeds(
+  values: readonly AgentDataValue[],
+  seeds: readonly AgentDataValue[],
+  structure: AgentDataStructure,
+): AgentDataValue[] {
+  const next = [...values];
+  const seedKeyOf = (entry: AgentDataValue): string | undefined => {
+    const { canonicalAttribute } = canonicalAgentDataAttributeAndScope(entry.attribute);
+    if (!canonicalAttribute) return undefined;
+    return `${entry.entity}|${canonicalAttribute}|${effectiveAgentDataValue(entry, canonicalAttribute)}|${entry.file}|${agentDataValueEffectiveScope(entry) ?? ''}`;
+  };
+  for (const seed of seeds) {
+    const seedCanonical = canonicalAgentDataAttribute(seed.attribute);
+    if (!seedCanonical) continue;
+    const seedEffective = effectiveAgentDataValue(seed, seedCanonical);
+    const matches = next
+      .map((entry, index) => ({ entry, index }))
+      .filter(({ entry }) => {
+        if (entry.file !== seed.file) return false;
+        const { canonicalAttribute } = canonicalAgentDataAttributeAndScope(entry.attribute);
+        return canonicalAttribute === seedCanonical
+          && effectiveAgentDataValue(entry, canonicalAttribute) === seedEffective;
+      });
+    if (matches.length === 1) {
+      const { entry, index } = matches[0];
+      // A correction only when the seed and the row are the same
+      // fact: their entities resolve to the same holder (a short
+      // name against its full name, or the same name). Two
+      // different holders may legitimately hold the same value —
+      // both buyers fund from 自有资金 — and overwriting one
+      // holder's row with the other's would erase a real row, so
+      // an unrelated entity is a distinct row, not a correction.
+      const sameFact = resolveAgentDataEntity(seed.entity, structure) === resolveAgentDataEntity(entry.entity, structure);
+      if (sameFact) {
+        const corrected = { ...entry };
+        let changed = false;
+        if (seed.entity !== entry.entity) {
+          corrected.entity = seed.entity;
+          changed = true;
+        }
+        const seedScope = agentDataValueEffectiveScope(seed);
+        if (seedScope !== undefined && agentDataValueEffectiveScope(entry) === undefined) {
+          corrected.scope = seedScope;
+          changed = true;
+        }
+        if (changed) next[index] = corrected;
+        continue;
+      }
+    }
+    const key = seedKeyOf(seed);
+    if (key === undefined) continue;
+    if (!next.some((existing) => seedKeyOf(existing) === key)) next.push(seed);
+  }
+  return next;
 }
 
 /** Tolerant parser for a recorded candidate list (bundle
@@ -1779,6 +2239,15 @@ export async function executeAttachmentAnalyzer(
         }
       }
       merged.structure = mergeAgentDataStructures(merged.structure, output.structure);
+      // C1/C2 (diagnosis 2026-11-26): deterministic numeric seeds
+      // from this chunk's own text, merged into the value table
+      // beside the model's rows — the model drops numbers the
+      // fragmentation splits across lines, the seeds do not — and
+      // a seed corrects a model row's entity when the row's own
+      // subject says otherwise. Seeds never change the findings
+      // or the rendered content, only the table the deterministic
+      // candidate computation reads.
+      merged.values = applyAgentDataValueSeeds(merged.values, extractAgentDataValueSeeds(chunk), merged.structure);
     }
   }
 
@@ -2422,10 +2891,11 @@ export async function executeAttachmentReconciler(
   // discipline as the analyzer's — every dispatch appends in
   // order, an empty list attaches nothing.
   const modelCallTimings: AgentModelCallTiming[] = [];
-  const fail = (message: string): ToolResult => ({
+  const fail = (message: string, diagnosticArtifact?: string): ToolResult => ({
     ok: false,
     tool,
     message,
+    ...(diagnosticArtifact !== undefined ? { diagnosticArtifact } : {}),
     ...(modelCallTimings.length > 0 ? { modelCallTimings: [...modelCallTimings] } : {}),
   });
   const loaded = await loadBoundData(tool, params, context);
@@ -2558,7 +3028,20 @@ export async function executeAttachmentReconciler(
     // or vetted findings the pair gate could not anchor — must
     // not become a silently empty report. Shadow records the
     // same fact and passes the original findings through.
-    if (mode === 'enforce') return fail('AGENT_RECONCILIATION_NO_FINDINGS');
+    if (mode === 'enforce') {
+      // C0 (diagnosis 2026-11-26): the summary computed just
+      // above would otherwise be discarded with the failure —
+      // attach it to the K-17 diagnostic channel (counts and
+      // indexes only, never finding text) together with how many
+      // findings the model vetted, so the next failed run's
+      // record says whether the model or the gate emptied the
+      // list. The code and message are unchanged; ok stays false.
+      return fail('AGENT_RECONCILIATION_NO_FINDINGS', JSON.stringify({
+        kind: 'attachment-reconciliation-failure',
+        reconciliation: summary,
+        parsedFindingsCount: parsed.findings.length,
+      }));
+    }
     return passThrough({ ...summary, failed: true, failureCode: 'AGENT_RECONCILIATION_NO_FINDINGS' });
   }
   if (mode === 'shadow') {
