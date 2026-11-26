@@ -24,6 +24,8 @@ import {
 import { createAgentModelExecutor, MAX_AGENT_MODEL_CALL_TIMINGS_PER_STEP, type AgentModelCallInput, type AgentModelCallTiming, type AgentModelExecutor, type AgentModelCallResult } from './agentModelCall.js';
 import { buildAgentReferenceContext } from './agentAttachmentReference.js';
 import { parseBaselBiaInputs } from './agentBaselBia.js';
+import { createAgentLocationPageResolver } from './agentValuePageLocations.js';
+import { applyBusinessLineDepartmentCheck } from './agentBaselBusinessLines.js';
 import type { ToolParams, ToolResult } from './toolRegistry.js';
 
 /**
@@ -402,8 +404,25 @@ function analyzerInstruction(
   const rowsReferenceNote = hasReferenceContext
     ? '断片の後には分類の定義（参照ブロック）が付きます。参照は分類の根拠として使い、その行を出力しないでください。'
     : '';
+  // Classification discipline (B-1, rerun diagnosis
+  // AGENT_RERUN_20261127_DIAGNOSIS_2026-11-27 §2.2): the Basel
+  // rerun's event-level errors were not knowledge gaps — the
+  // definitions were in the reference block — but judgment-axis
+  // misses: events classified by the department that handled
+  // them or the customer who suffered, instead of by who acted
+  // and with what intent. The discipline states the two axes
+  // (actor inside/outside; intent) and the definition
+  // boundaries the diagnosis classified, as judgment rules the
+  // model maps onto whatever codes the reference defines — not
+  // as the task text, and with no answer key. It rides only
+  // when the output schema names classification columns, so
+  // plain extraction runs keep their previous instruction.
+  const rowsClassificationDiscipline = outputKind === 'rows'
+    && (view.requiredOutputColumns ?? []).some((column) => /categor|line|分類/i.test(column))
+    ? '分類の判定規律: 分類は行為者で決めること。事象を起こしたのが内部者（従業員・役員）か第三者（顧客・外部者）かを出典から特定し、処理した部署や被害を受けた側が内部か外部かでは決めないこと。次に心態と原因で分けること。故意的・私的利益のための内部行為は内部不正の分類にし、組織自身の義務違反（法令・規程が求める確認・監視・適合性・説明の懈怠）は、末端で犯罪者が付け込んでいても組織側の違反の分類にすること。単純な入力・処理の誤りは故意でないので実行・処理の分類にすること。定義の境界は厳密に読むこと（職場の安全は実物資産への損害が実際に生じた場合だけ資産損害の分類とし、危険の存在や罰金だけなら雇用・安全の分類にすること。適合性違反は雇用慣行ではなくコンダクトの分類である）。事業ラインは参照の対応表に部門が載っていればその対応に必ず従い、名称の似た別の部門・ラインと取り違えないこと。対応表に無い部門は活動内容から判断し、根拠のない分類を選ばないこと。'
+    : '';
   const baseShape = outputKind === 'rows'
-    ? `出力形式: {"rows":[{...}]}。各行はキー項目「${view.keyField}」の値を必ず含め、断片内の対象1件につき1行にしてください。${rowsTarget}${rowsRequiredColumns}${rowsReferenceNote}数値は入力の表記をそのまま写してください。断片内にキー項目を持つ対象が1件も無い場合は {"rows":[]} とだけ返してください。それが正しい応答です。`
+    ? `出力形式: {"rows":[{...}]}。各行はキー項目「${view.keyField}」の値を必ず含め、断片内の対象1件につき1行にしてください。${rowsTarget}${rowsRequiredColumns}${rowsReferenceNote}${rowsClassificationDiscipline}数値は入力の表記をそのまま写してください。断片内にキー項目を持つ対象が1件も無い場合は {"rows":[]} とだけ返してください。それが正しい応答です。`
     : outputKind === 'findings'
       ? structuredJsonKeys && structuredJsonKeys.length > 0
         // Structured-JSON deliverables (design
@@ -435,7 +454,7 @@ function analyzerInstruction(
   // role word were present in the sources yet never reached the
   // value table, so the deterministic pairing never saw them.
   const auditShape = auditMode && outputKind === 'findings'
-    ? `監査: 各所見にexplanation（なぜ矛盾か）と対の2番目の引用evidenceB・fileB・locationBも付けること。加えて比較可能な値と文書構造を {"values":[{"entity":"主体","attribute":"属性","value":"原文の値","normalizedValue":"正規化値","file":"ファイル名","location":"場所"}],"structure":{"agreements":[{"name":"合意名","parties":[{"name":"当事者","role":"役割"}]}],"definitions":[{"short":"略称","full":"正式名","file":"ファイル名","location":"場所"}]}} の形で返すこと。値テーブルの属性は統制語彙（${AGENT_AUDIT_ATTRIBUTE_VOCABULARY.join('／')}）から選ぶこと。所見として挙げた食い違いのペアは、同じ主体・同じ属性ラベルで値テーブルにも必ず入れること。合伙份额・出資比率など主体の中での持分は、持分を持つ主体の名称をentityにして報告すること。チェックボックスで選択された開示（資金源泉の「√自有资金」など）も値として報告すること。entityは役割語（情報披露義務人など）でなく当事者の名称で書くこと。`
+    ? `監査: 各所見にexplanation（なぜ矛盾か）と対の2番目の引用evidenceB・fileB・locationBも付けること。加えて比較可能な値と文書構造を {"values":[{"entity":"主体","attribute":"属性","value":"原文の値","normalizedValue":"正規化値","file":"ファイル名","location":"場所","basis":"割合の分母・対象"}],"structure":{"agreements":[{"name":"合意名","parties":[{"name":"当事者","role":"役割"}]}],"definitions":[{"short":"略称","full":"正式名","file":"ファイル名","location":"場所"}]}} の形で返すこと。値テーブルの属性は統制語彙（${AGENT_AUDIT_ATTRIBUTE_VOCABULARY.join('／')}）から選ぶこと。比率・持分の値には、その割合の分母となる対象（何の総数に対する割合か。例：標的会社の総股本、子会社への持分ならその子会社）を対象の名称で basis に必ず併記し、金額の値には何の金額か（何を買う対価か等）を basis に併記すること。分母・対象が異なる値は、主体と属性が同じでも別の値として扱うこと。所見として挙げた食い違いのペアは、同じ主体・同じ属性ラベルで値テーブルにも必ず入れること。合伙份额・出資比率など主体の中での持分は、持分を持つ主体の名称をentityにして報告すること。チェックボックスで選択された開示（資金源泉の「√自有资金」など）も値として報告すること。entityは役割語（情報披露義務人など）でなく当事者の名称で書くこと。`
     : '';
   const shape = baseShape + auditShape;
   const budget = AGENT_ATTACHMENT_INSTRUCTION_TOTAL_MAX_CHARS - head.length - shape.length - '依頼: '.length;
@@ -568,6 +587,20 @@ export type AgentDataValue = {
    * candidate computation then reads the attribute label's
    * qualifier, if it states one. */
   scope?: string;
+  /** The value's basis when the extraction states one (M-1,
+   * rerun diagnosis 2026-11-27): what the quantity is OF — for a
+   * ratio, the whole whose share it is (the company whose total
+   * capital, the holder whose stake); for an amount, what it
+   * prices. Two values that state different bases are different
+   * attributes in substance — a 100% stake IN a subsidiary and a
+   * 5% share OF the target's total capital both read 比率・持分
+   * for one holder, yet they can never disagree — so the group
+   * key carries the stated basis and they never pair. Free text
+   * as extracted (the grouping normalizes it); absent when the
+   * extraction states none, and unstated values group together
+   * exactly as before, so existing extractions keep their
+   * detections. */
+  basis?: string;
 };
 
 /** One abbreviation definition a chunk reports (layer 1, C-2). */
@@ -595,6 +628,10 @@ export type AgentDataStructure = {
 export type AgentDataValueMismatch = {
   entity: string;
   attribute: string;
+  /** The group's stated basis (M-1), present when every value in
+   * the group stated the same one: the reconciliation reads what
+   * the paired values are OF, not only that they differ. */
+  basis?: string;
   values: { value: string; normalizedValue: string; file: string; location: string }[];
 };
 
@@ -668,6 +705,10 @@ export function parseAgentDataValues(raw: unknown): AgentDataValue[] {
     // Scope is one of the closed set only; anything else is
     // dropped, never trusted as a grouping dimension.
     const scope = trimmedAuditText(record.scope, 20);
+    // Basis (M-1) is the extraction's own statement of what the
+    // value is of; it is kept as written and only the grouping
+    // normalizes it — an unstated basis stays absent.
+    const basis = trimmedAuditText(record.basis, 120);
     values.push({
       entity,
       attribute,
@@ -676,6 +717,7 @@ export function parseAgentDataValues(raw: unknown): AgentDataValue[] {
       file: trimmedAuditText(record.file, 200),
       location: trimmedAuditText(record.location, 200),
       ...(scope && AGENT_DATA_VALUE_SCOPES.includes(scope) ? { scope } : {}),
+      ...(basis ? { basis } : {}),
     });
   }
   return values;
@@ -910,8 +952,9 @@ function effectiveAgentDataValue(entry: AgentDataValue, canonicalAttribute: stri
 }
 
 /**
- * The grouping key of one table value (C2, diagnosis 2026-11-26):
- * (resolved entity, canonical attribute, scope). Two values pair
+ * The grouping key of one table value (C2, diagnosis 2026-11-26;
+ * M-1, rerun diagnosis 2026-11-27):
+ * (resolved entity, canonical attribute, scope, basis). Two values pair
  * only within one scope — a pre-transaction holding never pairs
  * with a post-transaction one. And identification through an
  * abbreviation is only a grouping when the scope is stated and
@@ -922,27 +965,37 @@ function effectiveAgentDataValue(entry: AgentDataValue, canonicalAttribute: stri
  * phantom: buyer2's pre-transaction 0% for 厦门联芯美, reported
  * under 物美集团, resolved onto the seller's 36.15%). Values
  * whose entities resolve to themselves are unaffected.
+ * The basis part is the M-1 dimension: values that state
+ * different bases (what the ratio is a share OF, what the amount
+ * prices) never pair, however identical their entity, attribute
+ * and scope — the production false candidate paired a 100% stake
+ * in a subsidiary with a 5% share of the target's total capital
+ * because both read 比率・持分 for the same holder. A value that
+ * states no basis groups under the empty part, with the other
+ * unstated values, exactly as every value did before M-1.
  */
 function agentDataValueGroupKey(
   entry: AgentDataValue,
   structure: AgentDataStructure,
-): { key: string; resolvedEntity: string; canonicalAttribute: string | undefined } {
+): { key: string; resolvedEntity: string; canonicalAttribute: string | undefined; basis: string } {
   const resolvedEntity = resolveAgentDataEntity(entry.entity, structure);
   const { canonicalAttribute, scope: qualifierScope } = canonicalAgentDataAttributeAndScope(entry.attribute);
   const scope = agentDataValueEffectiveScope(entry) ?? qualifierScope;
   const rawEntity = entry.entity.normalize('NFKC').trim();
   const needsScope = resolvedEntity !== rawEntity;
   const scopePart = scope ?? (needsScope ? `raw:${rawEntity}` : '');
+  const basis = entry.basis ? entry.basis.normalize('NFKC').trim() : '';
   return {
-    key: `${resolvedEntity}\u0001${canonicalAttribute ?? ''}\u0001${scopePart}`,
+    key: `${resolvedEntity}\u0001${canonicalAttribute ?? ''}\u0001${scopePart}\u0001${basis}`,
     resolvedEntity,
     canonicalAttribute,
+    basis,
   };
 }
 
 /**
  * The deterministic cross-check (layer 1, C-1): group the value
- * table by (resolved entity, canonical attribute, scope); a group holding two or
+ * table by (resolved entity, canonical attribute, scope, basis); a group holding two or
  * more distinct effective values is a mismatch candidate. The same
  * value cited from several places is one entry (first-seen) — a
  * candidate needs differing values, not differing citations.
@@ -955,10 +1008,11 @@ export function computeAgentDataValueMismatches(
   const groups = new Map<string, {
     entity: string;
     attribute: string;
+    basis: string;
     byValue: Map<string, AgentDataValueMismatch['values'][number]>;
   }>();
   for (const entry of values) {
-    const { key, resolvedEntity: entity, canonicalAttribute } = agentDataValueGroupKey(entry, structure);
+    const { key, resolvedEntity: entity, canonicalAttribute, basis } = agentDataValueGroupKey(entry, structure);
     // The pairing contract (D2): grouping is by the canonical
     // attribute, so the same attribute written two ways groups
     // together; a label outside the controlled vocabulary does
@@ -967,7 +1021,7 @@ export function computeAgentDataValueMismatches(
     if (!entity || !canonicalAttribute) continue;
     let group = groups.get(key);
     if (!group) {
-      group = { entity, attribute: entry.attribute.normalize('NFKC').trim(), byValue: new Map() };
+      group = { entity, attribute: entry.attribute.normalize('NFKC').trim(), basis, byValue: new Map() };
       groups.set(key, group);
     }
     const effective = effectiveAgentDataValue(entry, canonicalAttribute);
@@ -986,6 +1040,7 @@ export function computeAgentDataValueMismatches(
     mismatches.push({
       entity: group.entity,
       attribute: group.attribute,
+      ...(group.basis ? { basis: group.basis } : {}),
       values: [...group.byValue.values()].slice(0, AGENT_DATA_VALUE_MISMATCH_VALUES_MAX),
     });
     if (mismatches.length >= AGENT_DATA_VALUE_MISMATCH_MAX) break;
@@ -996,7 +1051,7 @@ export function computeAgentDataValueMismatches(
 /**
  * The recorded summary of one bundle's value table (failure
  * diagnosis 2026-11-24, 対策1(d)): how many entries the table
- * holds and how they group — the (entity, attribute, scope)
+ * holds and how they group — the (entity, attribute, scope, basis)
  * group keys with their entry counts and distinct-value counts,
  * in the same grouping the candidate computation uses. The
  * production M&A run
@@ -1428,6 +1483,7 @@ export function parseAgentDataValueMismatches(raw: unknown): AgentDataValueMisma
     const entity = trimmedAuditText(record.entity, 120);
     const attribute = trimmedAuditText(record.attribute, 120);
     if (!entity || !attribute || !Array.isArray(record.values)) continue;
+    const basis = trimmedAuditText(record.basis, 120);
     const values: AgentDataValueMismatch['values'] = [];
     for (const rawValue of record.values) {
       if (!rawValue || typeof rawValue !== 'object' || Array.isArray(rawValue)) continue;
@@ -1441,7 +1497,7 @@ export function parseAgentDataValueMismatches(raw: unknown): AgentDataValueMisma
         location: trimmedAuditText(entry.location, 200),
       });
     }
-    if (values.length >= 2) mismatches.push({ entity, attribute, values });
+    if (values.length >= 2) mismatches.push({ entity, attribute, ...(basis ? { basis } : {}), values });
     if (mismatches.length >= AGENT_DATA_VALUE_MISMATCH_MAX) break;
   }
   return mismatches;
@@ -2285,8 +2341,11 @@ export async function executeAttachmentAnalyzer(
     // deterministic first-seen merge.
     if (auditMode && outputKind === 'findings') {
       for (const value of output.values) {
-        const key = `${value.entity}|${value.attribute}|${value.value}|${value.file}|${value.location}`;
-        if (!merged.values.some((existing) => `${existing.entity}|${existing.attribute}|${existing.value}|${existing.file}|${existing.location}` === key)) {
+        // The dedupe key carries the basis (M-1): the same value
+        // stated for two different bases is two rows of the
+        // table, not a duplicate.
+        const key = `${value.entity}|${value.attribute}|${value.value}|${value.file}|${value.location}|${value.basis ?? ''}`;
+        if (!merged.values.some((existing) => `${existing.entity}|${existing.attribute}|${existing.value}|${existing.file}|${existing.location}|${existing.basis ?? ''}` === key)) {
           merged.values.push(value);
         }
       }
@@ -2302,6 +2361,39 @@ export async function executeAttachmentAnalyzer(
       merged.values = applyAgentDataValueSeeds(merged.values, extractAgentDataValueSeeds(chunk), merged.structure);
     }
   }
+
+  // Location conversion (M-3, rerun diagnosis 2026-11-27): on
+  // the step that completes the set, the merged value table's
+  // chunk/line citations become document page citations,
+  // deterministically, before the bundle below computes the
+  // candidates from the table — so the candidates, the pickups
+  // built from them and the recorded table all carry the one
+  // converted form. A location the conversion cannot resolve
+  // keeps its recorded form; no page is ever invented.
+  if (isFinalStep && auditMode && outputKind === 'findings') {
+    const resolveLocation = createAgentLocationPageResolver(view.chunks);
+    merged.values = merged.values.map((entry) => {
+      const location = resolveLocation(entry.location);
+      return location === entry.location ? entry : { ...entry, location };
+    });
+  }
+
+  // Business-line department check (B-2, rerun diagnosis
+  // 2026-11-27): on the final rows step, the merged rows are
+  // checked against the department → business-line mapping the
+  // set itself declares, in the same position the numeric copy
+  // occupies for copied numbers — after the merge, before the
+  // bundle renders the rows, so the artifact, the gates and the
+  // record all see the checked rows. Null for every set that
+  // carries no such mapping: their bundles stay byte-identical.
+  const businessLineCheck = isFinalStep && outputKind === 'rows'
+    ? applyBusinessLineDepartmentCheck({
+        files,
+        rows: merged.rows,
+        keyField: view.keyField,
+        requiredOutputColumns: view.requiredOutputColumns,
+      })
+    : null;
 
   // Diagnostic bundle (K-17 target B, design AGENT_K17_FAILED_STEP_
   // ARTIFACT_DESIGN_2026-11-24 §2/§5): the artifact this step has
@@ -2368,6 +2460,11 @@ export async function executeAttachmentAnalyzer(
             return biaInputs ? { biaInputs } : {};
           })()
         : {}),
+      // Business-line check record (B-2): the corrections the
+      // deterministic department check applied and the
+      // departments it left unmapped, identifiers only — present
+      // exactly when the set carries a department mapping.
+      ...(businessLineCheck ? { businessLineCheck } : {}),
       coverage: {
         totalChunks: view.totalChunks,
         processedChunks: chunkOffset + range.length,
