@@ -184,6 +184,36 @@ describe("buildGroundedResearchEvidencePacket", () => {
     expect(texts).not.toContain("前期比−0.0%（年率−0.1%）でした。");
   });
 
+  it("rejoins a label line ending in a comma after its particle (round-3 measure 2-4, ESRI summary shape)", () => {
+    // ANSWER_STATISTICS_ROUND3_DIAGNOSIS_2026-11-26, failure 2(b):
+    // ESRI's summary PDF writes the label with a comma —
+    // "…の成長率は、" — and the measure-B ending test knew only the
+    // bare particles, so label and value stayed separate candidates
+    // and the value-only half then failed the reconstruction's key
+    // gate. The rejoined candidate keeps the comma: it is the
+    // publisher's verbatim sentence.
+    const packet = buildGroundedResearchEvidencePacket(
+      [
+        source({
+          title: "四半期別GDP速報",
+          url: "https://www.esri.cao.go.jp/jp/sna/data/data_list/sokuhou/gaiyou/pdf/main_1.pdf",
+          domain: "esri.cao.go.jp",
+          authorityTier: "official",
+          excerpt:
+            "2026年7～9月期の実質ＧＤＰの成長率は、\n▲0.0％（年率▲0.1％）となった。また、名目ＧＤＰの成長率は、0.4％（年率1.6％）となった。",
+        }),
+      ],
+      "日本の最新の実質GDP成長率を教えてください",
+    );
+    const texts = packet.sentences.map((sentence) => sentence.text);
+    expect(texts).toContain(
+      "2026年7～9月期の実質ＧＤＰの成長率は、▲0.0％（年率▲0.1％）となった。",
+    );
+    // Neither half survives on its own.
+    expect(texts).not.toContain("2026年7～9月期の実質ＧＤＰの成長率は、");
+    expect(texts).not.toContain("▲0.0％（年率▲0.1％）となった。");
+  });
+
   it("does not rejoin when the following line carries a question key of its own (measure B)", () => {
     const packet = buildGroundedResearchEvidencePacket(
       [

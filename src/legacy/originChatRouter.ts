@@ -794,6 +794,22 @@ export function createOriginChatRouter(options: OriginChatRouterOptions = {}) {
       }
       let synthesisStatus = "not-run";
       let synthesisFailureCode: string | undefined;
+      // Synthesis attribution (round-3 measure D,
+      // ANSWER_STATISTICS_ROUND3_DIAGNOSIS_2026-11-26): the salvage
+      // outcome and the feedback-retry outcome of a DISCARDED
+      // synthesis. These were recorded only in server log lines, so
+      // a sources-only landing reaching the client could not be
+      // attributed between a coverage failure, a salvage abort, and
+      // a skipped retry without log access inside the retention
+      // window. They ride the final response's routing block below
+      // (codes and counts only, like every synthesis record here).
+      let synthesisSalvageAttempted = false;
+      let synthesisSalvageRemovedUnits: number | undefined;
+      let synthesisSalvageAbortCode: string | undefined;
+      let synthesisRemainingUncitedUnits: number | undefined;
+      let synthesisRetried = false;
+      let synthesisRetryFailureCode: string | undefined;
+      let synthesisRetrySkipped: string | undefined;
       // Answer verification (V-PR-2): the text-path synthesis execution
       // is captured so the shadow verification at the T0 return and at
       // the final assembly can identify the serving route from the
@@ -1424,6 +1440,21 @@ export function createOriginChatRouter(options: OriginChatRouterOptions = {}) {
             // The discard keeps the FIRST validation failure code (§3.7);
             // a salvage abort is recorded separately, counts and code only.
             synthesisFailureCode = adoption.failureCode;
+            // Round-3 measure D: the same salvage / retry attribution
+            // the log lines below carry, hoisted so the final
+            // response's routing block can carry it to the client.
+            if (adoption.salvageAttempted) {
+              synthesisSalvageAttempted = true;
+              synthesisSalvageRemovedUnits = adoption.salvageRemovedUnits;
+              synthesisSalvageAbortCode = adoption.salvageAbortCode;
+              synthesisRemainingUncitedUnits = adoption.remainingUncitedUnits;
+            }
+            if (retryOutcome.retried) {
+              synthesisRetried = true;
+              synthesisRetryFailureCode = retryOutcome.retryFailureCode;
+            } else if (retryOutcome.retrySkipped) {
+              synthesisRetrySkipped = retryOutcome.retrySkipped;
+            }
             if (adoption.salvageAttempted) {
               console.warn("[origin-chat] research synthesis salvage aborted", {
                 requestId,
@@ -1832,6 +1863,28 @@ export function createOriginChatRouter(options: OriginChatRouterOptions = {}) {
           ...(researchResult.grounding ? { searchGrounding: researchResult.grounding, groundingObservation: groundingObservationForResponse(researchResult, grounded.sources) } : {}),
           synthesisStatus,
           ...(synthesisFailureCode ? { synthesisFailureCode } : {}),
+          // Round-3 measure D: the discarded synthesis's salvage and
+          // feedback-retry attribution, so a sources-only landing is
+          // attributable from the response itself (the failure code
+          // above names WHAT failed; these name what the rescue
+          // stages did about it). Codes and counts only.
+          ...(synthesisSalvageAttempted
+            ? {
+                synthesisSalvageAttempted: true,
+                synthesisSalvageRemovedUnits: synthesisSalvageRemovedUnits ?? 0,
+                ...(synthesisSalvageAbortCode ? { synthesisSalvageAbortCode } : {}),
+                ...(synthesisRemainingUncitedUnits !== undefined
+                  ? { synthesisRemainingUncitedUnits }
+                  : {}),
+              }
+            : {}),
+          ...(synthesisRetried
+            ? {
+                synthesisRetried: true,
+                ...(synthesisRetryFailureCode ? { synthesisRetryFailureCode } : {}),
+              }
+            : {}),
+          ...(synthesisRetrySkipped ? { synthesisRetrySkipped } : {}),
           researchTier: landing.tier,
           researchOutcome: landing.outcome,
           ...(landing.abstainReason ? { researchAbstainReason: landing.abstainReason } : {}),
