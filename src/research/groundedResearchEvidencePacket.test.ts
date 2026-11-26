@@ -155,6 +155,95 @@ describe("buildGroundedResearchEvidencePacket", () => {
       buildGroundedResearchEvidencePacket(sources, question),
     );
   });
+
+  it("rejoins a heading label line with the key-less value line that follows it (measure B, ESRI shape)", () => {
+    // ANSWER_SOURCES_ONLY_DIAGNOSIS_2026-11-26, failure 2: the ESRI
+    // page puts the label and the value on separate lines. The label
+    // carries the question keys but no value; the value line carries
+    // the number but no key, so neither half was quotable alone and
+    // the landing quoted the label with the value missing.
+    const packet = buildGroundedResearchEvidencePacket(
+      [
+        source({
+          title: "四半期別GDP速報",
+          url: "https://www.esri.cao.go.jp/jp/sna/data/data_list/sokuhou/gaiyou/pdf/main_1.pdf",
+          domain: "esri.cao.go.jp",
+          authorityTier: "official",
+          excerpt:
+            "2026年7～9月期の実質ＧＤＰの成長率は\n前期比−0.0%（年率−0.1%）でした。名目ＧＤＰの成長率は0.4%でした。",
+        }),
+      ],
+      "日本の最新の実質GDP成長率を教えてください",
+    );
+    const texts = packet.sentences.map((sentence) => sentence.text);
+    expect(texts).toContain(
+      "2026年7～9月期の実質ＧＤＰの成長率は前期比−0.0%（年率−0.1%）でした。",
+    );
+    // Neither half survives on its own.
+    expect(texts).not.toContain("2026年7～9月期の実質ＧＤＰの成長率は");
+    expect(texts).not.toContain("前期比−0.0%（年率−0.1%）でした。");
+  });
+
+  it("does not rejoin when the following line carries a question key of its own (measure B)", () => {
+    const packet = buildGroundedResearchEvidencePacket(
+      [
+        source({
+          title: "四半期別GDP速報",
+          excerpt: "実質ＧＤＰの成長率は\n実質ＧＤＰは前期比−0.0%でした。",
+        }),
+      ],
+      "日本の最新の実質GDP成長率を教えてください",
+    );
+    const texts = packet.sentences.map((sentence) => sentence.text);
+    expect(texts).not.toContain("実質ＧＤＰの成長率は実質ＧＤＰは前期比−0.0%でした。");
+    expect(texts).toContain("実質ＧＤＰは前期比−0.0%でした。");
+  });
+
+  it("does not rejoin a label that does not end as a continuing fragment (measure B)", () => {
+    const packet = buildGroundedResearchEvidencePacket(
+      [
+        source({
+          title: "四半期別GDP速報",
+          excerpt: "実質ＧＤＰの成長率について\n前期比−0.0%でした。",
+        }),
+      ],
+      "日本の最新の実質GDP成長率を教えてください",
+    );
+    const texts = packet.sentences.map((sentence) => sentence.text);
+    expect(texts).not.toContain("実質ＧＤＰの成長率について前期比−0.0%でした。");
+  });
+
+  it("ranks the current official value sentence above a stale secondary one (measure C)", () => {
+    // The B3 shape at packet level: equal key overlap, but the
+    // secondary sentence used to win on digit/term signals alone.
+    // Authority (official tier) and recency (the pool's latest
+    // stated edition) now rank the official current value first.
+    const packet = buildGroundedResearchEvidencePacket(
+      [
+        source({
+          title: "一般職業紹介状況（令和8年9月分）",
+          url: "https://www.mhlw.go.jp/stf/newpage_76960.html",
+          domain: "mhlw.go.jp",
+          authorityTier: "official",
+          excerpt: "令和8年9月の有効求人倍率は1.19倍で、前月と比べて0.01ポイント上昇しました。",
+        }),
+        source({
+          title: "有効求人倍率、8月は1.18倍 横ばい",
+          url: "https://www.nikkei.com/article/example",
+          domain: "nikkei.com",
+          authorityTier: "major-news",
+          excerpt: "8月の有効求人倍率は1.18倍で、前月から横ばいでした。",
+        }),
+      ],
+      "有効求人倍率の最新の値を教えてください",
+    );
+    const byText = new Map(packet.sentences.map((sentence) => [sentence.text, sentence.score]));
+    const official = byText.get("令和8年9月の有効求人倍率は1.19倍で、前月と比べて0.01ポイント上昇しました。");
+    const secondary = byText.get("8月の有効求人倍率は1.18倍で、前月から横ばいでした。");
+    expect(official).toBeDefined();
+    expect(secondary).toBeDefined();
+    expect(official ?? 0).toBeGreaterThan(secondary ?? 0);
+  });
 });
 
 describe("extractPacketQuestionKeys", () => {

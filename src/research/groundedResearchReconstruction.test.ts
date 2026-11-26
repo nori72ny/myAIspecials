@@ -266,4 +266,78 @@ describe("tryGroundedResearchReconstruction", () => {
     expect(attempt.text).toContain("（対象：令和8年9月分）");
     expect(attempt.text).not.toContain("（出典の日付：2026年10月30日）");
   });
+
+  it("quotes the current official value, not only the stale secondary one (measure C, B3 shape)", () => {
+    // ANSWER_SOURCES_ONLY_DIAGNOSIS_2026-11-26, failure 1: the
+    // pool held the current MHLW release (post-extract, its value
+    // sentence is in the material) and a Nikkei piece carrying the
+    // previous month's value. The values disagree, so the vote
+    // cannot fire; the packet landing must still quote the official
+    // current value — the failure was a landing whose only quoted
+    // number was the stale secondary 1.18.
+    const sources = [
+      source({
+        title: "一般職業紹介状況（令和8年9月分）",
+        url: "https://www.mhlw.go.jp/stf/newpage_76960.html",
+        domain: "mhlw.go.jp",
+        authorityTier: "official",
+        excerpt: "令和8年9月の有効求人倍率は1.19倍で、前月と比べて0.01ポイント上昇しました。",
+      }),
+      source({
+        title: "有効求人倍率、8月は1.18倍 横ばい",
+        url: "https://www.nikkei.com/article/example",
+        domain: "nikkei.com",
+        authorityTier: "major-news",
+        excerpt: "8月の有効求人倍率は1.18倍で、前月から横ばいでした。完全失業率は2.5%に上昇しました。",
+      }),
+    ];
+    const attempt = tryGroundedResearchReconstruction({
+      question: "有効求人倍率の最新の値を教えてください",
+      sources,
+      language: "ja",
+      nowMs: NOW,
+    });
+    expect(attempt.established).toBe(true);
+    expect(attempt.via).toBe("packet-sentences");
+    expect(attempt.voteFired).toBe(false);
+    // The official current value is quoted, cited to the ministry,
+    // and annotated with its edition.
+    expect(attempt.text).toContain(
+      "「令和8年9月の有効求人倍率は1.19倍で、前月と比べて0.01ポイント上昇しました。」 [S1](https://www.mhlw.go.jp/stf/newpage_76960.html) （対象：令和8年9月分）",
+    );
+    // The unrelated unemployment figure from the secondary piece is
+    // not carried: it matches none of the question's keys.
+    expect(attempt.text).not.toContain("完全失業率は2.5%に上昇しました");
+  });
+
+  it("suppresses a stale-edition sentence when the current official release is carried (measure C)", () => {
+    // Both releases are official; only their editions differ. Once
+    // the current edition's value is carried, the superseded
+    // edition's value must not be quoted next to it.
+    const sources = [
+      source({
+        title: "一般職業紹介状況（令和8年9月分）",
+        url: "https://www.mhlw.go.jp/stf/newpage_76960.html",
+        domain: "mhlw.go.jp",
+        authorityTier: "official",
+        excerpt: "令和8年9月の有効求人倍率は1.19倍で、前月と比べて0.01ポイント上昇しました。",
+      }),
+      source({
+        title: "一般職業紹介状況（令和7年12月分）",
+        url: "https://www.mhlw.go.jp/stf/newdata/20251226.html",
+        domain: "mhlw.go.jp",
+        authorityTier: "official",
+        excerpt: "令和7年12月の有効求人倍率は1.18倍でした。",
+      }),
+    ];
+    const attempt = tryGroundedResearchReconstruction({
+      question: "有効求人倍率の最新の値を教えてください",
+      sources,
+      language: "ja",
+      nowMs: NOW,
+    });
+    expect(attempt.established).toBe(true);
+    expect(attempt.text).toContain("1.19倍");
+    expect(attempt.text).not.toContain("1.18倍");
+  });
 });

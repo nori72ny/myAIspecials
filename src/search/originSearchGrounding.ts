@@ -1340,8 +1340,27 @@ export async function executeOriginSearchGrounding(
 
   // Extract (§2.3): only when snippets are thin or the type is number-critical
   // (price_spec / policy), only the top 2, and only inside the total budget.
+  // Follow-up measure A (ANSWER_SOURCES_ONLY_DIAGNOSIS_2026-11-26):
+  // a statistical question whose adopted pool already holds an
+  // official-tier source extracts too. The official publication page
+  // states its value in the body, while the search snippet is capped
+  // at 1500 characters and may never carry it — and every downstream
+  // stage (synthesis cards, evidence packet, value vote) can only
+  // work with text that actually arrived, so snippet-bound evidence
+  // made the latest official value unreachable even when the pool
+  // held the right page. officialPlan is non-null exactly when
+  // official routing is on AND the answer type is statistical
+  // (STATISTICAL_ANSWER_TYPES) AND a curated topic matched, so this
+  // widening stays inside "statistical + official adopted" and no
+  // other question class starts extracting.
   const snippetChars = selected.reduce((sum, source) => sum + source.excerpt.length, 0);
-  const extractWanted = questionType === "price_spec" || questionType === "policy" || snippetChars < EXTRACT_SNIPPET_THRESHOLD;
+  const statisticalOfficialExtract =
+    officialPlan !== null && selected.some((source) => source.authorityTier === "official");
+  const extractWanted =
+    questionType === "price_spec" ||
+    questionType === "policy" ||
+    snippetChars < EXTRACT_SNIPPET_THRESHOLD ||
+    statisticalOfficialExtract;
   if (extractWanted && tavilyEnabled && remainingMs() >= 1_000) {
     const extractAccess = providerAccess("tavily", deps, 1);
     if (extractAccess.enabled) {
