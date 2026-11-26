@@ -227,6 +227,8 @@ type Translation = {
   freeOnlyTitle: string;
   freeOnlyDescription: string;
   secretWarning: string;
+  secretWarningException: string;
+  originKeysNote: string;
   technicalInformation: string;
   releaseId: string;
   releaseChecking: string;
@@ -464,7 +466,9 @@ export const TRANSLATIONS: Record<OriginLanguage, Translation> = {
     safetyHeading: '安全と費用',
     freeOnlyTitle: 'この版は無料AIだけを使います。',
     freeOnlyDescription: '有料AIへの自動切り替えは行いません。',
-    secretWarning: 'パスワード、APIキー、トークン、秘密鍵を設定画面やチャットへ入力しないでください。',
+    secretWarning: '外部サービスのパスワード、APIキー、トークン、秘密鍵を、この画面やチャットへ入力しないでください。',
+    secretWarningException: 'この画面の『実行キー』と『管理者キー』はORIGIN専用のキーです。入力先はこの画面だけで、保存はされません。',
+    originKeysNote: '実行キーと管理者キーは、どちらもORIGIN専用のキーです。外部サービスのAPIキーとは別物で、入力したキーは保存されません。',
     technicalInformation: '技術情報',
     releaseId: 'リリースID',
     releaseChecking: '確認中…',
@@ -700,7 +704,9 @@ export const TRANSLATIONS: Record<OriginLanguage, Translation> = {
     safetyHeading: 'Safety',
     freeOnlyTitle: 'ORIGIN does not use paid AI automatically.',
     freeOnlyDescription: 'There is no automatic switch to paid AI.',
-    secretWarning: 'Do not enter passwords, API keys, tokens, or private keys here or in chat.',
+    secretWarning: 'Do not enter passwords, API keys, tokens, or private keys for external services here or in chat.',
+    secretWarningException: 'The "Execution key" and "Administrator key" on this screen are ORIGIN-only keys. They are entered only on this screen and are never saved.',
+    originKeysNote: 'The execution key and the administrator key are both ORIGIN-only keys. They are not API keys for external services, and entered keys are never saved.',
     technicalInformation: 'Technical information',
     releaseId: 'Release ID',
     releaseChecking: 'Checking…',

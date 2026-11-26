@@ -59,7 +59,7 @@ test.describe('ORIGIN Personal 2.0 production surface', () => {
     await expect(page.getByRole('tablist', { name: 'Coding workspace views' })).toHaveCount(0);
     await expect(page.getByText('Plan', { exact: true })).toHaveCount(0);
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
-    await page.locator('section[aria-label="Workspace tool header"]').getByTestId('sidebar-toggle').click();
+    await page.getByTestId('origin-shell-header').getByTestId('sidebar-toggle').click();
     await page.getByTestId('sidebar-nav-chat').click();
     await expect(page.getByTestId('origin-home-request')).toHaveValue('保存前の相談メモ');
     await page.goBack();
@@ -214,7 +214,7 @@ test.describe('ORIGIN Personal 2.0 production surface', () => {
       await expect(page.getByLabel('任せたいこと', { exact: true })).toBeEditable();
       await noOverflow();
       if ((await page.getByTestId('origin-sidebar').getAttribute('data-open')) !== 'true') {
-        await page.locator('section[aria-label="Workspace tool header"]').getByTestId('sidebar-toggle').click();
+        await page.getByTestId('origin-shell-header').getByTestId('sidebar-toggle').click();
       }
       await page.getByTestId('sidebar-nav-chat').click();
 
@@ -225,7 +225,7 @@ test.describe('ORIGIN Personal 2.0 production surface', () => {
       await expect(page.getByLabel('作りたいもの・直したいこと', { exact: true })).toBeEditable();
       await noOverflow();
       if ((await page.getByTestId('origin-sidebar').getAttribute('data-open')) !== 'true') {
-        await page.locator('section[aria-label="Workspace tool header"]').getByTestId('sidebar-toggle').click();
+        await page.getByTestId('origin-shell-header').getByTestId('sidebar-toggle').click();
       }
       await page.getByTestId('sidebar-nav-chat').click();
 
@@ -622,6 +622,57 @@ test.describe('ORIGIN Personal 2.0 production surface', () => {
     await expect(page.getByTestId('history-session-list')).toBeVisible();
     await expect(page.getByText('その他の表示')).toHaveCount(0);
     await expect(page.getByTestId('knowledge-map-toggle')).toHaveCount(0);
+  });
+
+  test('restores a past conversation from a workspace through the unified shell header history', async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.route('**/api/chat', route => route.fulfill({
+      status: 200,
+      contentType: 'text/plain; charset=utf-8',
+      body: '過去の会話への回答です。',
+    }));
+    await page.goto('/');
+    await page.getByTestId('origin-home-request').fill('過去の相談');
+    await page.getByTestId('start-request-button').click();
+    await expect(page.getByText('過去の会話への回答です。', { exact: true })).toBeVisible();
+
+    // 新しい会話を始めると、前の会話は履歴から復元できる過去の
+    // セッションになる。
+    if ((await page.getByTestId('origin-sidebar').getAttribute('data-open')) !== 'true') {
+      await page.getByTestId('sidebar-toggle').click();
+    }
+    await page.getByTestId('sidebar-new-conversation').click();
+    await expect(page.getByTestId('origin-home-request')).toBeVisible();
+
+    // コード画面へ移動し、統一ヘッダー（バッチ6、仕様A）の履歴から
+    // 復元すると、チャット画面へ戻ってその会話が開く。
+    await page.getByTestId('origin-add-menu-toggle').click();
+    await page.getByRole('menuitem', { name: 'コード', exact: true }).click();
+    await expect(page).toHaveURL(/workspace=coding/);
+    await expect(page.getByTestId('origin-shell-header')).toBeVisible();
+    await page.getByTestId('history-drawer-toggle').click();
+    await page.getByTestId('history-session-item-0').click();
+    await expect(page).not.toHaveURL(/workspace=/);
+    await expect(page.getByText('過去の会話への回答です。', { exact: true })).toBeVisible();
+  });
+
+  test('opens the image generation panel from the sidebar image entry on any screen', async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto('/');
+
+    // AIニュース画面からでも、画像項目を押すとチャットへ戻って
+    // 画像生成パネルが開く（バッチ6、仕様B）。
+    await page.getByTestId('sidebar-nav-ai-news').click();
+    await expect(page).toHaveURL(/workspace=ai-news/);
+    const imageEntry = page.getByTestId('sidebar-image');
+    await expect(imageEntry).toBeVisible();
+    expect(await imageEntry.getAttribute('aria-current')).toBeNull();
+    await imageEntry.click();
+
+    await expect(page).not.toHaveURL(/workspace=/);
+    const panel = page.getByTestId('origin-image-generation-panel');
+    await expect(panel).toBeVisible();
+    await expect(panel.getByRole('heading', { name: '画像を生成' })).toBeVisible();
   });
 });
 

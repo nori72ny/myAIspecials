@@ -227,25 +227,10 @@
   background: color-mix(in oklch, var(--bg-surface) 98%, var(--bg-primary)) !important;
   box-shadow: var(--shadow-3) !important;
 }
-/* The descendant combinator is load-bearing (2026-11-25): the
-   section is NOT a direct child of the shell — it sits inside the
-   shell's flex column — so the child-combinator form of this rule
-   never matched and the K-09 header recipe silently never applied
-   (the tool header measured 57px against the chat header's 60px). */
-.origin-personal-shell section[aria-label="Workspace tool header"] {
-  /* Header unification (external evaluation fix, 2026-11-25): the
-     workspace tool header takes the chat header's exact height
-     (60px, the .origin-header rule above) and inline padding, so
-     the agent / code screens and the chat screen share one header
-     system instead of two near-identical ones (measured before:
-     57px here vs 60px on chat). The toggle icon's stroke is unified
-     in PersonalEditionApp.tsx (2.1 -> 1.9, the K-31 value). */
-  min-height: 60px;
-  padding-inline: clamp(10px, 2.5vw, 20px);
-  background: color-mix(in oklch, var(--bg-primary) 90%, transparent) !important;
-  border-color: var(--border-default) !important;
-  backdrop-filter: blur(10px);
-}
+/* デザイン是正バッチ6（仕様A）：ワークスペース側のツールヘッダーは
+   シェルの統一ヘッダー（.origin-header、上記）へ統合され、個別規則は
+   対象要素ごと削除した。高さ・横パディング・背景は全画面で
+   .origin-header の単一規則が正本。 */
 .origin-personal-shell :is(
   [aria-label="Research Workspace"],
   [aria-label="Agent Workspace"],
@@ -1855,7 +1840,10 @@ button.origin-orin-panel__feature-row {
    row's right side and covered the name tag (measured overlap
    ~42px at 1280px wide, the whole tag on mobile). While the drawer
    is open the tag hides; the drawer is a transient popover, so the
-   tag simply returns when it closes. */
-.origin-app main:has([data-testid="history-drawer"]) .origin-orin-presence__name {
+   tag simply returns when it closes. デザイン是正バッチ6（仕様A
+   §2.5）でこの挙動を仕様として確定。ドロワーがシェルのヘッダーへ
+   移ったため、アンカーは .origin-app main からシェル全体へ付け替えた
+   （挙動は不変）。 */
+.origin-personal-shell:has([data-testid="history-drawer"]) .origin-orin-presence__name {
   visibility: hidden;
 }

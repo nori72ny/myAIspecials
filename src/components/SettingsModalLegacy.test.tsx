@@ -167,3 +167,43 @@ describe('SettingsModalLegacy focus trap', () => {
     expect(document.activeElement).toBe(copyButton);
   });
 });
+
+describe('SettingsModalLegacy key sections (design batch 6)', () => {
+  it('scopes the secret warning to external services and states the ORIGIN-key exception in the safety section', async () => {
+    await renderModal();
+
+    const safety = screen.getByTestId('origin-execution-policy');
+    // 注意文の対象は外部サービスの秘密情報に限定される（切り分け案A）。
+    expect(safety.textContent).toContain('外部サービスのパスワード、APIキー、トークン、秘密鍵を、この画面やチャットへ入力しないでください。');
+    // 安全節に、この画面の2つのキーが例外である一文が添えられる。
+    expect(safety.textContent).toContain('この画面の『実行キー』と『管理者キー』はORIGIN専用のキーです。入力先はこの画面だけで、保存はされません。');
+  });
+
+  it('places the two key sections next to each other under one shared note (案B)', async () => {
+    await renderModal();
+
+    const scrollRegion = screen.getByTestId('settings-scroll-region');
+    const note = Array.from(scrollRegion.querySelectorAll('p')).find((element) => element.textContent?.includes('実行キーと管理者キーは、どちらもORIGIN専用のキーです'));
+    expect(note).toBeTruthy();
+    expect(note!.textContent).toContain('外部サービスのAPIキーとは別物で、入力したキーは保存されません。');
+
+    const codingSection = document.getElementById('coding-execution-heading')?.closest('section');
+    expect(codingSection).toBeTruthy();
+    // 共通説明は、2つのキー節の冒頭（コード実行の節の直前）に置かれる。
+    expect(note!.compareDocumentPosition(codingSection!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+
+    const adminSummary = Array.from(scrollRegion.querySelectorAll('summary')).find((element) => element.textContent?.includes('管理者キー'));
+    expect(adminSummary).toBeTruthy();
+    const adminDetails = adminSummary!.closest('details')!;
+    // 管理者キーの節はコード実行の節と隣接し、安全節より前に来る。
+    expect(codingSection!.compareDocumentPosition(adminDetails) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    const safety = screen.getByTestId('origin-execution-policy');
+    expect(adminDetails.compareDocumentPosition(safety) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+
+    // 管理者キーの節の説明にも、ORIGIN専用である切り分けが同型で入る。
+    expect(adminDetails.textContent).toContain('ORIGIN専用のキーで、外部サービスのAPIキーとは別物です。');
+    // ラベル「管理者キー」はオーナー決定で現行維持。
+    expect(adminSummary!.textContent).toContain('管理者キー');
+    expect(screen.getByLabelText('管理者キー')).toBeTruthy();
+  });
+});

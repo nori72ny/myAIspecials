@@ -3,6 +3,12 @@ import OriginAgentActionProgressV31 from './personal/OriginAgentActionProgressV3
 import OriginCodingWorkspaceV31 from './personal/OriginCodingWorkspaceV31';
 import { getSessionCredential, useSessionCredential } from '../security/sessionCredentials';
 
+// 状態確認の時間上限（デザイン是正バッチ6、切り分け案1）。応答が
+// 滞留しても「確認中」のまま固まらず、上限で「今は利用できません」
+// へ倒して再試行できるようにする。エージェント画面
+// （AgentWorkspaceView）の状態確認と同値・同型に揃える。
+export const STATUS_CHECK_TIMEOUT_MS = 10_000;
+
 export type CodingJobStatus = 'queued' | 'leased' | 'running' | 'repairing' | 'verified' | 'blocked' | 'failed' | 'cancelled';
 type ResultDetailsState = 'pending' | 'available' | 'unavailable' | 'not_applicable';
 type CodingJobAuthorizationMode = 'coding-operator' | 'legacy-agent-compat' | 'unconfigured';
@@ -174,27 +180,38 @@ export default function CodingJobWorkspaceV14({ initialGoal, onOpenSettings }: C
   const currentJobIdRef = useRef('');
   const refreshInFlightRef = useRef(false);
 
-  useEffect(() => {
-    mountedRef.current = true;
+  const capabilityCheckRef = useRef<AbortController | null>(null);
+  // 状態確認は時間上限つきで数え直せる形にする（同上、案1）。最新の
+  // 確認だけが状態を書き換える（古い確認の失敗で新しい確認を潰さない）。
+  const checkCapability = useCallback(() => {
+    capabilityCheckRef.current?.abort();
     const controller = new AbortController();
-    void fetch('/api/coding/v1.4/status', { signal: controller.signal })
+    capabilityCheckRef.current = controller;
+    const timeoutId = window.setTimeout(() => controller.abort(), STATUS_CHECK_TIMEOUT_MS);
+    setCheckingCapability(true);
+    void fetch('/api/coding/v1.4/status', { signal: controller.signal, cache: 'no-store' })
       .then(async response => {
         if (!response.ok) throw new Error('CODING_UI_STATUS_UNAVAILABLE');
         const data = await response.json() as CapabilityResponse;
         if (!data || data.ok !== true) throw new Error('CODING_UI_INVALID_RESPONSE');
-        if (mountedRef.current) setCapability(data);
+        if (mountedRef.current && capabilityCheckRef.current === controller) setCapability(data);
       })
-      .catch(() => { if (mountedRef.current) setCapability({ ok: false, ready: false, resultDetailsReady: false, authorizationMode: 'unconfigured' }); })
-      .finally(() => { if (mountedRef.current) setCheckingCapability(false); });
+      .catch(() => { if (mountedRef.current && capabilityCheckRef.current === controller) setCapability({ ok: false, ready: false, resultDetailsReady: false, authorizationMode: 'unconfigured' }); })
+      .finally(() => { window.clearTimeout(timeoutId); if (mountedRef.current && capabilityCheckRef.current === controller) setCheckingCapability(false); });
+  }, []);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    checkCapability();
     return () => {
       mountedRef.current = false;
       credentialRef.current = '';
       requestEpochRef.current += 1;
       currentJobIdRef.current = '';
       latestVersionRef.current = 0;
-      controller.abort();
+      capabilityCheckRef.current?.abort();
     };
-  }, []);
+  }, [checkCapability]);
 
   const capabilityDetailInFlightRef = useRef(false);
   const refreshCapabilityDetail = useCallback((credential: string) => {
@@ -317,8 +334,11 @@ export default function CodingJobWorkspaceV14({ initialGoal, onOpenSettings }: C
   const hasCredential = sessionCredential.trim() !== '';
   const jobActive = Boolean(job && ACTIVE.has(job.status));
   // キー未入力のときは開始ボタンを無効化せず、押すと設定の「コード実行」
-  // へ案内する（外部評価改修 PR-D、設計メモ項目3-a）。
-  const promptForCredential = ready && !hasCredential && !busy && !jobActive && goal.trim() !== '';
+  // へ案内する（外部評価改修 PR-D、設計メモ項目3-a）。デザイン是正
+  // バッチ6（切り分け案2）で、依頼文の有無にかかわらずキーなしの間は
+  // 常時この形にする：初見（依頼文が空）の状態でも主ボタン自体が
+  // 「次の一手」を示す。
+  const promptForCredential = ready && !hasCredential && !busy && !jobActive;
 
   return <section className="flex min-h-full flex-col justify-center bg-origin-paper p-3 text-origin-ink md:p-5" aria-label="コード">
     <div className="mx-auto w-full max-w-[var(--content-wide)] space-y-4">
@@ -346,9 +366,9 @@ export default function CodingJobWorkspaceV14({ initialGoal, onOpenSettings }: C
         <button
           type="button"
           onClick={() => { if (promptForCredential) { onOpenSettings?.('coding'); return; } void startJob(); }}
-          disabled={!ready || !goal.trim() || busy || Boolean(job && ACTIVE.has(job.status))}
+          disabled={busy || jobActive || !ready || (hasCredential && !goal.trim())}
           aria-describedby="coding-run-status"
-          title={!ready ? '今は利用できないため、始められません' : !goal.trim() ? '作りたいもの・直したいことを入力してください' : job && ACTIVE.has(job.status) ? '今の作業が終わるまで、新しい依頼は始められません' : undefined}
+          title={promptForCredential ? undefined : !ready ? '今は利用できないため、始められません' : jobActive ? '今の作業が終わるまで、新しい依頼は始められません' : hasCredential && !goal.trim() ? '作りたいもの・直したいことを入力してください' : undefined}
           className="origin-primary-button mt-3 min-h-11 w-full rounded-xl px-4 font-bold text-white disabled:cursor-not-allowed"
         >
           {busy ? '始めています…' : job && ACTIVE.has(job.status) ? '実行中' : promptForCredential ? '実行キーを入力する' : '作成・修正を始める'}
@@ -368,6 +388,11 @@ export default function CodingJobWorkspaceV14({ initialGoal, onOpenSettings }: C
         {ready && hasCredential && !goal.trim() && !busy && !(job && ACTIVE.has(job.status)) && (
           <p className="mt-1 text-[13px] leading-5 text-origin-muted">作りたいもの・直したいことを書くと始められます。</p>
         )}
+        {/* キーなし＋依頼文なしでも理由をボタン直下に出す（同上、案2。
+            キーあり側だけに理由文がある非対称をなくす）。 */}
+        {ready && !hasCredential && !goal.trim() && !busy && !jobActive && (
+          <p className="mt-1 text-[13px] leading-5 text-origin-muted">始めるには、先に実行キーを入力してください。</p>
+        )}
 
         {ready && !hasCredential && (
           <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-2 text-[13px] leading-5">
@@ -386,7 +411,7 @@ export default function CodingJobWorkspaceV14({ initialGoal, onOpenSettings }: C
           </div>
         </details>
 
-        {!checkingCapability && !ready && <div role="status" className="mt-3 rounded-xl border border-origin-warning/50 bg-origin-warning/10 p-3 text-[13px] font-semibold leading-5 text-origin-warning">今はコードの作成・変更を始められません。準備が整うまでお待ちください。</div>}
+        {!checkingCapability && !ready && <div role="status" className="mt-3 rounded-xl border border-origin-warning/50 bg-origin-warning/10 p-3 text-[13px] font-semibold leading-5 text-origin-warning"><p>今はコードの作成・変更を始められません。準備が整うまでお待ちください。</p><button type="button" onClick={checkCapability} className="origin-secondary-button mt-2 inline-flex min-h-11 items-center px-3 text-sm font-semibold">もう一度確認する</button></div>}
         {error && <ErrorNotice code={error} />}
       </section>
 

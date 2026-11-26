@@ -1,4 +1,4 @@
-import { Bot, CodeXml, ListTodo, MessageSquare, Newspaper, PanelLeftClose, Plus, Settings } from 'lucide-react';
+import { Bot, CodeXml, ImagePlus, ListTodo, MessageSquare, Newspaper, PanelLeftClose, Plus, Settings } from 'lucide-react';
 import OriginBrandLockup from '../OriginBrandLockup';
 import type { OriginWorkspaceModeV31 } from './OriginWorkspaceModeV31';
 
@@ -9,9 +9,12 @@ import type { OriginWorkspaceModeV31 } from './OriginWorkspaceModeV31';
  * ブランド／新しい会話／チャット・エージェント・コード／AIニュース・
  * 残っている依頼／設定。「AIニュース」と「残っている依頼」は
  * 2026-11-25 のオーナー指示でオリンパネルのタブから移設された。
- * 履歴はまだ入れない（段階2で HistoryDrawer から移す。それまでは現行の
- * ヘッダーの履歴ドロワーをそのまま使う）。「作る」「画像生成」は行き先
- * ではなくチャット内の操作なので置かない（オーナー決定 2026-11-12）。
+ * 履歴はまだ入れない（シェルの統一ヘッダーの履歴ドロワーが担う）。
+ * 「画像」は行き先（画面）としては置かず、「新しい会話」「設定」と
+ * 同じ操作行として置く（デザイン是正バッチ6、仕様B。オーナー決定
+ * 2026-11-12 の「画像生成は行き先ではない」は、画面として置かない
+ * という意味で維持する）。押すとチャットへ遷移して画像生成パネルを
+ * 開く。専用画面は作らない。
  *
  * 方式は幅で切り替える：1,024px 以上はプッシュ式（メイン領域が狭まる）、
  * 未満は左から重なるドロワー＋スクリム。開閉状態の端末内保存と、PC で
@@ -25,6 +28,9 @@ type OriginSidebarProps = {
   onNavigate: (mode: OriginWorkspaceModeV31) => void;
   onNewConversation: () => void;
   onOpenSettings?: () => void;
+  onOpenImagePanel: () => void;
+  /** ＋メニューの「画像生成」と同一の無効条件（App から通知される）。 */
+  imageUnavailableReason?: 'generating' | 'editing' | 'offline' | null;
 };
 
 const NAV_ITEMS: ReadonlyArray<{
@@ -48,7 +54,35 @@ export default function OriginSidebar({
   onNavigate,
   onNewConversation,
   onOpenSettings,
+  onOpenImagePanel,
+  imageUnavailableReason,
 }: OriginSidebarProps) {
+  const imageDisabled = imageUnavailableReason === 'generating' || imageUnavailableReason === 'editing' || imageUnavailableReason === 'offline';
+  const imageDisabledTitle = imageUnavailableReason === 'generating'
+    ? (isEn ? 'Unavailable while a response is being generated' : '応答の生成中は使えません')
+    : imageUnavailableReason === 'editing'
+      ? (isEn ? 'Unavailable while an image is being edited' : '画像の編集中は使えません')
+      : imageUnavailableReason === 'offline'
+        ? (isEn ? 'Unavailable while offline' : 'オフラインのため使えません')
+        : undefined;
+  const renderNavItem = ({ mode, ja, en, Icon }: (typeof NAV_ITEMS)[number]) => {
+    const active = workspace === mode;
+    return (
+      <button
+        key={mode}
+        type="button"
+        data-testid={`sidebar-nav-${mode}`}
+        aria-current={active ? 'page' : undefined}
+        onClick={() => onNavigate(mode)}
+        className={`${
+          active ? 'origin-nav-active' : 'origin-sidebar-item'
+        } flex min-h-11 w-full items-center gap-2.5 px-3 text-left text-sm`}
+      >
+        <Icon aria-hidden="true" size={18} strokeWidth={1.9} />
+        {isEn ? en : ja}
+      </button>
+    );
+  };
   return (
     <>
       {open && (
@@ -103,24 +137,23 @@ export default function OriginSidebar({
         </div>
 
         <nav aria-label={isEn ? 'Switch screen' : '画面切り替え'} className="flex flex-col gap-1 px-3 py-1">
-          {NAV_ITEMS.map(({ mode, ja, en, Icon }) => {
-            const active = workspace === mode;
-            return (
-              <button
-                key={mode}
-                type="button"
-                data-testid={`sidebar-nav-${mode}`}
-                aria-current={active ? 'page' : undefined}
-                onClick={() => onNavigate(mode)}
-                className={`${
-                  active ? 'origin-nav-active' : 'origin-sidebar-item'
-                } flex min-h-11 w-full items-center gap-2.5 px-3 text-left text-sm`}
-              >
-                <Icon aria-hidden="true" size={18} strokeWidth={1.9} />
-                {isEn ? en : ja}
-              </button>
-            );
-          })}
+          {NAV_ITEMS.slice(0, 3).map(renderNavItem)}
+          {/* 画像（仕様B）：作業の入口としてコードの次に置く操作行。
+              画面ではないため選択状態（aria-current／origin-nav-active）
+              は付けない。無効条件は＋メニューの「画像生成」と同一で、
+              理由は title で示す（透明度で落とす一律処理はしない）。 */}
+          <button
+            type="button"
+            data-testid="sidebar-image"
+            disabled={imageDisabled}
+            title={imageDisabledTitle}
+            onClick={onOpenImagePanel}
+            className="origin-sidebar-item flex min-h-11 w-full items-center gap-2.5 px-3 text-left text-sm disabled:cursor-not-allowed"
+          >
+            <ImagePlus aria-hidden="true" size={18} strokeWidth={1.9} />
+            {isEn ? 'Image' : '画像'}
+          </button>
+          {NAV_ITEMS.slice(3).map(renderNavItem)}
         </nav>
 
         <div className="mt-auto px-3 pb-1 pt-2">

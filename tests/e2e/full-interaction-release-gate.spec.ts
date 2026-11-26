@@ -155,7 +155,7 @@ test.describe('ORIGIN full interaction and visual-consistency release gate', () 
         if (surface.menuLabel) {
           // 「← 会話」は PR-D で廃止。サイドバーから会話へ戻る。
           if ((await page.getByTestId('origin-sidebar').getAttribute('data-open')) !== 'true') {
-            await page.locator('section[aria-label="Workspace tool header"]').getByTestId('sidebar-toggle').click();
+            await page.getByTestId('origin-shell-header').getByTestId('sidebar-toggle').click();
           }
           await page.getByTestId('sidebar-nav-chat').click();
           await expect(page).not.toHaveURL(/workspace=/);
@@ -344,7 +344,7 @@ test.describe('ORIGIN full interaction and visual-consistency release gate', () 
       await page.getByRole('menuitem', { name: label, exact: true }).click();
       await expect(page).toHaveURL(new RegExp(`workspace=${workspace}`));
       if ((await page.getByTestId('origin-sidebar').getAttribute('data-open')) !== 'true') {
-        await page.locator('section[aria-label="Workspace tool header"]').getByTestId('sidebar-toggle').click();
+        await page.getByTestId('origin-shell-header').getByTestId('sidebar-toggle').click();
       }
       await page.getByTestId('sidebar-nav-chat').click();
       await expect(page).not.toHaveURL(/workspace=/);
