@@ -1,5 +1,43 @@
 import { expect, test, type Page } from '@playwright/test';
 
+// S3（会話履歴の端末内暗号化）以降、保存レコードは暗号化エンベロープ
+// { version, iv, ciphertext } で IndexedDB に入る。検証は端末内キー
+// （同じ DB の 'aes-gcm-256' レコード）で復号してから行い、検証の強度は
+// 平文時代と変えない。平文の旧レコードはそのまま返し、読めない場合は
+// null を返す（poll の再試行に委ねる）。
+async function readDecryptedSnapshot(page: Page) {
+  return page.evaluate(async () => {
+    try {
+      const db = await new Promise<IDBDatabase>((resolve, reject) => {
+        const open = indexedDB.open('origin-personal-local', 1);
+        open.onsuccess = () => resolve(open.result);
+        open.onerror = () => reject(open.error ?? new Error('open failed'));
+      });
+      try {
+        if (!db.objectStoreNames.contains('snapshots')) return null;
+        const get = (key: string) => new Promise<unknown>((resolve, reject) => {
+          const read = db.transaction('snapshots', 'readonly').objectStore('snapshots').get(key);
+          read.onsuccess = () => resolve(read.result ?? null);
+          read.onerror = () => reject(read.error ?? new Error('read failed'));
+        });
+        const raw = await get('primary');
+        if (!raw || typeof raw !== 'object') return raw;
+        const payload = raw as { iv?: unknown; ciphertext?: unknown };
+        if (typeof payload.iv !== 'string' || typeof payload.ciphertext !== 'string') return raw;
+        const key = await get('aes-gcm-256');
+        if (!key) return raw;
+        const decode = (value: string) => Uint8Array.from(atob(value), (ch) => ch.charCodeAt(0));
+        const plain = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: decode(payload.iv) }, key as CryptoKey, decode(payload.ciphertext));
+        return JSON.parse(new TextDecoder().decode(plain)) as unknown;
+      } finally {
+        db.close();
+      }
+    } catch {
+      return null;
+    }
+  });
+}
+
 async function seedGeneratedImageHistory(page: Page) {
   await page.goto('/');
   await expect(page.getByTestId('origin-home-request')).toBeVisible();
@@ -7,17 +45,7 @@ async function seedGeneratedImageHistory(page: Page) {
   // Let the app's initial empty-state save complete before installing the
   // fixture, so a pending debounced save cannot overwrite it afterwards
   // (the same guard storage-reload.spec.ts uses for its durable fixture).
-  await expect.poll(() => page.evaluate(async () => new Promise<unknown>((resolve) => {
-    const open = indexedDB.open('origin-personal-local', 1);
-    open.onsuccess = () => {
-      const db = open.result;
-      if (!db.objectStoreNames.contains('snapshots')) { db.close(); resolve(null); return; }
-      const read = db.transaction('snapshots', 'readonly').objectStore('snapshots').get('primary');
-      read.onsuccess = () => { resolve(read.result ?? null); db.close(); };
-      read.onerror = () => { db.close(); resolve(null); };
-    };
-    open.onerror = () => resolve(null);
-  }))).toMatchObject({ version: 1, messages: [] });
+  await expect.poll(() => readDecryptedSnapshot(page)).toMatchObject({ version: 1, messages: [] });
 
   await page.evaluate(async () => {
     const canvas = document.createElement('canvas');

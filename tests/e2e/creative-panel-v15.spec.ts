@@ -227,19 +227,38 @@ test.describe('V1.5 Creative panel beside the conversation', () => {
     await expect(page.getByRole('tab', { name: '成果物', exact: true })).toBeVisible();
     // リロード前に、成果物がアプリのスナップショットへ実際に保存された
     // ことを確認する（保存はデバウンスされるため、保存完了を待つ）。
+    // S3（会話履歴の端末内暗号化）以降、スナップショットは暗号化
+    // エンベロープで保存され、ストアには端末キー等のレコードも混在する。
+    // 'primary' を特定して読み、端末内キーで復号してから照合する
+    // （平文の旧レコードはそのまま照合する）。
     await expect.poll(() => page.evaluate(async () => {
       const db = await new Promise<IDBDatabase>((resolve, reject) => {
         const request = indexedDB.open('origin-personal-local');
         request.onsuccess = () => resolve(request.result);
         request.onerror = () => reject(request.error);
       });
-      const rows = await new Promise<unknown[]>((resolve, reject) => {
-        const getAll = db.transaction('snapshots', 'readonly').objectStore('snapshots').getAll();
-        getAll.onsuccess = () => resolve(getAll.result as unknown[]);
-        getAll.onerror = () => reject(getAll.error);
-      });
-      const snapshot = rows[0] as { artifacts?: Array<{ title?: string }> } | undefined;
-      return snapshot?.artifacts?.some(artifact => artifact.title === '履歴Creative') ?? false;
+      try {
+        const get = (key: string) => new Promise<unknown>((resolve, reject) => {
+          const read = db.transaction('snapshots', 'readonly').objectStore('snapshots').get(key);
+          read.onsuccess = () => resolve(read.result);
+          read.onerror = () => reject(read.error);
+        });
+        const raw = await get('primary');
+        if (!raw || typeof raw !== 'object') return false;
+        const payload = raw as { iv?: unknown; ciphertext?: unknown };
+        let snapshot: unknown = raw;
+        if (typeof payload.iv === 'string' && typeof payload.ciphertext === 'string') {
+          const key = await get('aes-gcm-256');
+          if (!key) return false;
+          const decode = (value: string) => Uint8Array.from(atob(value), (ch) => ch.charCodeAt(0));
+          const plain = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: decode(payload.iv) }, key as CryptoKey, decode(payload.ciphertext));
+          snapshot = JSON.parse(new TextDecoder().decode(plain)) as unknown;
+        }
+        const artifacts = (snapshot as { artifacts?: Array<{ title?: string }> }).artifacts;
+        return artifacts?.some(artifact => artifact.title === '履歴Creative') ?? false;
+      } finally {
+        db.close();
+      }
     })).toBe(true);
     await page.getByRole('button', { name: '会話に戻る', exact: true }).click();
 

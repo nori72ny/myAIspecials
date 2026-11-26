@@ -11,17 +11,36 @@ const saved = {
   updatedAt: 1,
 };
 
+// S3（会話履歴の端末内暗号化）以降、保存レコードは暗号化エンベロープ
+// { version, iv, ciphertext } で IndexedDB に入る。検証は端末内キー
+// （同じ DB の 'aes-gcm-256' レコード）で復号してから行い、検証の強度は
+// 平文時代と変えない。平文の旧レコードはそのまま返す。
 async function readSnapshot(page: Page) {
-  return page.evaluate(() => new Promise((resolve, reject) => {
-    const request = indexedDB.open('origin-personal-local', 1);
-    request.onerror = () => reject(new Error('open failed'));
-    request.onsuccess = () => {
-      const db = request.result;
-      const read = db.transaction('snapshots', 'readonly').objectStore('snapshots').get('primary');
-      read.onsuccess = () => { resolve(read.result); db.close(); };
-      read.onerror = () => { reject(new Error('read failed')); db.close(); };
-    };
-  }));
+  return page.evaluate(async () => {
+    const db = await new Promise<IDBDatabase>((resolve, reject) => {
+      const request = indexedDB.open('origin-personal-local', 1);
+      request.onerror = () => reject(new Error('open failed'));
+      request.onsuccess = () => resolve(request.result);
+    });
+    try {
+      const get = (key: string) => new Promise<unknown>((resolve, reject) => {
+        const read = db.transaction('snapshots', 'readonly').objectStore('snapshots').get(key);
+        read.onsuccess = () => resolve(read.result);
+        read.onerror = () => reject(new Error('read failed'));
+      });
+      const raw = await get('primary');
+      if (!raw || typeof raw !== 'object') return raw;
+      const payload = raw as { iv?: unknown; ciphertext?: unknown };
+      if (typeof payload.iv !== 'string' || typeof payload.ciphertext !== 'string') return raw;
+      const key = await get('aes-gcm-256');
+      if (!key) return raw;
+      const decode = (value: string) => Uint8Array.from(atob(value), (ch) => ch.charCodeAt(0));
+      const plain = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: decode(payload.iv) }, key as CryptoKey, decode(payload.ciphertext));
+      return JSON.parse(new TextDecoder().decode(plain)) as unknown;
+    } finally {
+      db.close();
+    }
+  });
 }
 
 async function seed(page: Page) {
