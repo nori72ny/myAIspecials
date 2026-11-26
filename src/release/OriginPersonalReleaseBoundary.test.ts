@@ -14,7 +14,9 @@ describe('ORIGIN Personal production entrypoint', () => {
     expect(entrypoint).toContain('<PersonalEditionApp');
     expect(entrypoint).not.toContain("from './hooks/useAppState'");
 
-    expect(personalEdition).toContain("import App from '../../App';");
+    // バッチ6（仕様A）：履歴ドロワーがシェルのヘッダーへ移設され、
+    // HistoryDrawer も同じモジュールから取り込む形になった。
+    expect(personalEdition).toContain("import App, { HistoryDrawer } from '../../App';");
     expect(personalEdition).toContain('onOpenSettings={onOpenSettings}');
     expect(personalEdition).toContain('language={settings?.language ?? \'ja\'}');
     expect(personalEdition).toContain('designTheme={settings?.designTheme ?? \'minimal\'}');

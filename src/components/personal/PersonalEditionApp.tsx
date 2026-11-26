@@ -1,12 +1,13 @@
 import React, { lazy, Suspense, useCallback, useEffect, useState } from 'react';
 import { PanelLeft } from 'lucide-react';
-import App from '../../App';
+import App, { HistoryDrawer } from '../../App';
+import OriginBrandLockup from '../OriginBrandLockup';
 import OriginSidebar from './OriginSidebar';
 import OrinAiNewsPage from '../OrinAiNewsPage';
 import OrinRemainingPage from '../OrinRemainingPage';
 import type { OrinPanelWorkState } from '../OrinPanel';
 import { ArtifactWorkspace } from '../../App';
-import type { ArtifactBlock, ConversationMessage, ConversationSession } from '../../App';
+import type { ArtifactBlock, ConversationMessage, ConversationSession, OriginImagePanelAvailability } from '../../App';
 import type { Settings } from '../../types';
 import type { OriginWorkspaceModeV31 } from './OriginWorkspaceModeV31';
 
@@ -140,6 +141,17 @@ const PersonalEditionApp = React.memo(function PersonalEditionApp({
     onOpenSettings?.();
     closeSidebarIfOverlay();
   };
+  // サイドバーの画像項目（デザイン是正バッチ6、仕様B）：チャットへ
+  // 遷移し、画像生成パネルを開く要求を信号で App へ渡す。パネルの
+  // 開閉状態と可否の材料は App 側にあるため、開く要求は信号、
+  // 可否は App からの通知（onImagePanelAvailabilityChange）で受ける。
+  const [imagePanelSignal, setImagePanelSignal] = useState(0);
+  const [imagePanelAvailability, setImagePanelAvailability] = useState<OriginImagePanelAvailability>({ disabled: false, reason: null });
+  const handleSidebarOpenImage = () => {
+    switchWorkspace('chat');
+    setImagePanelSignal((value) => value + 1);
+    closeSidebarIfOverlay();
+  };
 
   const [artifacts, setArtifacts] = useState<ArtifactBlock[]>(() => [...(parentArtifacts ?? [])]);
   useEffect(() => { if (parentMessages) setMessages(parentMessages); }, [parentMessages]);
@@ -174,18 +186,34 @@ const PersonalEditionApp = React.memo(function PersonalEditionApp({
     parentOnRestoreSession?.(session);
     parentOnMessagesChange?.(restored);
   }, [parentOnMessagesChange, parentOnRestoreSession]);
+  // シェルのヘッダーの履歴ドロワーからの復元（仕様A §2.2）：チャット
+  // 以外の画面から復元した場合は、復元した会話が見えるようチャット
+  // 画面へ遷移する。
+  const handleHeaderRestoreSession = (session: ConversationSession) => {
+    handleRestoreSession(session);
+    if (workspace !== 'chat') switchWorkspace('chat');
+  };
 
   return <div className="origin-personal-shell flex h-[100dvh] min-h-0 w-full overflow-hidden">
-    <OriginSidebar open={sidebarOpen} workspace={workspace} isEn={isEn} onClose={() => setSidebarOpen(false)} onNavigate={handleSidebarNavigate} onNewConversation={handleSidebarNewConversation} onOpenSettings={onOpenSettings ? handleSidebarOpenSettings : undefined} />
+    <OriginSidebar open={sidebarOpen} workspace={workspace} isEn={isEn} onClose={() => setSidebarOpen(false)} onNavigate={handleSidebarNavigate} onNewConversation={handleSidebarNewConversation} onOpenSettings={onOpenSettings ? handleSidebarOpenSettings : undefined} onOpenImagePanel={handleSidebarOpenImage} imageUnavailableReason={imagePanelAvailability.reason} />
     <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
     {workspace === 'chat' && <a href="#origin-main" className="origin-skip-link">{isEn ? 'Skip to main content' : 'メインコンテンツへスキップ'}</a>}
-    {workspace !== 'chat' && <section aria-label="Workspace tool header" className="origin-surface shrink-0 border-b border-origin-border px-3 sm:px-4">
-      <div className="mx-auto flex min-h-14 w-full max-w-[var(--content-wide)] items-center gap-3">
-        <button type="button" data-testid="sidebar-toggle" aria-label={sidebarOpen ? (isEn ? 'Close sidebar' : 'サイドバーを閉じる') : (isEn ? 'Open sidebar' : 'サイドバーを開く')} aria-expanded={sidebarOpen} onClick={toggleSidebar} className="origin-secondary-button inline-flex min-h-11 w-11 shrink-0 items-center justify-center px-0"><PanelLeft aria-hidden="true" size={18} strokeWidth={1.9} /></button>
-        <span className="min-w-0 flex-1 truncate text-center text-sm font-bold">{isEn ? WORKSPACE_TITLES[workspace].en : WORKSPACE_TITLES[workspace].ja}</span>
-        <span aria-hidden="true" className="min-w-11 shrink-0" />
+    {/* 統一ヘッダー（デザイン是正バッチ6、仕様A）：全画面でシェルが
+        1部品を描画する。構成は「開閉ボタン＋ロゴ＋（画面タイトル）」
+        と「履歴ボタン」で、画面ごとに変わるのはタイトルの有無と
+        文言だけ。ロゴはサイドバーが 1024px 以上で開いている間は
+        サイドバー最上部が担うため隠す（チャット側の現行規則を全画面
+        へ拡張）。履歴ドロワーはこのヘッダーを基準に開く。 */}
+    <header data-testid="origin-shell-header" className="origin-header relative flex min-h-14 shrink-0 items-center border-b px-3 backdrop-blur-md sm:px-4">
+      <div className="flex w-full items-center gap-2">
+        <button type="button" data-testid="sidebar-toggle" aria-label={sidebarOpen ? (isEn ? 'Close sidebar' : 'サイドバーを閉じる') : (isEn ? 'Open sidebar' : 'サイドバーを開く')} aria-expanded={sidebarOpen} onClick={toggleSidebar} className="origin-secondary-button inline-flex h-11 min-h-11 w-11 min-w-11 shrink-0 items-center justify-center whitespace-nowrap px-0 text-sm font-semibold"><PanelLeft aria-hidden="true" size={18} strokeWidth={1.9} /></button>
+        <span className={sidebarOpen ? 'lg:hidden' : undefined}><OriginBrandLockup /></span>
+        {workspace !== 'chat' && <span className="min-w-0 truncate text-sm font-bold">{isEn ? WORKSPACE_TITLES[workspace].en : WORKSPACE_TITLES[workspace].ja}</span>}
+        <div className="ml-auto flex items-center gap-1 whitespace-nowrap sm:gap-2">
+          <HistoryDrawer sessions={effectiveSessions} currentMessages={messages} onRestoreSession={handleHeaderRestoreSession} />
+        </div>
       </div>
-    </section>}
+    </header>
 
     {workspace === 'chat' && latestArtifact && <div role="tablist" aria-label="モバイルChat表示" className="origin-surface-muted flex shrink-0 gap-2 border-b px-3 py-2 md:hidden">
       <button type="button" role="tab" aria-selected={mobileSurface === 'conversation'} onClick={() => setMobileSurface('conversation')} className={`min-h-11 flex-1 rounded-lg border px-4 text-sm font-semibold ${mobileSurface === 'conversation' ? 'origin-primary-button' : 'origin-secondary-button'}`}>会話</button>
@@ -208,6 +236,8 @@ const PersonalEditionApp = React.memo(function PersonalEditionApp({
           onMessagesChange={handleMessagesChange}
           onArtifactsChange={handleArtifactsChange}
           resetSignal={resetSignal + newConversationSignal}
+          imagePanelSignal={imagePanelSignal}
+          onImagePanelAvailabilityChange={setImagePanelAvailability}
           onOrinWorkStateChange={setOrinWorkState}
           onToggleSidebar={toggleSidebar}
           sidebarOpen={sidebarOpen}

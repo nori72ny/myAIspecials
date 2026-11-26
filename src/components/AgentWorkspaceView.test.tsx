@@ -100,6 +100,29 @@ describe('AgentWorkspaceView v3', () => {
     expect(fetchMock.mock.calls.some(([url]) => String(url) === '/api/agent')).toBe(false);
   });
 
+  it('offers a retry when the status check fails and recovers on the second attempt (batch 6, 案1)', async () => {
+    let statusCalls = 0;
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === '/api/agent/v3/status') {
+        statusCalls += 1;
+        if (statusCalls === 1) throw new Error('network unavailable');
+        return json(readyStatus());
+      }
+      throw new Error(`unexpected request: ${url}`);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    render(<AgentWorkspaceView />);
+    expect(await screen.findByText('エージェントは今は使えません')).toBeTruthy();
+
+    fireEvent.click(screen.getByRole('button', { name: 'もう一度確認する' }));
+
+    expect(await screen.findByText('利用できます')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'もう一度確認する' })).toBeNull();
+    expect(statusCalls).toBe(2);
+  });
+
   it('keeps headings at weight 700 and primary buttons on the disabled canon (K-07/K-08)', async () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);

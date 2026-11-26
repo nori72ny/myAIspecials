@@ -1,4 +1,4 @@
-import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { DEFAULT_PERSONAL_SETTINGS } from '../../../hooks/usePersonalSettings';
 import PersonalEditionApp from '../PersonalEditionApp';
@@ -19,6 +19,10 @@ vi.mock('../../../App', () => ({
     appProps(props);
     return <div data-testid="mock-origin-app">ORIGIN</div>;
   },
+  // 履歴ドロワーはバッチ6（仕様A）でシェルのヘッダーへ移設された。
+  // ここではトグルだけのスタブで置き、ドロワー本体の形状・復元の
+  // 検証は実物を使う PersonalEditionApp.shell-header.test.tsx が担う。
+  HistoryDrawer: () => <button type="button" data-testid="history-drawer-toggle">履歴</button>,
   ArtifactWorkspace: ({ artifact, isOpen, onClose }: { artifact: { title: string }; isOpen: boolean; onClose: () => void }) => isOpen ? <aside aria-label="作成物ワークスペース"><p>{artifact.title}</p><button type="button" onClick={onClose}>会話に戻る</button></aside> : null,
 }));
 
@@ -60,7 +64,7 @@ describe('PersonalEditionApp single-surface wrapper', () => {
     expect(await screen.findByRole('region', { name: 'Agent Workspace' })).toBeTruthy();
     expect(window.location.search).toBe('?workspace=agent');
     expect(originalChat.closest('[hidden]')).toBeTruthy();
-    expect(screen.getByRole('region', { name: 'Workspace tool header' }).textContent).toContain('エージェント');
+    expect(screen.getByTestId('origin-shell-header').textContent).toContain('エージェント');
 
     fireEvent.click(screen.getByTestId('sidebar-nav-chat'));
     expect(screen.getByTestId('mock-origin-app')).toBe(originalChat);
@@ -168,12 +172,12 @@ describe('PersonalEditionApp single-surface wrapper', () => {
     window.history.replaceState(null, '', '/?workspace=agent');
     fireEvent(window, new PopStateEvent('popstate'));
     expect(await screen.findByRole('region', { name: 'Agent Workspace' })).toBeTruthy();
-    expect(screen.getByRole('region', { name: 'Workspace tool header' }).textContent).toContain('エージェント');
+    expect(screen.getByTestId('origin-shell-header').textContent).toContain('エージェント');
 
     window.history.replaceState(null, '', '/?workspace=coding');
     fireEvent(window, new PopStateEvent('popstate'));
     expect(await screen.findByRole('region', { name: 'Coding Job Workspace' })).toBeTruthy();
-    expect(screen.getByRole('region', { name: 'Workspace tool header' }).textContent).toContain('コード');
+    expect(screen.getByTestId('origin-shell-header').textContent).toContain('コード');
 
     // ?workspace=creative は移行で廃止された値のため、チャットに着地し、
     // ツールヘッダーも作るパネルも開かない。
@@ -390,5 +394,105 @@ describe('PersonalEditionApp sidebar shell (layout stage 1)', () => {
     fireEvent.click(screen.getByTestId('sidebar-close'));
     expect((latestAppProps() as SidebarAppProps).sidebarOpen).toBe(false);
     expect(screen.getByTestId('origin-sidebar').getAttribute('aria-hidden')).toBe('true');
+  });
+});
+
+describe('PersonalEditionApp unified shell header (design batch 6, spec A)', () => {
+  it('renders one shell header on the chat surface with the history toggle and no screen title', () => {
+    render(<PersonalEditionApp />);
+
+    const headers = screen.getAllByTestId('origin-shell-header');
+    expect(headers).toHaveLength(1);
+    const header = headers[0]!;
+    expect(header.querySelector('[data-testid="sidebar-toggle"]')).toBeTruthy();
+    expect(header.querySelector('[data-testid="history-drawer-toggle"]')).toBeTruthy();
+    // チャットでは画面タイトルを出さない（仕様A §2.2）。
+    expect(header.textContent).not.toContain('エージェント');
+    expect(header.textContent).not.toContain('残っている依頼');
+    // 旧ツールヘッダーの region は廃止された。
+    expect(screen.queryByRole('region', { name: 'Workspace tool header' })).toBeNull();
+  });
+
+  it('shows the workspace title as plain text (not a button) in the same single header', async () => {
+    render(<PersonalEditionApp />);
+
+    fireEvent.click(screen.getByTestId('sidebar-nav-ai-news'));
+    expect(await screen.findByTestId('origin-ai-news-page')).toBeTruthy();
+
+    const headers = screen.getAllByTestId('origin-shell-header');
+    expect(headers).toHaveLength(1);
+    expect(headers[0]!.textContent).toContain('AIニュース');
+    // タイトルは地のテキストで、ボタンにはしない（仕様A §2.2）。
+    expect(within(headers[0]!).queryByRole('button', { name: 'AIニュース' })).toBeNull();
+    expect(headers[0]!.querySelector('[data-testid="history-drawer-toggle"]')).toBeTruthy();
+  });
+
+  it('toggles the sidebar from the shell header button', () => {
+    render(<PersonalEditionApp />);
+
+    const toggle = screen.getByTestId('origin-shell-header').querySelector('[data-testid="sidebar-toggle"]') as HTMLElement;
+    fireEvent.click(toggle);
+
+    expect((latestAppProps() as { sidebarOpen?: boolean }).sidebarOpen).toBe(true);
+    expect(screen.getByTestId('origin-sidebar').getAttribute('aria-hidden')).toBe('false');
+  });
+});
+
+describe('PersonalEditionApp sidebar image entry (design batch 6, spec B)', () => {
+  type ImageAppProps = MockAppProps & {
+    imagePanelSignal?: number;
+    onImagePanelAvailabilityChange?: (state: { disabled: boolean; reason: 'generating' | 'editing' | 'offline' | null }) => void;
+  };
+
+  it('places the image entry fourth in the nav, as an action row without a selected state', () => {
+    render(<PersonalEditionApp />);
+
+    const nav = screen.getByTestId('origin-sidebar').querySelector('nav')!;
+    const items = Array.from(nav.querySelectorAll('[data-testid^="sidebar-"]'));
+    expect(items.map((item) => item.getAttribute('data-testid'))).toEqual([
+      'sidebar-nav-chat',
+      'sidebar-nav-agent',
+      'sidebar-nav-coding',
+      'sidebar-image',
+      'sidebar-nav-ai-news',
+      'sidebar-nav-remaining',
+    ]);
+    const image = screen.getByTestId('sidebar-image');
+    expect(image.textContent).toContain('画像');
+    // 画面ではないため、選択状態は付けない（仕様B §3.1）。
+    expect(image.getAttribute('aria-current')).toBeNull();
+    expect(image.className).toContain('origin-sidebar-item');
+    expect(image.className).not.toContain('origin-nav-active');
+  });
+
+  it('switches to chat and signals the App to open the image panel', async () => {
+    render(<PersonalEditionApp />);
+
+    runAppAction('onOpenAgent');
+    expect(await screen.findByRole('region', { name: 'Agent Workspace' })).toBeTruthy();
+    expect((latestAppProps() as ImageAppProps).imagePanelSignal).toBe(0);
+
+    fireEvent.click(screen.getByTestId('sidebar-image'));
+
+    expect(window.location.search).toBe('');
+    expect(screen.getByTestId('mock-origin-app').closest('[hidden]')).toBeNull();
+    expect((latestAppProps() as ImageAppProps).imagePanelSignal).toBe(1);
+  });
+
+  it('disables the image entry with a reason while the App reports it unavailable', () => {
+    render(<PersonalEditionApp />);
+    const image = screen.getByTestId('sidebar-image') as HTMLButtonElement;
+    expect(image.disabled).toBe(false);
+
+    act(() => (latestAppProps() as ImageAppProps).onImagePanelAvailabilityChange?.({ disabled: true, reason: 'generating' }));
+    expect(image.disabled).toBe(true);
+    expect(image.getAttribute('title')).toBe('応答の生成中は使えません');
+
+    act(() => (latestAppProps() as ImageAppProps).onImagePanelAvailabilityChange?.({ disabled: true, reason: 'offline' }));
+    expect(image.disabled).toBe(true);
+    expect(image.getAttribute('title')).toBe('オフラインのため使えません');
+
+    act(() => (latestAppProps() as ImageAppProps).onImagePanelAvailabilityChange?.({ disabled: false, reason: null }));
+    expect(image.disabled).toBe(false);
   });
 });

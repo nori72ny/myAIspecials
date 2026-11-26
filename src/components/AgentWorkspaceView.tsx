@@ -18,6 +18,10 @@ import { X } from 'lucide-react';
 import { reportAgentActivity, type AgentActivityStepStatus } from '../agent/agentActivityStore';
 import { detectSensitiveInput } from '../lib/orchestration/SensitiveInputDetector';
 
+// 状態確認の時間上限（デザイン是正バッチ6、切り分け案1）。
+// CodingJobWorkspaceV14 の STATUS_CHECK_TIMEOUT_MS と同値。
+const AGENT_STATUS_CHECK_TIMEOUT_MS = 10_000;
+
 type AgentCapability = {
   ready: boolean;
   approvalSigningConfigured: boolean;
@@ -314,13 +318,21 @@ export default function AgentWorkspaceView() {
   const attachmentInputRef = useRef<HTMLInputElement>(null);
   const abortRef = useRef<AbortController | null>(null);
 
-  useEffect(() => {
+  // 状態確認は時間上限つきで数え直せる形にする（デザイン是正バッチ6、
+  // 切り分け案1）。コード画面（CodingJobWorkspaceV14）の状態確認と
+  // 同値（10秒）・同型に揃える。最新の確認だけが状態を書き換える。
+  const capabilityCheckRef = useRef<AbortController | null>(null);
+  const checkCapability = useCallback(() => {
+    capabilityCheckRef.current?.abort();
     const controller = new AbortController();
+    capabilityCheckRef.current = controller;
+    const timeoutId = window.setTimeout(() => controller.abort(), AGENT_STATUS_CHECK_TIMEOUT_MS);
     setCheckingCapability(true);
     void fetch('/api/agent/v3/status', { signal: controller.signal, cache: 'no-store' })
       .then(async (response) => {
         const data = await response.json() as Partial<AgentCapability>;
         if (!response.ok) throw new Error('AGENT_STATUS_UNAVAILABLE');
+        if (capabilityCheckRef.current !== controller) return;
         setCapability({
           ready: data.ready === true,
           approvalSigningConfigured: data.approvalSigningConfigured === true,
@@ -332,10 +344,14 @@ export default function AgentWorkspaceView() {
           paidFallbackEnabled: data.paidFallbackEnabled === true,
         });
       })
-      .catch(() => setCapability(null))
-      .finally(() => setCheckingCapability(false));
-    return () => controller.abort();
+      .catch(() => { if (capabilityCheckRef.current === controller) setCapability(null); })
+      .finally(() => { window.clearTimeout(timeoutId); if (capabilityCheckRef.current === controller) setCheckingCapability(false); });
   }, []);
+
+  useEffect(() => {
+    checkCapability();
+    return () => { capabilityCheckRef.current?.abort(); capabilityCheckRef.current = null; };
+  }, [checkCapability]);
 
   useEffect(() => {
     let mounted = true;
@@ -828,6 +844,11 @@ export default function AgentWorkspaceView() {
             </span>
           </span>
         </div>
+        {/* 確認が失敗・時間切れのときは、再読み込み以外の回復手段として
+            その場で確認し直せるボタンを出す（同上、案1）。 */}
+        {!checkingCapability && !ready && (
+          <button type="button" onClick={checkCapability} className="origin-secondary-button mt-2 min-h-11 px-3 text-sm font-semibold">もう一度確認する</button>
+        )}
 
         <button type="button" onClick={() => void requestPlan()} disabled={!ready || !goal.trim() || Boolean(plan) || phase === 'planning' || phase === 'executing'}
           {...(ready && !goal.trim() && !plan && phase === 'idle' ? { 'aria-describedby': 'agent-plan-button-hint' } : {})}

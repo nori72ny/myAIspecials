@@ -282,6 +282,65 @@ describe('CodingJobWorkspaceV14', () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
+  it('makes the main button the key-entry action before any goal is typed when no key is set (batch 6, 案2)', async () => {
+    const onOpenSettings = vi.fn();
+    const fetchMock = vi.fn().mockResolvedValueOnce(response(capability));
+    vi.stubGlobal('fetch', fetchMock);
+    render(<CodingJobWorkspaceV14 onOpenSettings={onOpenSettings} />);
+    await screen.findByText('準備できています');
+    // 依頼文が空でも、主ボタン自体が「次の一手」を示し、押せる。
+    // 理由も title 属性の中ではなく、ボタン直下の文で出る。
+    const button = screen.getByRole('button', { name: '実行キーを入力する' }) as HTMLButtonElement;
+    expect(button.disabled).toBe(false);
+    expect(screen.getByText('始めるには、先に実行キーを入力してください。')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: '作成・修正を始める' })).toBeNull();
+    fireEvent.click(button);
+    expect(onOpenSettings).toHaveBeenCalledTimes(1);
+    expect(onOpenSettings).toHaveBeenCalledWith('coding');
+    // 設定へ案内するだけで、ジョブは作らない。
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('offers a retry when the status check fails and recovers on the second attempt (batch 6, 案1)', async () => {
+    const fetchMock = vi.fn()
+      .mockRejectedValueOnce(new Error('network unavailable'))
+      .mockResolvedValueOnce(response(capability));
+    vi.stubGlobal('fetch', fetchMock);
+    render(<CodingJobWorkspaceV14 />);
+    expect(await screen.findByText('今は利用できません')).toBeTruthy();
+    expect(screen.getByText('今はコードの作成・変更を始められません。準備が整うまでお待ちください。')).toBeTruthy();
+
+    fireEvent.click(screen.getByRole('button', { name: 'もう一度確認する' }));
+
+    expect(await screen.findByText('準備できています')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'もう一度確認する' })).toBeNull();
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('stops waiting at the status check timeout and offers a retry (batch 6, 案1)', async () => {
+    vi.useFakeTimers();
+    try {
+      const fetchMock = vi.fn()
+        .mockImplementationOnce((_url: unknown, options?: RequestInit) => new Promise((_resolve, reject) => {
+          options?.signal?.addEventListener('abort', () => reject(new Error('aborted')));
+        }))
+        .mockResolvedValueOnce(response(capability));
+      vi.stubGlobal('fetch', fetchMock);
+      render(<CodingJobWorkspaceV14 />);
+      // 上限までは確認中のまま。
+      expect(screen.getByText('利用できるか確認しています…')).toBeTruthy();
+      await act(async () => { vi.advanceTimersByTime(10_000); });
+      // 時間切れで「今は利用できません」に倒れ、再試行が出る。
+      expect(screen.getByText('今は利用できません')).toBeTruthy();
+      fireEvent.click(screen.getByRole('button', { name: 'もう一度確認する' }));
+      await act(async () => { await Promise.resolve(); });
+      expect(screen.getByText('準備できています')).toBeTruthy();
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('shows where the execution key is entered, with a settings shortcut, before any goal is typed', async () => {
     const onOpenSettings = vi.fn();
     const fetchMock = vi.fn().mockResolvedValueOnce(response(capability));

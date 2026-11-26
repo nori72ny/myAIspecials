@@ -384,7 +384,9 @@ describe('ORIGIN top experience regression boundary', () => {
     // One Orin at a time + the history drawer never covers the name
     // tag: both are visibility rules, so geometry contracts hold.
     expect(topUi).toContain('.origin-main--orin-panel-open .origin-orin-presence');
-    expect(topUi).toContain('.origin-app main:has([data-testid="history-drawer"]) .origin-orin-presence__name');
+    // デザイン是正バッチ6（仕様A §2.5）：ドロワーがシェルのヘッダーへ
+    // 移ったため、アンカーはシェル全体へ付け替えた（挙動は不変）。
+    expect(topUi).toContain('.origin-personal-shell:has([data-testid="history-drawer"]) .origin-orin-presence__name');
     // Panel tabs meet the 44px floor. Panel expansion
     // (2026-11-25, ORIN_PANEL_EXPANSION_DESIGN §3/§6) supersedes
     // the pill segmented control and the per-row availability
@@ -405,9 +407,13 @@ describe('ORIGIN top experience regression boundary', () => {
     // app-root scrim).
     expect(functionalUi).toContain('.origin-sidebar[data-open="true"]::after');
     expect(topUi).toContain('.origin-sidebar[data-open="true"]::after');
-    // The workspace tool header shares the chat header's 60px.
-    const toolHeaderRule = topUi.match(/section\[aria-label="Workspace tool header"\] \{[^}]*\}/)?.[0] ?? '';
-    expect(toolHeaderRule).toContain('min-height: 60px;');
+    // デザイン是正バッチ6（仕様A）：ツールヘッダーは廃止され、全画面の
+    // ヘッダーはシェルの単一部品（.origin-header、60px の単一規則は
+    // 上の固定が担う）に統一された。個別規則と旧 region は残っていない。
+    expect(topUi).not.toContain('section[aria-label="Workspace tool header"]');
+    expect(personalEditionApp).toContain('data-testid="origin-shell-header"');
+    expect(personalEditionApp).toContain('className="origin-header ');
+    expect(personalEditionApp).not.toContain('aria-label="Workspace tool header"');
     // The focused skip link reveals as a full-width bar at the top
     // and the shell yields the bar's height, so it covers neither
     // the header nor the Orin presence and its name tag (batch 2,
