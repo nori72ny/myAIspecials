@@ -60,6 +60,46 @@ async function verifyPwa(browser, baseUrl) {
   }
 }
 
+// Reads the stored history journal (localStorage "origin_personal_history")
+// the way the E2E specs read stored records: when the value is an S3
+// encrypted envelope ({ version, iv, ciphertext }), decrypt it in page with
+// the device key (the 'aes-gcm-256' record in the app's IndexedDB) and
+// return the parsed journal. A legacy plaintext value is returned as-is,
+// mirroring the E2E readers; the release gate rejects that shape through
+// the envelope-form assertion in verifyHistoryAndRecovery. Returns null
+// when nothing readable is stored yet.
+async function readStoredHistoryJournal(page) {
+  return page.evaluate(async () => {
+    const raw = localStorage.getItem("origin_personal_history");
+    if (!raw) return null;
+    const stored = JSON.parse(raw);
+    if (!stored || typeof stored !== "object" || Array.isArray(stored)) return null;
+    const isEnvelope = stored.version === 1
+      && typeof stored.iv === "string"
+      && typeof stored.ciphertext === "string"
+      && !Array.isArray(stored.messages);
+    if (!isEnvelope) return stored;
+    const database = await new Promise((resolve, reject) => {
+      const request = indexedDB.open("origin-personal-local", 1);
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error ?? new Error("indexeddb-open-failed"));
+    });
+    try {
+      const key = await new Promise((resolve, reject) => {
+        const read = database.transaction("snapshots", "readonly").objectStore("snapshots").get("aes-gcm-256");
+        read.onsuccess = () => resolve(read.result);
+        read.onerror = () => reject(read.error ?? new Error("indexeddb-read-failed"));
+      });
+      if (!key) return null;
+      const decode = (value) => Uint8Array.from(atob(value), (character) => character.charCodeAt(0));
+      const plaintext = await crypto.subtle.decrypt({ name: "AES-GCM", iv: decode(stored.iv) }, key, decode(stored.ciphertext));
+      return JSON.parse(new TextDecoder().decode(plaintext));
+    } finally {
+      database.close();
+    }
+  });
+}
+
 async function restoreSavedSessionFromHistoryDrawer(page, expectedPrompt) {
   // UI audit #6 removed the history drawer's "その他の表示" expander and
   // the knowledge map: saved sessions are now restored directly from the
@@ -136,12 +176,44 @@ async function verifyHistoryAndRecovery(browser, baseUrl) {
     await page.getByTestId("start-request-button").click();
     await page.getByText("セッションを整理しました。").waitFor({ state: "visible", timeout: 15_000 });
 
-    await page.waitForFunction((expected) => {
+    // S3 (on-device history encryption): the journal in localStorage is an
+    // encrypted envelope ({ version, iv, ciphertext }), so read it the way
+    // the E2E specs do — decrypt it in page with the device key (the
+    // 'aes-gcm-256' record in the same IndexedDB) and only then inspect
+    // messages. The content match and the 10-second budget are unchanged
+    // from the plaintext era. The poll runs from Node because this
+    // Playwright version does not await async waitForFunction predicates
+    // (a returned promise reads as truthy), which would let an in-page
+    // async predicate pass instantly without checking anything.
+    let journalContainsPrompt = false;
+    const journalDeadline = Date.now() + 10_000;
+    while (!journalContainsPrompt && Date.now() < journalDeadline) {
+      const journal = await readStoredHistoryJournal(page).catch(() => null);
+      journalContainsPrompt = journal?.messages?.some((message) => message.content === firstPrompt) ?? false;
+      if (!journalContainsPrompt) await page.waitForTimeout(200);
+    }
+    assert.equal(journalContainsPrompt, true, "Production history journal must record the first exchange (decrypted) within 10 seconds.");
+
+    // S3 gate assertion: after the exchange the stored journal must still
+    // be the encrypted envelope form, so a regression to plaintext writes
+    // fails the release gate by name instead of only by timeout.
+    const journalForm = await page.evaluate(() => {
+      const raw = localStorage.getItem("origin_personal_history");
+      if (raw === null) return { stored: false, encryptedEnvelope: false };
       try {
-        const journal = JSON.parse(localStorage.getItem("origin_personal_history") ?? "null");
-        return journal?.messages?.some((message) => message.content === expected);
-      } catch { return false; }
-    }, firstPrompt, { timeout: 10_000 });
+        const parsed = JSON.parse(raw);
+        const encryptedEnvelope = Boolean(parsed) && typeof parsed === "object" && !Array.isArray(parsed)
+          && parsed.version === 1
+          && typeof parsed.iv === "string"
+          && typeof parsed.ciphertext === "string"
+          && !Array.isArray(parsed.messages);
+        return { stored: true, encryptedEnvelope };
+      } catch {
+        return { stored: true, encryptedEnvelope: false };
+      }
+    });
+    assert.equal(journalForm.stored, true, "Production history journal must be stored after the first exchange.");
+    assert.equal(journalForm.encryptedEnvelope, true, "Production history journal must be stored as an encrypted envelope (S3), never plaintext.");
 
     await page.reload({ waitUntil: "domcontentloaded", timeout: 30_000 });
     // Fresh loads always land on the top screen (owner instruction,
