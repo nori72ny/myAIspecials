@@ -298,7 +298,7 @@ describe("code-handling rules (CB-5)", () => {
     expect(compact).toContain("check each claim against the trace and the code");
     expect(compact).toContain(API_CONVENTIONS);
     expect(compact).toContain("do not switch dialects");
-    expect(compact.length).toBeLessThanOrEqual(6_000);
+    expect(compact.length).toBeLessThanOrEqual(6_200);
   });
 });
 
@@ -369,6 +369,57 @@ describe("code-review finding discipline (CB-6)", () => {
     expect(compact).toContain("not a generic weakness of the construct");
     expect(compact).toContain(NOTHING_UNUSED);
     expect(compact).toContain("remove imports the replacement no longer uses");
-    expect(compact.length).toBeLessThanOrEqual(6_000);
+    expect(compact.length).toBeLessThanOrEqual(6_200);
+  });
+});
+
+describe("conditional-definition rule (CB-7)", () => {
+  // CODE_E05_E02_DIAGNOSIS_2026-11-26: the E-02 completion-run answer
+  // carried a second, quieter defect beside the placeholder dialect -
+  // a try/finally whose cleanup touched a name the try block assigns,
+  // so a failure inside the try left the name unbound and the cleanup
+  // raised a NameError that masked the original exception. CB-4b
+  // named definition/use mismatches of shape, but never the
+  // conditional-binding shape: a name that exists only on the success
+  // path. These pins lock the one sentence CB-7 adds for that shape
+  // on every instruction variant a code task can be served with.
+  // The equivalence and API-conventions rules are NOT extended: the
+  // diagnosis found both already present in all three variants and
+  // disobeyed, not missing.
+  const CONDITIONAL_DEFINITION =
+    "A name assigned inside a `try` block may not exist when the `finally` block runs";
+  const GUARDED_CLEANUP = "guard the cleanup so it never touches a name that might be unbound";
+  const CONDITIONAL_DEFINITION_CONDENSED = "Names assigned inside `try` may be unbound in `finally`";
+
+  it("states the conditional-definition sentence in the full base instruction", () => {
+    const instruction = originChatSystemInstruction();
+    expect(instruction).toContain(CONDITIONAL_DEFINITION);
+    expect(instruction).toContain("initialize such names before the `try`");
+    expect(instruction).toContain(GUARDED_CLEANUP);
+    // The sentence appears exactly once: it is part of the
+    // definition/use bullet, not a per-section restatement.
+    expect(instruction.split(CONDITIONAL_DEFINITION).length - 1).toBe(1);
+  });
+
+  it("keeps the rule for a plain conversational question (it is not creation-gated)", () => {
+    const intent = classifyOriginRequestIntent("日本の首都はどこですか？", "review");
+    expect(intent.interactionMode).toBe("conversation");
+    const instruction = originChatSystemInstruction(intent);
+    expect(instruction).toContain(CONDITIONAL_DEFINITION);
+    expect(instruction).toContain(GUARDED_CLEANUP);
+  });
+
+  it("carries the rule in the route-2 compact variant (registered in the compact base)", () => {
+    const variant = originCloudflareRouteSystemInstruction(originChatSystemInstruction());
+    expect(variant).toContain(CONDITIONAL_DEFINITION);
+    expect(variant).toContain("initialize such names before the `try`");
+    expect(variant).toContain(GUARDED_CLEANUP);
+  });
+
+  it("carries the condensed rule on the route-3 compact instruction within its budget", () => {
+    const compact = originGroqRouteSystemInstruction();
+    expect(compact).toContain(CONDITIONAL_DEFINITION_CONDENSED);
+    expect(compact).toContain("initialize before `try` or guard the cleanup");
+    expect(compact.length).toBeLessThanOrEqual(6_200);
   });
 });
