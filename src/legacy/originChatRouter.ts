@@ -44,6 +44,7 @@ import { adoptGroundedResearchSynthesis, buildGroundedResearchSynthesisInstructi
 import { buildQuoteFirstContractInstruction, buildQuoteFirstRegistry, buildQuoteFirstRegistrySection, describeQuoteFirstEngagement, resolveQuoteFirstMode } from "../research/groundedResearchQuoteFirst.js";
 import { buildGroundedResearchEvidenceCards } from "../research/groundedResearchEvidenceCards.js";
 import { classifyDirectAnswerVerificationTarget, classifyResearchAnswerVerificationTarget, resolveOriginAnswerVerificationEffectiveMode, runOriginAnswerVerificationShadow, verifyOriginAnswerCrossRoute, type OriginAnswerVerificationDailyUsageReader, type OriginAnswerVerificationSource } from "./originAnswerVerification.js";
+import { classifyOriginCodeEquivalenceTarget, resolveOriginCodeEquivalenceVerificationEffectiveMode, runOriginCodeEquivalenceVerificationShadow, verifyOriginCodeEquivalenceCrossRoute } from "./originCodeEquivalenceVerification.js";
 import { planOriginPremiseGuard, resolveOriginIntentPremiseGuardEffectiveMode, runOriginIntentPremiseGuardShadow } from "./originIntentPremiseGuard.js";
 import { executeGroundedResearchRecordsSynthesis, isGroundedResearchRecordsEnabled } from "../research/groundedResearchRecordsV13.js";
 import { logRecoveryValueVoteShadow, resolveRecoveryValueVoteMode } from "../research/groundedResearchValueExtraction.js";
@@ -67,7 +68,7 @@ import { hasOriginWeatherLocation, isOriginWeatherRequest, isRefinementOfPreviou
 
 export type OriginChatExecutor = (request: OriginProviderExecutionRequest) => Promise<OriginProviderExecutionResult>;
 export type OriginResearchExecutor = (query: string) => Promise<OriginResearchResult>;
-export interface OriginChatRouterOptions { env?: NodeJS.ProcessEnv; execute?: OriginChatExecutor; research?: OriginResearchExecutor; researchSynthesis?: OriginChatExecutor | null; researchSynthesisProviderRetry?: GroundedResearchSynthesisProviderRetryExecutor; now?: () => number; catalogNow?: () => number; freeModelCatalog?: readonly OriginFreeModelEvidence[]; contextPolicy?: OriginContextPolicy; createRequestId?: () => string; searchGrounding?: OriginSearchGroundingDeps; answerVerification?: { verify?: typeof verifyOriginAnswerCrossRoute; readDailyNeuronsUsed?: OriginAnswerVerificationDailyUsageReader }; }
+export interface OriginChatRouterOptions { env?: NodeJS.ProcessEnv; execute?: OriginChatExecutor; research?: OriginResearchExecutor; researchSynthesis?: OriginChatExecutor | null; researchSynthesisProviderRetry?: GroundedResearchSynthesisProviderRetryExecutor; now?: () => number; catalogNow?: () => number; freeModelCatalog?: readonly OriginFreeModelEvidence[]; contextPolicy?: OriginContextPolicy; createRequestId?: () => string; searchGrounding?: OriginSearchGroundingDeps; answerVerification?: { verify?: typeof verifyOriginAnswerCrossRoute; readDailyNeuronsUsed?: OriginAnswerVerificationDailyUsageReader }; codeEquivalenceVerification?: { verify?: typeof verifyOriginCodeEquivalenceCrossRoute }; }
 const MAX_PROVIDER_ATTEMPT_TIMEOUT_MS = 52_000;
 /** Honest executed-route count: 1 unless the failover dispatcher actually executed a second verified free route. */
 function providerAttemptCount(result: OriginProviderExecutionResult): number { return result.attempts?.length ?? 1; }
@@ -2116,6 +2117,35 @@ export function createOriginChatRouter(options: OriginChatRouterOptions = {}) {
           }
         }
       }
+      // Code equivalence verification (B-1, shadow;
+      // CODE_CB7_CONFIRM_DIAGNOSIS_2026-11-27 sections 4.3/6): for a
+      // review/rewrite answer, the OTHER production route compares
+      // the delivered main replacement code against the original the
+      // user supplied and the outcome is recorded — the structured
+      // log the runner emits and the metadata block on the routing
+      // object below. Shadow never changes the delivered text, and
+      // mode off (the default) skips this block entirely. Targets
+      // are narrow by construction: fenced original code, a
+      // review/rewrite operation, and a fenced replacement; a
+      // gate-held answer is the gate's hold text, never a target.
+      let directCodeEquivalenceVerification: Record<string, unknown> | null = null;
+      if (resolveOriginCodeEquivalenceVerificationEffectiveMode(env) === "shadow") {
+        const codeEquivalenceTarget = classifyOriginCodeEquivalenceTarget({
+          message: lastUserMessage,
+          answerText: deliverableText,
+          publicationGateHeld: publicationGate.held,
+        });
+        if (codeEquivalenceTarget.targeted) {
+          const codeEquivalenceOutcome = await runOriginCodeEquivalenceVerificationShadow({
+            requestId,
+            message: lastUserMessage,
+            answerText: deliverableText,
+            generationResult: result,
+            sourcePlan: providerRequest.plan,
+          }, { env, nowMs: now(), verify: options.codeEquivalenceVerification?.verify });
+          directCodeEquivalenceVerification = codeEquivalenceOutcome.metadata;
+        }
+      }
       // Intent premise guard (I5-PR1/PR2, shadow; design
       // INTENT_I5_DESIGN sections 3-4): deterministic post-generation checks over the
       // premise ledger derived from this request's messages — C-1
@@ -2157,7 +2187,7 @@ export function createOriginChatRouter(options: OriginChatRouterOptions = {}) {
       const evidence = extractProvidedOriginEvidence(deliverableText); const sourceEvidenceExpected = planningResult.plan.taskType === "research";
       if (evidence.length > 0) { limitations.push("表示した出典はAIが提示したもので、ORIGINによる内容確認はまだ実施していません。"); if (evidence.some((item) => item.claim === undefined)) limitations.push("一部の出典は、回答内のどの主張に対応するか明示されていません。"); nextActions.push("重要な判断の前に、出典リンクの内容と更新日を確認してください。"); } else if (sourceEvidenceExpected) { limitations.push("調査・最新情報に関する依頼ですが、回答内に確認可能なHTTPS出典が提示されていません。"); nextActions.push("一次情報の出典を確認してから判断してください。"); }
       console.info("[origin-chat] provider request completed", { requestId, durationMs: Math.max(0, now() - startedAt), servedModel: result.routingEvidence.servedModel, fallbackUsed: result.routingEvidence.fallbackUsed, routeAttempts: (result.attempts ?? []).map((attempt) => ({ providerId: attempt.providerId, outcome: attempt.outcome, ...(attempt.durationMs !== undefined ? { durationMs: attempt.durationMs } : {}) })), modelId: planningResult.plan.modelId, costEvidenceStatus: "NOT_MEASURED", truncated: result.truncated === true });
-      return res.json({ content: deliverableText, answer: answerEnvelope(deliverableText, /[ぁ-んァ-ヶ一-龠]/.test(lastUserMessage) ? "ja" : "en", verificationStatus, verificationReason, evidence, limitations, nextActions), routing: { model: planningResult.plan.providerLabel, reason: planningResult.plan.reason, score: null, timeMs: Math.max(0, now() - startedAt), cost: result.actualCostUsd, providerId: planningResult.plan.providerId, modelId: planningResult.plan.modelId, taskType: planningResult.plan.taskType, actualCostUsd: result.actualCostUsd, costEvidenceStatus: "NOT_MEASURED", estimatedCostUsd: planningResult.plan.estimatedCostUsd, freeOnly: true, traceId: requestId, verificationStatus, verificationReason, reviewRequired: reviewDecision.required, reviewReasons: reviewDecision.reasons, answerMode: answerQualityPolicy.answerMode, verificationLevel: answerQualityPolicy.verificationLevel, modelEvidence: planningResult.plan.modelEvidence, providerDataPolicy: result.providerDataPolicy, providerRouting: result.routingEvidence, context: { policyVersion: contextResult.window.policyVersion, includedMessageCount: contextResult.window.includedMessageCount, includedCharacterCount: contextResult.window.includedCharacterCount, omittedMessageCount: contextResult.window.omittedMessageCount, omittedCharacterCount: contextResult.window.omittedCharacterCount }, usage: result.usage, providerAttempts: providerAttemptCount(result), ...(result.attempts ? { providerRouteAttempts: result.attempts } : {}), providerTransportRequests: result.transportRequestCount, ...(result.truncated === true ? { answerTruncated: true } : {}), ...(publicationGate.landing?.abstainReason ? { publicationGateMode: publicationGate.mode, publicationGateAction: "held", researchTier: publicationGate.landing.tier, researchOutcome: publicationGate.landing.outcome, researchAbstainReason: publicationGate.landing.abstainReason } : {}), ...(directAnswerVerification ? { answerVerification: directAnswerVerification } : {}) } });
+      return res.json({ content: deliverableText, answer: answerEnvelope(deliverableText, /[ぁ-んァ-ヶ一-龠]/.test(lastUserMessage) ? "ja" : "en", verificationStatus, verificationReason, evidence, limitations, nextActions), routing: { model: planningResult.plan.providerLabel, reason: planningResult.plan.reason, score: null, timeMs: Math.max(0, now() - startedAt), cost: result.actualCostUsd, providerId: planningResult.plan.providerId, modelId: planningResult.plan.modelId, taskType: planningResult.plan.taskType, actualCostUsd: result.actualCostUsd, costEvidenceStatus: "NOT_MEASURED", estimatedCostUsd: planningResult.plan.estimatedCostUsd, freeOnly: true, traceId: requestId, verificationStatus, verificationReason, reviewRequired: reviewDecision.required, reviewReasons: reviewDecision.reasons, answerMode: answerQualityPolicy.answerMode, verificationLevel: answerQualityPolicy.verificationLevel, modelEvidence: planningResult.plan.modelEvidence, providerDataPolicy: result.providerDataPolicy, providerRouting: result.routingEvidence, context: { policyVersion: contextResult.window.policyVersion, includedMessageCount: contextResult.window.includedMessageCount, includedCharacterCount: contextResult.window.includedCharacterCount, omittedMessageCount: contextResult.window.omittedMessageCount, omittedCharacterCount: contextResult.window.omittedCharacterCount }, usage: result.usage, providerAttempts: providerAttemptCount(result), ...(result.attempts ? { providerRouteAttempts: result.attempts } : {}), providerTransportRequests: result.transportRequestCount, ...(result.truncated === true ? { answerTruncated: true } : {}), ...(publicationGate.landing?.abstainReason ? { publicationGateMode: publicationGate.mode, publicationGateAction: "held", researchTier: publicationGate.landing.tier, researchOutcome: publicationGate.landing.outcome, researchAbstainReason: publicationGate.landing.abstainReason } : {}), ...(directAnswerVerification ? { answerVerification: directAnswerVerification } : {}), ...(directCodeEquivalenceVerification ? { codeEquivalenceVerification: directCodeEquivalenceVerification } : {}) } });
     } catch (error) {
       if (error instanceof OriginProviderError) {
         const failureDiagnostic = buildOriginProviderFailureDiagnostic(error);

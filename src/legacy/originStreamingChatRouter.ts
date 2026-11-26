@@ -47,6 +47,12 @@ import {
   type OriginAnswerVerificationDailyUsageReader,
 } from "./originAnswerVerification.js";
 import {
+  classifyOriginCodeEquivalenceTarget,
+  resolveOriginCodeEquivalenceVerificationEffectiveMode,
+  runOriginCodeEquivalenceVerificationShadow,
+  verifyOriginCodeEquivalenceCrossRoute,
+} from "./originCodeEquivalenceVerification.js";
+import {
   planOriginPremiseGuard,
   resolveOriginIntentPremiseGuardEffectiveMode,
   runOriginIntentPremiseGuardShadow,
@@ -81,6 +87,7 @@ export interface OriginStreamingChatRouterOptions {
   env?: NodeJS.ProcessEnv;
   streamExecute?: OriginProviderStreamExecutor;
   answerVerification?: { verify?: typeof verifyOriginAnswerCrossRoute; readDailyNeuronsUsed?: OriginAnswerVerificationDailyUsageReader };
+  codeEquivalenceVerification?: { verify?: typeof verifyOriginCodeEquivalenceCrossRoute };
   now?: () => number;
   catalogNow?: () => number;
   freeModelCatalog?: readonly OriginFreeModelEvidence[];
@@ -804,6 +811,42 @@ export function createOriginStreamingChatRouter(options: OriginStreamingChatRout
           answerVerification = verificationOutcome.metadata;
         }
       }
+      // Code equivalence verification (B-1, shadow;
+      // CODE_CB7_CONFIRM_DIAGNOSIS_2026-11-27 sections 4.3/6): for a
+      // review/rewrite answer, the OTHER production route compares
+      // the delivered main replacement code against the original
+      // the user supplied and the outcome is recorded — the
+      // structured log the runner emits and the metadata block on
+      // the completion log and event below. Shadow never changes
+      // the delivered stream: the delta events above are exactly
+      // what mode off would have sent, and only the completion
+      // event waits for the check. Targeting mirrors the blocking
+      // router: fenced original code, a review/rewrite operation,
+      // and a fenced replacement; a gate-held answer and deck paths
+      // stay out of scope. The runner never throws (fail open).
+      let codeEquivalenceVerification: Record<string, unknown> | null = null;
+      if (
+        resolveOriginCodeEquivalenceVerificationEffectiveMode(env) === "shadow" &&
+        publicationGateAnswerText !== null &&
+        !deckRequested &&
+        !deckRecordsPlan
+      ) {
+        const codeEquivalenceTarget = classifyOriginCodeEquivalenceTarget({
+          message: lastUserMessage,
+          answerText: publicationGateAnswerText,
+          publicationGateHeld: publicationGateOutcome?.held === true,
+        });
+        if (codeEquivalenceTarget.targeted) {
+          const codeEquivalenceOutcome = await runOriginCodeEquivalenceVerificationShadow({
+            requestId,
+            message: lastUserMessage,
+            answerText: publicationGateAnswerText,
+            generationResult: adoptedResult,
+            sourcePlan: providerRequest.plan,
+          }, { env, nowMs: now(), verify: options.codeEquivalenceVerification?.verify });
+          codeEquivalenceVerification = codeEquivalenceOutcome.metadata;
+        }
+      }
       // Intent premise guard (I5-PR1/PR2, shadow; design
       // INTENT_I5_DESIGN sections 3-4): the same deterministic
       // ledger checks as the blocking router — C-1 old-value reuse,
@@ -853,6 +896,7 @@ export function createOriginStreamingChatRouter(options: OriginStreamingChatRout
         ...(auditGateOutcome ? { businessPlanningAuditMode: "enforce" as const, businessPlanningAuditFixedCount: auditGateOutcome.fixedCount, businessPlanningAuditNotedCodes: auditGateOutcome.notedCodes } : {}),
         ...(dateGateOutcome ? { dateWeekdayVerificationMode: "enforce" as const, dateWeekdayVerificationCorrectedCount: dateGateOutcome.summary?.correctedCount ?? 0 } : {}),
         ...(answerVerification ? { answerVerification } : {}),
+        ...(codeEquivalenceVerification ? { codeEquivalenceVerification } : {}),
         ...(publicationGateOutcome ? { publicationGateMode: publicationGateOutcome.mode, publicationGateHeld: publicationGateOutcome.held, ...(publicationGateOutcome.landing ? { researchTier: publicationGateOutcome.landing.tier, researchOutcome: publicationGateOutcome.landing.outcome, researchAbstainReason: publicationGateOutcome.landing.abstainReason } : {}) } : {}),
         proposalDeck: deckRequested ? (deckRecordsMetrics ? deckRecordsMetrics.finalForm : deckArtifact ? "created" : "failed") : "not-requested",
         ...(deckFailureCode ? { proposalDeckFailureCode: deckFailureCode } : {}),
@@ -874,6 +918,7 @@ export function createOriginStreamingChatRouter(options: OriginStreamingChatRout
         ...(adoptedResult.truncated === true && deckContinuationOutcome !== "recovered" && !assertionGateReplaced && publicationGateOutcome?.held !== true ? { truncated: true } : {}),
         ...(deckArtifact ? { artifacts: [deckArtifact] } : {}),
         ...(answerVerification ? { answerVerification } : {}),
+        ...(codeEquivalenceVerification ? { codeEquivalenceVerification } : {}),
       })}\n\n`);
       res.end("data: [DONE]\n\n");
       return;
