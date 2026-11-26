@@ -43,7 +43,7 @@ import { useEffect, useState, type CSSProperties, type ReactElement } from 'reac
  * 参照を外した（ファイル自体は public/brand に残置）。エージェント
  * 画面の状態チップも台座をやめ、透過絵そのままの表示に揃えた。
  */
-export type OriginCatStateKind = 'idle' | 'thinking' | 'searching' | 'working' | 'making' | 'waiting' | 'done' | 'sorry' | 'sleep';
+export type OriginCatStateKind = 'idle' | 'thinking' | 'searching' | 'working' | 'making' | 'waiting' | 'done' | 'sorry' | 'sleep' | 'listening' | 'celebration';
 
 export const ORIGIN_CAT_STILL_SRC: Record<OriginCatStateKind, string> = {
   idle: '/brand/origin-cat.webp',
@@ -63,12 +63,32 @@ export const ORIGIN_CAT_STILL_SRC: Record<OriginCatStateKind, string> = {
   done: '/brand/origin-cat-done.webp',
   sorry: '/brand/origin-cat-sorry.webp',
   sleep: '/brand/origin-cat-sleep.webp',
+  // 「聞き取り中」は音声会話の聞き取りターンの間だけの専用姿
+  // （見た目パターン Phase 1、2026-11-26 組み込み）。細いヘッド
+  // セット＋頬のマイクで、白い蝶ネクタイは維持する。出すのは
+  // プレゼンスの状態集約が音声会話コントローラの聞き取り
+  // フェーズを見たときだけで、音声が使えない間はコントローラが
+  // そのフェーズにならないため発動しない。
+  listening: '/brand/origin-cat-listening.webp',
+  // 「お祝い」は完了の合図専用の姿（同じく Phase 1）。金の蝶
+  // ネクタイ＋金の紙吹雪、口を開けた喜び表情。プレゼンスの完了
+  // キュー（headerDoneCue）の間だけ出し、エージェント側の状態
+  // チップなどが使う 'done' は従来の静止画のままにする
+  // （使い分けは App 側の状態集約が担う）。
+  celebration: '/brand/origin-cat-celebration.webp',
 };
 
 /** 冬（12月〜2月）の待機姿の差し替え先。季節差し替えは待機の静止画だけが対象。 */
 export const ORIGIN_CAT_WINTER_IDLE_SRC = '/brand/origin-cat-winter.webp';
 /** お正月（1月1日〜10日）の待機姿の差し替え先。冬の差し替えより優先する。 */
 export const ORIGIN_CAT_NEWYEAR_IDLE_SRC = '/brand/origin-cat-newyear.webp';
+/**
+ * クリスマス（12月）の待機姿の差し替え先。深い赤のニットマフラー
+ * ＋金の星チャームで、白い蝶ネクタイは上に出ている（見た目
+ * パターン Phase 1、2026-11-26 組み込み）。12月は従来の冬の
+ * 差し替えに代えてこちらを使う。
+ */
+export const ORIGIN_CAT_CHRISTMAS_IDLE_SRC = '/brand/origin-cat-christmas.webp';
 
 /**
  * ダークテーマ専用の通常待機姿（輪郭に青灰色のリムライトを焼き込んだ
@@ -86,10 +106,14 @@ export const ORIGIN_CAT_WINTER_FULL_SRC = '/brand/origin-cat-winter-full.webp';
 export const ORIGIN_CAT_NEWYEAR_FULL_SRC = '/brand/origin-cat-newyear-full.webp';
 
 /** 季節の種別（季節外は resolveOriginCatSeason が null を返す）。 */
-export type OriginCatSeason = 'winter' | 'newyear';
+export type OriginCatSeason = 'winter' | 'newyear' | 'christmas';
 
-/** 季節→プロフィールカード用・完成イラストの対応表。 */
-export const ORIGIN_CAT_SEASON_FULL_SRC: Record<OriginCatSeason, string> = {
+/**
+ * 季節→プロフィールカード用・完成イラストの対応表。クリスマスは
+ * 完成イラストを用意しない（常駐の待機姿の差し替えのみ）ため
+ * Partial とし、カード側は対応する季節だけ図版を出す。
+ */
+export const ORIGIN_CAT_SEASON_FULL_SRC: Partial<Record<OriginCatSeason, string>> = {
   winter: ORIGIN_CAT_WINTER_FULL_SRC,
   newyear: ORIGIN_CAT_NEWYEAR_FULL_SRC,
 };
@@ -99,14 +123,17 @@ export const ORIGIN_CAT_SEASON_FULL_SRC: Record<OriginCatSeason, string> = {
  * 常駐の待機姿の差し替えと、プロフィールカード内の完成イラスト
  * 表示は、どちらもこの判定を正本にする（日付条件を二重に持たない）。
  * - 1月1日〜10日：お正月（冬より優先）
- * - 12月1日〜2月末：冬
+ * - 12月：クリスマス（見た目パターン Phase 1、2026-11-26。12月は
+ *   従来の冬に代えてクリスマスにする）
+ * - 1月11日〜2月末：冬
  * - それ以外：季節なし（null）
  */
 export function resolveOriginCatSeason(now: Date): OriginCatSeason | null {
   const month = now.getMonth() + 1;
   const day = now.getDate();
   if (month === 1 && day <= 10) return 'newyear';
-  if (month === 12 || month === 1 || month === 2) return 'winter';
+  if (month === 12) return 'christmas';
+  if (month === 1 || month === 2) return 'winter';
   return null;
 }
 
@@ -118,13 +145,15 @@ export function resolveOriginCatSeason(now: Date): OriginCatSeason | null {
  *
  * 常駐表示の差し替え絵は「控えめな季節アクセント」だけにする
  * （オーナー決定 2026-11-21：冬＝落ち着いた青のマフラー1点、
- * お正月＝朱の襟元1点）。雪景色・着物姿の完成イラストは常駐には
+ * お正月＝朱の襟元1点。クリスマス＝深い赤のマフラー＋金の星
+ * チャーム1点、2026-11-26 追加）。雪景色・着物姿の完成イラストは常駐には
  * 出さず、プロフィールカードの中にだけ出す
  * （ORIGIN_CAT_SEASON_FULL_SRC）。
  */
 export function resolveOriginCatIdleSrc(now: Date): string {
   const season = resolveOriginCatSeason(now);
   if (season === 'newyear') return ORIGIN_CAT_NEWYEAR_IDLE_SRC;
+  if (season === 'christmas') return ORIGIN_CAT_CHRISTMAS_IDLE_SRC;
   if (season === 'winter') return ORIGIN_CAT_WINTER_IDLE_SRC;
   return ORIGIN_CAT_STILL_SRC.idle;
 }

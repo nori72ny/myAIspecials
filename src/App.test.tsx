@@ -3076,7 +3076,7 @@ describe('cat visibility on the top screen and while generating (owner request 2
     // 2026-11-20 12:06：台座も窓枠も付けず、円盤だけが浮く）。
     // 待機中の姿は季節で差し替わる（冬＝雪景色、1月1日〜10日＝お正月）。
     // ここでは「プレゼンスに猫が1体だけ」の確認が目的なので、季節版も含める。
-    const idleSrcs = ['/brand/origin-cat.webp', '/brand/origin-cat-winter.webp', '/brand/origin-cat-newyear.webp'];
+    const idleSrcs = ['/brand/origin-cat.webp', '/brand/origin-cat-winter.webp', '/brand/origin-cat-newyear.webp', '/brand/origin-cat-christmas.webp'];
     const brandCats = screen.getAllByTestId('origin-cat-state').filter((node) => idleSrcs.includes(node.getAttribute('src') ?? ''));
     expect(brandCats).toHaveLength(1);
     expect(brandCats[0].tagName).toBe('IMG');

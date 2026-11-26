@@ -233,6 +233,10 @@ export default function OrinPanel({
 
   if (!open) return null;
   const season = resolveOriginCatSeason(new Date());
+  // 完成イラストがある季節（冬・お正月）だけカード内に図版を出す。
+  // クリスマスは完成イラストを用意しないため、この値が無い間は
+  // 図版を出さず、待機姿の差し替え（上のプロフィール絵）だけが効く。
+  const seasonFullSrc = season !== null ? ORIGIN_CAT_SEASON_FULL_SRC[season] : undefined;
   const runsReady = runsState.kind === 'ready';
   const groups = runsReady ? runsState.groups : null;
 
@@ -502,10 +506,10 @@ export default function OrinPanel({
               ? 'こんにちは、オリンです。調べものや資料づくりなど、やりたいことを伝えてください。'
               : "Hi, I'm Orin. Tell me what you'd like to do — looking things up, making documents, and more."}
           </p>
-          {season !== null && (
+          {seasonFullSrc !== undefined && (
             <figure data-testid="origin-orin-profile-season" className="m-0 mt-4">
               <img
-                src={ORIGIN_CAT_SEASON_FULL_SRC[season]}
+                src={seasonFullSrc}
                 alt=""
                 draggable={false}
                 className="h-auto w-full max-w-[300px] rounded-2xl"
