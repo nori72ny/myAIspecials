@@ -6,6 +6,8 @@ import type { OriginLanguage } from '../../i18n';
 import { safeExternalUrl } from '../../research/researchReport';
 import MarkdownTableV12 from '../MarkdownTableV12';
 import { splitPartialAnswerSources, type PartialAnswerSourceCard, type PartialAnswerSourcesSection } from './partialAnswerSourceCards';
+import { normalizeAnswerMath } from './answerMathNormalization';
+import { isSourcesOnlyPartialLead, reshapeReconstructionLanding, SOURCES_ONLY_FOUND_HEADING, SOURCES_ONLY_STATUS_LINE } from './sourcesOnlyLanding';
 
 export type AnswerRefinementKind = 'depth' | 'example' | 'plan' | 'summary';
 
@@ -189,11 +191,32 @@ function PartialAnswerSourceCardView({ card, language }: { card: PartialAnswerSo
   return <article className="rounded-xl border border-origin-border p-3">
     <p className="m-0 text-[13px] font-bold text-[var(--accent-primary)]">{card.domain ? `${card.id} · ${card.domain}` : card.id}</p>
     <h4 className="mt-1 break-words text-sm font-bold">{card.title}</h4>
+    {card.publishedLine ? <p className="origin-muted mt-1 text-[13px]">{card.publishedLine}</p> : null}
     {card.quote ? <p className="mt-1 text-sm leading-6">{isEn ? `\u201c${card.quote}\u201d` : `『${card.quote}』`}</p> : null}
     {href
       ? <a href={href} target="_blank" rel="noreferrer" className="origin-touch-link mt-2 inline-flex min-h-11 items-center break-all text-sm font-semibold text-[var(--accent-primary)] underline">{isEn ? 'Open original' : '原文を開く'}</a>
       : <p className="mt-2 text-[13px] font-semibold text-amber-700 dark:text-amber-300">{isEn ? 'The link was disabled because its safety could not be confirmed.' : 'リンク先の安全性を確認できなかったため、リンクを無効にしました。'}</p>}
   </article>;
+}
+
+/**
+ * 4-A（回答表示の外部比較 2026-11-26 §4）：部分回答（出典のみ着地）の
+ * 「分かったこと」。出典カードの引用を、出典の記述であることを明示
+ * したまま先に並べ、利用者がカードを掘らなくても要点に届くように
+ * する。引用を持つカードが無い場合は何も出さない（分かったことを
+ * 無理に作らない）。
+ */
+function PartialAnswerFoundQuotes({ cards, language }: { cards: PartialAnswerSourceCard[]; language: OriginLanguage }) {
+  const quoted = cards.filter((card) => card.quote);
+  if (quoted.length === 0) return null;
+  const isEn = language === 'en';
+  const heading = isEn ? SOURCES_ONLY_FOUND_HEADING.en : SOURCES_ONLY_FOUND_HEADING.ja;
+  return <section aria-label={heading}>
+    <h2>{heading}</h2>
+    <ul>
+      {quoted.map((card) => <li key={card.id}>{isEn ? `\u201c${card.quote}\u201d` : `『${card.quote}』`} <span className="origin-muted">({card.id})</span></li>)}
+    </ul>
+  </section>;
 }
 
 function PartialAnswerSources({ section, language }: { section: PartialAnswerSourcesSection; language: OriginLanguage }) {
@@ -220,6 +243,15 @@ export default function OriginAnswerMarkdown({ content, language, onRefine, show
   // 通常経路と同じ出典カードで描く（読み取れない書式なら従来どおり
   // Markdown のまま）。コピー等の操作は本文全体に対して従来どおり。
   const partialSources = useMemo(() => splitPartialAnswerSources(content), [content]);
+  // 4-A：出典のみ着地の「答えの形」化。部分回答は「状態の1行＋
+  // 分かったこと＋出典カード」に組み替え、再構成の逐語引用着地は
+  // 状態行と見出しを付けた Markdown に組み替える。対象の形で
+  // なければ従来どおり描く。
+  const partialLanding = partialSources && isSourcesOnlyPartialLead(partialSources.before) ? partialSources : null;
+  const reshapedReconstruction = useMemo(
+    () => (partialSources ? null : reshapeReconstructionLanding(content, language === 'en' ? 'en' : 'ja')),
+    [content, language, partialSources],
+  );
   const renderMarkdown = (text: string) => (
     <ReactMarkdown
       remarkPlugins={[remarkGfm]}
@@ -242,16 +274,21 @@ export default function OriginAnswerMarkdown({ content, language, onRefine, show
         th: ({ children }) => <th>{splitCellBreaks(children)}</th>,
       }}
     >
-      {normalizeAnswerBreaks(text)}
+      {normalizeAnswerBreaks(normalizeAnswerMath(text))}
     </ReactMarkdown>
   );
   return (
     <div className="origin-answer-markdown markdown-body">
-      {partialSources ? <>
+      {partialLanding ? <>
+        <p className="origin-answer-status-lead"><strong>{language === 'en' ? SOURCES_ONLY_STATUS_LINE.en : SOURCES_ONLY_STATUS_LINE.ja}</strong></p>
+        <PartialAnswerFoundQuotes cards={partialLanding.section.cards} language={language} />
+        <PartialAnswerSources section={partialLanding.section} language={language} />
+        {partialLanding.after ? renderMarkdown(partialLanding.after) : null}
+      </> : partialSources ? <>
         {partialSources.before ? renderMarkdown(partialSources.before) : null}
         <PartialAnswerSources section={partialSources.section} language={language} />
         {partialSources.after ? renderMarkdown(partialSources.after) : null}
-      </> : renderMarkdown(content)}
+      </> : reshapedReconstruction ? renderMarkdown(reshapedReconstruction) : renderMarkdown(content)}
       {showActions && content.trim() && <div className="origin-answer-actions">
         <CopyButton text={content} language={language} label={language === 'en' ? 'Copy answer' : '回答をコピー'} />
         {onRefine && <div className="origin-answer-refinements" role="group" aria-label={language === 'en' ? 'Refine this answer' : '回答を調整'}>

@@ -114,4 +114,30 @@ describe('splitPartialAnswerSources', () => {
       ['S2', 'b.example', 'Second', 'https://b.example/2'],
     ]);
   });
+
+  it('parses an optional per-card publication-date line (5-A)', () => {
+    const withDate = [
+      '公開情報を2件取得しましたが、要約した回答を作成できなかったため、確認できた範囲と出典の一覧をお伝えします。内容の詳細は各出典でご確認ください。',
+      '',
+      '## 確認できた範囲',
+      '',
+      '### S1 · mhlw.go.jp',
+      '',
+      '[一般職業紹介状況](https://www.mhlw.go.jp/example)',
+      '',
+      '公表日：2026年10月31日',
+      '',
+      '『有効求人倍率は1.19倍でした。』',
+      '',
+      '### S2 · example.org',
+      '',
+      '[Second source](https://example.org/b)',
+    ].join('\n');
+    const split = splitPartialAnswerSources(withDate);
+    expect(split).not.toBeNull();
+    expect(split!.section.cards[0].publishedLine).toBe('公表日：2026年10月31日');
+    expect(split!.section.cards[0].quote).toBe('有効求人倍率は1.19倍でした。');
+    // 日付行が無いカードには publishedLine が付かない（捏造しない）。
+    expect(split!.section.cards[1].publishedLine).toBeUndefined();
+  });
 });

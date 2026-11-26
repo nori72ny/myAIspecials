@@ -136,7 +136,8 @@ describe('partial-answer source cards', () => {
     expect(screen.getByRole('heading', { name: '確認できた範囲', level: 2 })).toBeTruthy();
     expect(screen.getByText('S1 · enecho.meti.go.jp')).toBeTruthy();
     expect(screen.getByText('日本のガソリン価格について')).toBeTruthy();
-    expect(screen.getByText('『全国平均小売価格は1リットルあたり170円程度でした。』')).toBeTruthy();
+    // 4-A 以降、引用は「分かったこと」の要約と出典カードの両方に出る。
+    expect(screen.getAllByText('『全国平均小売価格は1リットルあたり170円程度でした。』')).toHaveLength(2);
     expect(screen.getByText('取得日：2026年11月21日')).toBeTruthy();
     const openLinks = screen.getAllByRole('link', { name: '原文を開く' });
     expect(openLinks.map((link) => link.getAttribute('href'))).toEqual([
@@ -201,5 +202,85 @@ describe('Japanese line-breaking rules (P6) and the chat scroller anchor (P5)', 
 
   it('disables browser scroll anchoring on the chat scroller (P5)', () => {
     expect(css).toContain('.origin-chat-scroll { overflow-anchor: none; }');
+  });
+});
+
+describe('answer display adjustments (2026-11-26 batch 1)', () => {
+  it('renders LaTeX math as plain readable notation, not raw source (3-A)', () => {
+    const { container } = render(<OriginAnswerMarkdown language="ja" content={'40人のうち75%は $40 \\times \\frac{3}{4} = 30$ なので30人です。'} />);
+    expect(container.textContent).toContain('40 × 3/4 = 30');
+    expect(container.textContent).not.toContain('\\times');
+    expect(container.textContent).not.toContain('\\frac');
+    expect(container.textContent).not.toContain('$');
+  });
+
+  it('reshapes a partial (sources-only) landing into status, found quotes, then cards (4-A)', () => {
+    const partialAnswer = [
+      '公開情報を2件取得しましたが、要約した回答を作成できなかったため、確認できた範囲と出典の一覧をお伝えします。内容の詳細は各出典でご確認ください。',
+      '',
+      '## 確認できた範囲',
+      '',
+      '### S1 · mhlw.go.jp',
+      '',
+      '[一般職業紹介状況](https://www.mhlw.go.jp/example)',
+      '',
+      '『有効求人倍率は1.19倍でした。』',
+      '',
+      '### S2 · example.org',
+      '',
+      '[Second source](https://example.org/b)',
+    ].join('\n');
+    const { container } = render(<OriginAnswerMarkdown language="ja" content={partialAnswer} />);
+    // 状態の1行が先頭に出て、長い定型の導入文は出ない。
+    const status = container.querySelector('.origin-answer-status-lead');
+    expect(status?.textContent).toBe('要約した答えは作れませんでした。出典の記述で分かったことをお伝えします。');
+    expect(container.textContent).not.toContain('確認できた範囲と出典の一覧をお伝えします');
+    // 「分かったこと」に引用が先に並び、出典カードも従来どおり出る。
+    expect(screen.getByRole('heading', { name: '分かったこと（出典の記述）', level: 2 })).toBeTruthy();
+    expect(screen.getByRole('heading', { name: '確認できた範囲', level: 2 })).toBeTruthy();
+    expect(container.querySelectorAll('article')).toHaveLength(2);
+  });
+
+  it('reshapes a reconstruction (verbatim quotes) landing with a status line and heading (4-A)', () => {
+    const reconstruction = [
+      '取得した出典の記述から、ご質問に関係する内容をそのままお伝えします。',
+      '',
+      '「8月の有効求人倍率は1.18倍でした。」 [S1](https://www.nikkei.com/example)',
+      '',
+      '## 出典',
+      '- S1: 有効求人倍率（www.nikkei.com）',
+      '  https://www.nikkei.com/example',
+    ].join('\n');
+    const { container } = render(<OriginAnswerMarkdown language="ja" content={reconstruction} />);
+    expect(container.textContent).toContain('要約した答えは作れませんでした。出典の記述で分かったことをお伝えします。');
+    expect(screen.getByRole('heading', { name: '分かったこと（出典の記述）', level: 2 })).toBeTruthy();
+    expect(container.textContent).toContain('8月の有効求人倍率は1.18倍でした。');
+    expect(screen.getByRole('heading', { name: '出典', level: 2 })).toBeTruthy();
+    // 元の導入文そのものは状態行に置き換わる。
+    expect(container.textContent).not.toContain('ご質問に関係する内容をそのままお伝えします');
+  });
+
+  it('shows a publication-date line on a source card only when the card carries one (5-A)', () => {
+    const withDate = [
+      '公開情報を2件取得しましたが、要約した回答を作成できなかったため、確認できた範囲と出典の一覧をお伝えします。内容の詳細は各出典でご確認ください。',
+      '',
+      '## 確認できた範囲',
+      '',
+      '### S1 · mhlw.go.jp',
+      '',
+      '[一般職業紹介状況](https://www.mhlw.go.jp/example)',
+      '',
+      '公表日：2026年10月31日',
+      '',
+      '『有効求人倍率は1.19倍でした。』',
+      '',
+      '### S2 · example.org',
+      '',
+      '[Second source](https://example.org/b)',
+    ].join('\n');
+    render(<OriginAnswerMarkdown language="ja" content={withDate} />);
+    expect(screen.getByText('公表日：2026年10月31日')).toBeTruthy();
+    // 日付は1件だけ（S2 には付けない）。
+    expect(screen.getAllByText(/^公表日：/)).toHaveLength(1);
   });
 });
