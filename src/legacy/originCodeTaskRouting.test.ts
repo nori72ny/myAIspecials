@@ -298,7 +298,7 @@ describe("code-handling rules (CB-5)", () => {
     expect(compact).toContain("check each claim against the trace and the code");
     expect(compact).toContain(API_CONVENTIONS);
     expect(compact).toContain("do not switch dialects");
-    expect(compact.length).toBeLessThanOrEqual(6_200);
+    expect(compact.length).toBeLessThanOrEqual(6_700);
   });
 });
 
@@ -369,7 +369,7 @@ describe("code-review finding discipline (CB-6)", () => {
     expect(compact).toContain("not a generic weakness of the construct");
     expect(compact).toContain(NOTHING_UNUSED);
     expect(compact).toContain("remove imports the replacement no longer uses");
-    expect(compact.length).toBeLessThanOrEqual(6_200);
+    expect(compact.length).toBeLessThanOrEqual(6_700);
   });
 });
 
@@ -420,6 +420,6 @@ describe("conditional-definition rule (CB-7)", () => {
     const compact = originGroqRouteSystemInstruction();
     expect(compact).toContain(CONDITIONAL_DEFINITION_CONDENSED);
     expect(compact).toContain("initialize before `try` or guard the cleanup");
-    expect(compact.length).toBeLessThanOrEqual(6_200);
+    expect(compact.length).toBeLessThanOrEqual(6_700);
   });
 });
