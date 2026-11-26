@@ -21,6 +21,7 @@ import {
   extractAgentDataValueSeeds,
   mergeAgentDataStructures,
   normalizeAgentDataValueText,
+  parseAgentDataValues,
   parseChunkOutputDetailed,
   parseFailureRepairGuidance,
   parseReconciliationOutput,
@@ -3734,5 +3735,230 @@ describe('M&A gate follow-up: corrected anchor predicate, deterministic pickup, 
       '自有资金||信息披露义务人向银行的借款',
       '45%||40%',
     ]);
+  });
+});
+
+describe('rerun countermeasures 2026-11-27 (M-1 basis / M-3 page locations / B-1 discipline / B-2 business-line check)', () => {
+  const emptyStructure = { agreements: [], definitions: [] };
+
+  it('M-1: values stating different bases never pair (the production Finding-4 shape)', () => {
+    // 物美's 100% is its stake IN a subsidiary; the 5% is the
+    // transferred shares' share OF the target's total capital.
+    // Same holder, same attribute label — different bases, so no
+    // candidate. The unstated control pair below proves the
+    // split comes from the bases, not the values.
+    const candidates = computeAgentDataValueMismatches([
+      { entity: '物美科技集团有限公司', attribute: '比率・持分', value: '100%', file: 'seller_report.txt', location: 'Page 6', basis: '物美津投（天津）商业管理有限公司' },
+      { entity: '物美科技集团有限公司', attribute: '持股比例', value: '5%', file: 'seller_report.txt', location: 'Page 16', basis: '银川新华百货商业集团股份有限公司' },
+    ], emptyStructure);
+    expect(candidates).toHaveLength(0);
+    const unstated = computeAgentDataValueMismatches([
+      { entity: '物美科技集团有限公司', attribute: '比率・持分', value: '100%', file: 'seller_report.txt', location: 'Page 6' },
+      { entity: '物美科技集团有限公司', attribute: '持股比例', value: '5%', file: 'seller_report.txt', location: 'Page 16' },
+    ], emptyStructure);
+    expect(unstated).toHaveLength(1);
+  });
+
+  it('M-1: same-basis values pair, the candidate records the basis, and R1/R3 shapes are unchanged', () => {
+    const candidates = computeAgentDataValueMismatches([
+      // R2 shape: both sides state the same basis.
+      { entity: '聚源盛业投资（宁波）有限公司', attribute: '比率・持分', value: '45%', file: 'announcement.txt', location: 'Page 4', basis: '银川新华百货商业集团股份有限公司' },
+      { entity: '聚源盛业投资（宁波）有限公司', attribute: '比率・持分', value: '40%', file: 'buyer1_report.txt', location: 'Page 5', basis: '银川新华百货商业集团股份有限公司' },
+      // R1 shape: amounts, no basis stated.
+      { entity: '厦门联芯美企业管理合伙企业（有限合伙）', attribute: '金額', value: '146,660,323.00', file: 'announcement.txt', location: 'Page 2' },
+      { entity: '厦门联芯美企业管理合伙企业（有限合伙）', attribute: '金額', value: '146,660,332.00', file: 'announcement.txt', location: 'Page 11' },
+      // R3 shape: funding sources, no basis stated.
+      { entity: '杭州景祺电子信息合伙企业（有限合伙）', attribute: '資金源泉', value: '自有资金', file: 'announcement.txt', location: 'Page 2' },
+      { entity: '杭州景祺电子信息合伙企业（有限合伙）', attribute: '資金源泉', value: '银行借款', file: 'buyer1_report.txt', location: 'Page 12' },
+    ], emptyStructure);
+    expect(candidates).toHaveLength(3);
+    const ratio = candidates.find((candidate) => candidate.attribute === '比率・持分');
+    expect(ratio?.basis).toBe('银川新华百货商业集团股份有限公司');
+    expect(ratio?.values.map((entry) => entry.normalizedValue)).toEqual(['45', '40']);
+  });
+
+  it('M-1: parseAgentDataValues round-trips the basis and drops an empty one', () => {
+    const parsed = parseAgentDataValues([
+      { entity: '甲', attribute: '持股比例', value: '45%', file: 'f', location: 'l', basis: '乙公司' },
+      { entity: '甲', attribute: '持股比例', value: '40%', file: 'f', location: 'l', basis: '  ' },
+    ]);
+    expect(parsed[0]?.basis).toBe('乙公司');
+    expect(parsed[1]?.basis).toBeUndefined();
+  });
+
+  it('M-3: the final audit bundle carries page-form locations for values and candidates', async () => {
+    const text = ['=== Page 1 ===', '甲の金額は100元である。', '=== Page 2 ===', '甲の金額は200元である。'].join('\n');
+    const { store, setDigest } = await storeWithFiles([{ name: 'doc.txt', text }]);
+    const executor: AgentModelExecutor = async () => ({
+      ok: true,
+      text: JSON.stringify({
+        findings: [{
+          claim: '金額がページ間で食い違う',
+          explanation: '同一主体の同一属性で2つの金額が記載されている',
+          evidence: '甲の金額は100元である。',
+          file: 'doc.txt',
+          location: 'チャンク 1・行 2',
+          evidenceB: '甲の金額は200元である。',
+          fileB: 'doc.txt',
+          locationB: 'チャンク 1・行 4',
+        }],
+        values: [
+          { entity: '甲', attribute: '金額', value: '100', file: 'doc.txt', location: 'チャンク 1・行 2' },
+          { entity: '甲', attribute: '金額', value: '200', file: 'doc.txt', location: 'チャンク 1・行 4' },
+        ],
+        structure: { agreements: [], definitions: [] },
+      }),
+    });
+    const result = await toolRegistry.attachment_analyzer.execute(
+      {
+        attachmentSetId: SET_ID, setDigest,
+        instruction: 'Audit the documents for inconsistencies',
+        outputKind: 'findings', chunkOffset: 0, chunkCount: 1, auditMode: true,
+      },
+      contextFor(store, executor),
+    );
+    expect(result.ok).toBe(true);
+    const bundle = JSON.parse(result.artifact ?? '{}') as {
+      values: { value: string; location: string }[];
+      candidates: { values: { location: string }[] }[];
+    };
+    expect(bundle.values.map((entry) => entry.location)).toEqual(['Page 1', 'Page 2']);
+    expect(bundle.candidates).toHaveLength(1);
+    expect(bundle.candidates[0]?.values.map((entry) => entry.location)).toEqual(['Page 1', 'Page 2']);
+  });
+
+  async function storeWithTypedFiles(files: ReadonlyArray<readonly [string, string, string]>) {
+    const store = new InMemoryAgentAttachmentStore();
+    await store.createSet({
+      setId: SET_ID,
+      ownerBinding: OWNER,
+      uploadTokenDigest: 'cd'.repeat(32),
+      expiresAt: Date.now() + 3_600_000,
+    });
+    for (const [name, text, mediaType] of files) {
+      const measured = validateAgentAttachmentFileText(text);
+      await store.addFile(SET_ID, OWNER, {
+        name, mediaType, kind: 'text',
+        byteSize: measured.byteSize, charCount: measured.charCount,
+        sha256: measured.sha256, extractedText: text,
+      });
+    }
+    const set = await store.getSet(SET_ID, OWNER);
+    if (!set) throw new Error('fixture set missing');
+    return { store, setDigest: computeAgentAttachmentSetDigest(set.files) };
+  }
+
+  const CLASSIFYING_SCHEMA = [
+    'Event_ID,Loss_Event_Category,Business_Line,Loss_Amount_CNY',
+    'EXAMPLE001,EL1,BL2,100000',
+  ].join('\n');
+
+  it('B-1: the rows instruction carries the classification discipline when the schema names classification columns', async () => {
+    const { store, setDigest } = await storeWithTypedFiles([
+      ['events.tsv', ['Event_ID\tAmount', 'OR001\t100'].join('\n'), 'text/tab-separated-values'],
+      ['classified.schema.csv', CLASSIFYING_SCHEMA, 'text/csv'],
+    ]);
+    const instructions: string[] = [];
+    const executor: AgentModelExecutor = async (input) => {
+      instructions.push(input.instruction);
+      if (input.userText.startsWith('【出典: events.tsv')) {
+        return {
+          ok: true,
+          text: JSON.stringify({
+            rows: [{ Event_ID: 'OR001', Loss_Event_Category: 'EL7', Business_Line: 'BL5', Loss_Amount_CNY: '100', Amount: '100' }],
+          }),
+        };
+      }
+      return { ok: true, text: JSON.stringify({ rows: [] }) };
+    };
+    const result = await toolRegistry.attachment_analyzer.execute(
+      analyzerParams(setDigest, { chunkOffset: 0, chunkCount: 2 }),
+      contextFor(store, executor),
+    );
+    expect(result.ok).toBe(true);
+    expect(instructions[0]).toContain('分類の判定規律');
+    expect(instructions[0]).toContain('行為者で決めること');
+    expect(instructions[0]).toContain('その対応に必ず従い');
+  });
+
+  it('B-1: a plain extraction schema carries no classification discipline', async () => {
+    const { store, setDigest } = await storeWithTypedFiles([
+      ['events.tsv', ['Event_ID\tAmount', 'OR001\t100'].join('\n'), 'text/tab-separated-values'],
+      ['plain.schema.csv', ['Event_ID,Amount', 'EXAMPLE001,100'].join('\n'), 'text/csv'],
+    ]);
+    const instructions: string[] = [];
+    const executor: AgentModelExecutor = async (input) => {
+      instructions.push(input.instruction);
+      if (input.userText.startsWith('【出典: events.tsv')) {
+        return { ok: true, text: JSON.stringify({ rows: [{ Event_ID: 'OR001', Amount: '100' }] }) };
+      }
+      return { ok: true, text: JSON.stringify({ rows: [] }) };
+    };
+    const result = await toolRegistry.attachment_analyzer.execute(
+      analyzerParams(setDigest, { chunkOffset: 0, chunkCount: 2 }),
+      contextFor(store, executor),
+    );
+    expect(result.ok).toBe(true);
+    expect(instructions.every((instruction) => !instruction.includes('分類の判定規律'))).toBe(true);
+  });
+
+  it('B-2: the final rows bundle corrects a business line the set’s own mapping contradicts', async () => {
+    const events = [
+      ['Event_ID', 'Involved_Department', 'Loss_Amount_CNY'].join('\t'),
+      ['OR001', '证券营业部', '100'].join('\t'),
+      ['OR002', '信息技术部', '200'].join('\t'),
+    ].join('\n');
+    const mapping = [
+      ['BL_Code', 'BL_Name_CN', 'Key_Departments'].join('\t'),
+      ['BL6', '代理服务', '证券服务部'].join('\t'),
+      ['BL8', '零售经纪', '经纪业务部, 证券营业部'].join('\t'),
+    ].join('\n');
+    const { store, setDigest } = await storeWithTypedFiles([
+      ['events.tsv', events, 'text/tab-separated-values'],
+      ['business_line_mapping.tsv', mapping, 'text/tab-separated-values'],
+      ['classified.schema.csv', CLASSIFYING_SCHEMA, 'text/csv'],
+    ]);
+    const executor: AgentModelExecutor = async (input) => {
+      if (input.userText.startsWith('【出典: events.tsv')) {
+        return {
+          ok: true,
+          text: JSON.stringify({
+            rows: [
+              { Event_ID: 'OR001', Loss_Event_Category: 'EL7', Business_Line: 'BL6', Loss_Amount_CNY: '100' },
+              { Event_ID: 'OR002', Loss_Event_Category: 'EL7', Business_Line: 'BL5', Loss_Amount_CNY: '200' },
+            ],
+          }),
+        };
+      }
+      return { ok: true, text: JSON.stringify({ rows: [] }) };
+    };
+    // A step processes at most 2 chunks, so the 3-chunk set
+    // chains: the second step completes the set and is where the
+    // final-step check fires, over the rows the chain merged.
+    const step1 = await toolRegistry.attachment_analyzer.execute(
+      analyzerParams(setDigest, { chunkOffset: 0, chunkCount: 2 }),
+      contextFor(store, executor),
+    );
+    expect(step1.ok).toBe(true);
+    const result = await toolRegistry.attachment_analyzer.execute(
+      analyzerParams(setDigest, { chunkOffset: 2, chunkCount: 1, content: step1.artifact }),
+      contextFor(store, executor),
+    );
+    expect(result.ok).toBe(true);
+    const bundle = JSON.parse(result.artifact ?? '{}') as {
+      rows: Array<Record<string, string>>;
+      businessLineCheck?: {
+        corrections: { key: string; department: string; from: string; to: string }[];
+        unmappedDepartments: string[];
+      };
+    };
+    // 证券营业部 is BL8 by the set's mapping: corrected from the
+    // model's BL6. 信息技术部 is not in the mapping: the model's
+    // BL5 stands, and the department is reported unmapped.
+    expect(bundle.rows.map((row) => row.Business_Line)).toEqual(['BL8', 'BL5']);
+    expect(bundle.businessLineCheck?.corrections).toEqual([
+      { key: 'OR001', department: '证券营业部', from: 'BL6', to: 'BL8' },
+    ]);
+    expect(bundle.businessLineCheck?.unmappedDepartments).toEqual(['信息技术部']);
   });
 });
