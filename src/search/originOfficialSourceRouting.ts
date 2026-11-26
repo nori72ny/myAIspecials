@@ -96,6 +96,17 @@ import {
   type OriginOfficialEdition,
   type OriginOfficialEditionSchedule,
 } from "./originOfficialEdition.js";
+import {
+  isRegionalOfficialSource,
+  type OfficialMaterialSourceShape,
+} from "./originRegionalOfficialSource.js";
+
+// The regional predicate lives in its own leaf module
+// (originRegionalOfficialSource.ts) so the grounding selection and
+// the evidence packet can import it without closing a dependency
+// cycle through this module; re-exported here so existing imports
+// from the routing module keep working.
+export { isRegionalOfficialSource, type OfficialMaterialSourceShape };
 
 /** Only the exact string "true" enables official-source routing. */
 export function resolveOriginOfficialSourceRoutingEnabled(
@@ -359,56 +370,6 @@ export function excerptHasOfficialValueToken(excerpt: string): boolean {
   return OFFICIAL_VALUE_TOKEN_PATTERN.test((excerpt ?? "").normalize("NFKC"));
 }
 
-/**
- * The 47 prefectures, kanji stems and romaji slugs — a fixed
- * geographic vocabulary, used only to recognize REGIONAL content
- * (a prefectural bureau's release of its own local figure) as
- * distinct from the national publication. A regional figure is real
- * data, but it is not the national value a statistics question asks
- * for (round 8, F-05: the adopted pool's only value-bearing source
- * was the Miyagi labour bureau's prefectural PDF).
- */
-const PREFECTURE_KANJI_STEMS: readonly string[] = [
-  "北海道", "青森", "岩手", "宮城", "秋田", "山形", "福島", "茨城", "栃木", "群馬",
-  "埼玉", "千葉", "東京", "神奈川", "新潟", "富山", "石川", "福井", "山梨", "長野",
-  "岐阜", "静岡", "愛知", "三重", "滋賀", "京都", "大阪", "兵庫", "奈良", "和歌山",
-  "鳥取", "島根", "岡山", "広島", "山口", "徳島", "香川", "愛媛", "高知", "福岡",
-  "佐賀", "長崎", "熊本", "大分", "宮崎", "鹿児島", "沖縄",
-];
-const PREFECTURE_ROMAJI_SLUGS: readonly string[] = [
-  "hokkaido", "aomori", "iwate", "miyagi", "akita", "yamagata", "fukushima",
-  "ibaraki", "tochigi", "gunma", "saitama", "chiba", "tokyo", "kanagawa",
-  "niigata", "toyama", "ishikawa", "fukui", "yamanashi", "nagano", "gifu",
-  "shizuoka", "aichi", "mie", "shiga", "kyoto", "osaka", "hyogo", "nara",
-  "wakayama", "tottori", "shimane", "okayama", "hiroshima", "yamaguchi",
-  "tokushima", "kagawa", "ehime", "kochi", "fukuoka", "saga", "nagasaki",
-  "kumamoto", "oita", "miyazaki", "kagoshima", "okinawa",
-];
-/**
- * Hosts that serve only regional (prefectural) content: the MHLW
- * local-bureau portal host, under which every prefectural labour
- * bureau publishes (jsite.mhlw.go.jp/miyagi-roudoukyoku/…). The host
- * is official, but nothing on it is the national release.
- */
-const REGIONAL_ONLY_HOSTS: ReadonlySet<string> = new Set(["jsite.mhlw.go.jp"]);
-
-export interface OfficialMaterialSourceShape {
-  title: string;
-  url: string;
-  excerpt: string;
-  domain: string;
-  authorityTier: string;
-}
-
-/** True when the source is a regional (prefectural) publication. */
-export function isRegionalOfficialSource(source: OfficialMaterialSourceShape): boolean {
-  if (REGIONAL_ONLY_HOSTS.has(source.domain)) return true;
-  const title = (source.title ?? "").normalize("NFKC");
-  if (PREFECTURE_KANJI_STEMS.some((name) => title.includes(name))) return true;
-  const url = (source.url ?? "").toLowerCase();
-  return PREFECTURE_ROMAJI_SLUGS.some((slug) => url.includes(slug));
-}
-
 export type OfficialMaterialInsufficiencyReason =
   | "no-numeric-span"
   | "regional-only"
@@ -430,20 +391,25 @@ export interface OfficialMaterialAssessment {
  * production:
  *  - "no-numeric-span" (F-06): no adopted excerpt carries the value
  *    at all — the pool is navigation text and metadata pages;
- *  - "regional-only" (F-05): values exist, but every value-bearing
- *    source is a regional publication and no national official
- *    source carries a value — the national figure never arrived;
+ *  - "regional-only" (F-05): no national official source carries a
+ *    value, but a regional publication does — the national figure
+ *    never arrived, a prefectural one stands in its place. A
+ *    secondary source's value does not mask this shape (remeasure
+ *    diagnosis 2026-11-26, measure 3-2): the F-06 re-measurement
+ *    pool held the national value only in a news headline while a
+ *    prefectural fragment carried the quotable value, and the old
+ *    every-value-is-regional condition never fired;
  *  - "stale-edition" (F-05 follow-up, 2026-11-26): values arrived
  *    from national official publications, but only in editions
  *    older than the one the publication schedule says must exist —
  *    the current figure never arrived, an old one did.
- * A pool whose values ride unofficial NON-regional sources (the
- * F-03 shape) is NOT insufficient by this measure: the first-pass
- * official query is that case's remedy, and widening the retry
- * trigger beyond the two measured shapes would spend credits on
- * pools the probe did not indict. An empty pool is not judged here
- * either — that is the freshness gate's territory (measure C), not
- * a material gap.
+ * A pool whose values ride ONLY unofficial non-regional sources
+ * (the F-03 shape — no regional value in the pool at all) is NOT
+ * insufficient by this measure: the first-pass official query is
+ * that case's remedy, and widening the retry trigger beyond the
+ * measured shapes would spend credits on pools the probe did not
+ * indict. An empty pool is not judged here either — that is the
+ * freshness gate's territory (measure C), not a material gap.
  */
 export function assessOfficialMaterialInsufficiency(
   sources: readonly OfficialMaterialSourceShape[],
@@ -457,9 +423,15 @@ export function assessOfficialMaterialInsufficiency(
   if (valueBearing.length === 0) {
     return { sufficient: false, reason: "no-numeric-span", valueBearingCount: 0, nationalOfficialValueCount: 0 };
   }
+  // Regional-only (measure 3-2): the trigger is "no national
+  // official value, but a regional value exists" — not "every
+  // value is regional". A secondary source carrying a value-shaped
+  // number (a news headline quoting the national figure) does not
+  // put the national publication in the pool, so it must not
+  // suppress the retry that goes and gets it.
   if (
     nationalOfficialValueCount === 0
-    && valueBearing.every((source) => isRegionalOfficialSource(source))
+    && valueBearing.some((source) => isRegionalOfficialSource(source))
   ) {
     return {
       sufficient: false,

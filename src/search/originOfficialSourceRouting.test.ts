@@ -4,6 +4,7 @@ import {
   evaluateOriginSourceFreshness,
   executeOriginSearchGrounding,
   extractStatedPublicationMs,
+  isDataTablePage,
   originSearchGroundingToResearchResult,
   selectOriginSearchSourcesWithObservation,
   type OriginSearchGroundingDeps,
@@ -1084,5 +1085,187 @@ describe("executeOriginSearchGrounding — follow-up measure A (statistical + of
     const outcome = groundedOf(await executeOriginSearchGrounding(F06_QUESTION, deps));
     expect(outcome.sources.some((source) => source.authorityTier === "official")).toBe(true);
     expect(calls.filter((call) => call.url.includes("api.tavily.com/extract"))).toHaveLength(0);
+  });
+});
+
+/* ------------------------------------------------------------------ */
+/* Remeasure measures 2-1 / 3-1 / 3-2                                  */
+/* (ANSWER_STATISTICS_REMEASURE_DIAGNOSIS_2026-11-26): the regional   */
+/* predicate wired into ranking, data-table pages demoted below the   */
+/* release summary, and the retry trigger relaxed to "a regional      */
+/* value exists while no national official value does".               */
+/* ------------------------------------------------------------------ */
+
+describe("assessOfficialMaterialInsufficiency — relaxed regional trigger (measure 3-2)", () => {
+  const shape = (partial: Partial<OriginSearchSource>): OriginSearchSource => makeSource(partial);
+
+  it("a secondary value no longer masks a regional-only official pool", () => {
+    // The F-06 re-measurement shape: the national figure existed
+    // only in a news headline, the quotable value sentence rode a
+    // prefectural bureau's fragment, and the national publication
+    // itself carried no value in the pool. The old
+    // every-value-is-regional condition never fired.
+    const assessment = assessOfficialMaterialInsufficiency([
+      shape({
+        title: "京都労働局 雇用情勢", domain: "jsite.mhlw.go.jp", authorityTier: "official",
+        url: "https://jsite.mhlw.go.jp/kyoto-roudoukyoku/jirei_toukei.html",
+        excerpt: "京都府の完全失業率は2.6%でした。",
+      }),
+      shape({
+        title: "完全失業率2.4%に改善と報道", domain: "news.example.com", authorityTier: "major-news",
+        url: "https://news.example.com/unemployment",
+        excerpt: "完全失業率は2.4%でした。",
+      }),
+      shape({
+        title: "労働力調査（基本集計）", domain: "stat.go.jp", authorityTier: "official",
+        url: "https://www.stat.go.jp/data/roudou/sokuhou/gaiyou.html",
+        excerpt: "労働力調査の結果公表ページです。",
+      }),
+    ]);
+    expect(assessment.sufficient).toBe(false);
+    expect(assessment.reason).toBe("regional-only");
+    expect(assessment.nationalOfficialValueCount).toBe(0);
+  });
+});
+
+describe("selectOriginSearchSourcesWithObservation — official sub-ranking (measures 2-1 / 3-1)", () => {
+  const official = (
+    title: string, url: string, domain: string, providerScore: number,
+  ): OriginSearchSource => ({
+    title,
+    url,
+    excerpt: "抜粋",
+    providerId: "tavily",
+    domain,
+    authorityTier: "official",
+    evidenceLevel: "snippet",
+    providerScore,
+  });
+
+  it("demotes a data-table page below the same release's summary page", () => {
+    const table = official(
+      "四半期別GDP速報 時系列表", "https://www.esri.cao.go.jp/jp/sna/hyou.html", "esri.cao.go.jp", 0.95,
+    );
+    const summary = official(
+      "四半期別GDP速報（1次速報値）", "https://www.esri.cao.go.jp/jp/sna/gaiyou.html", "esri.cao.go.jp", 0.8,
+    );
+    const { selected } = selectOriginSearchSourcesWithObservation(
+      [table, summary], 5, { officialSubRanking: true },
+    );
+    // Same domain: only the first in the order survives selection,
+    // and it must be the summary page despite the lower score.
+    expect(selected).toHaveLength(1);
+    expect(selected[0]?.url).toBe(summary.url);
+  });
+
+  it("with the sub-ranking off, the table page keeps its provider-score win (old order preserved)", () => {
+    const table = official(
+      "四半期別GDP速報 時系列表", "https://www.esri.cao.go.jp/jp/sna/hyou.html", "esri.cao.go.jp", 0.95,
+    );
+    const summary = official(
+      "四半期別GDP速報（1次速報値）", "https://www.esri.cao.go.jp/jp/sna/gaiyou.html", "esri.cao.go.jp", 0.8,
+    );
+    const { selected } = selectOriginSearchSourcesWithObservation([table, summary], 5);
+    expect(selected[0]?.url).toBe(table.url);
+  });
+
+  it("places a regional official below a national official inside the official tier", () => {
+    const regional = official(
+      "京都労働局 雇用情勢", "https://jsite.mhlw.go.jp/kyoto-roudoukyoku/x.html", "jsite.mhlw.go.jp", 0.95,
+    );
+    const national = official(
+      "労働力調査（基本集計）", "https://www.stat.go.jp/data/roudou/gaiyou.html", "stat.go.jp", 0.8,
+    );
+    const { selected } = selectOriginSearchSourcesWithObservation(
+      [regional, national], 5, { officialSubRanking: true },
+    );
+    expect(selected[0]?.domain).toBe("stat.go.jp");
+    expect(selected[1]?.domain).toBe("jsite.mhlw.go.jp");
+  });
+
+  it("with the sub-ranking off, a regional official keeps its provider-score win (old order preserved)", () => {
+    const regional = official(
+      "京都労働局 雇用情勢", "https://jsite.mhlw.go.jp/kyoto-roudoukyoku/x.html", "jsite.mhlw.go.jp", 0.95,
+    );
+    const national = official(
+      "労働力調査（基本集計）", "https://www.stat.go.jp/data/roudou/gaiyou.html", "stat.go.jp", 0.8,
+    );
+    const { selected } = selectOriginSearchSourcesWithObservation([regional, national], 5);
+    expect(selected[0]?.domain).toBe("jsite.mhlw.go.jp");
+  });
+
+  it("pins the data-table page signals", () => {
+    expect(isDataTablePage({ title: "四半期別GDP速報 時系列表", url: "https://example.com/a" })).toBe(true);
+    expect(isDataTablePage({ title: "完全失業率の時系列データ", url: "https://example.com/a" })).toBe(true);
+    expect(isDataTablePage({ title: "統計データ一覧", url: "https://example.com/a" })).toBe(true);
+    expect(isDataTablePage({ title: "四半期別GDP速報（1次速報値）", url: "https://example.com/a" })).toBe(false);
+  });
+});
+
+describe("executeOriginSearchGrounding — summary page wins the extract slot (measure 2-1)", () => {
+  const GDP_QUESTION = "直近に公表された日本の実質GDP成長率（四半期）を教えてください。";
+  const GDP_TABLE_RESULT = {
+    title: "四半期別GDP速報 時系列表",
+    url: "https://www.esri.cao.go.jp/jp/sna/data/data_list/sokuhou/hyou/main.html",
+    content: `${LONG_EXCERPT} 実質GDPの時系列データを掲載しています。`,
+    score: 0.95,
+  };
+  const GDP_SUMMARY_RESULT = {
+    title: "四半期別GDP速報（1次速報値）",
+    url: "https://www.esri.cao.go.jp/jp/sna/data/data_list/sokuhou/gaiyou/gaiyou.html",
+    content: `${LONG_EXCERPT} 実質GDP成長率は前期比で-0.0%、年率換算で-0.1%でした。`,
+    score: 0.8,
+  };
+  const GDP_NEWS_RESULT = {
+    title: "GDP速報を伝える報道",
+    url: "https://news.example.com/gdp",
+    content: LONG_EXCERPT,
+    score: 0.7,
+    published_date: "2026-11-16T00:00:00.000Z",
+  };
+  const SUMMARY_MARKER = "抽出された要約本文です。実質GDP成長率は前期比で-0.0%でした。";
+  const TABLE_MARKER = "抽出された時系列表本文です。";
+
+  it("extracts the summary page, not the higher-scored time-series table page", async () => {
+    const calls: RecordedCall[] = [];
+    const fetchImpl: OriginSearchFetch = async (url, init) => {
+      calls.push({ url, init });
+      if (url.includes("api.tavily.com/search")) {
+        const body = JSON.parse(init?.body ?? "{}") as { include_domains?: string[] };
+        if (body.include_domains?.includes("esri.cao.go.jp")) {
+          return jsonResponse({ results: [GDP_TABLE_RESULT, GDP_SUMMARY_RESULT] });
+        }
+        return jsonResponse({ results: [GDP_NEWS_RESULT] });
+      }
+      if (url.includes("api.tavily.com/extract")) {
+        return jsonResponse({
+          results: [
+            { url: GDP_SUMMARY_RESULT.url, raw_content: SUMMARY_MARKER },
+            { url: GDP_TABLE_RESULT.url, raw_content: TABLE_MARKER },
+            { url: GDP_NEWS_RESULT.url, raw_content: "抽出された報道本文です。" },
+          ],
+          failed_results: [],
+        });
+      }
+      const host = new URL(url).hostname;
+      if (host === "wikipedia.org" || host.endsWith(".wikipedia.org")) return jsonResponse({ pages: [] });
+      throw new Error(`unexpected URL: ${url}`);
+    };
+    const deps = makeDeps({
+      fetchImpl,
+      env: { TAVILY_API_KEY: "tvly-test-key", ORIGIN_OFFICIAL_SOURCE_ROUTING_MODE: "true" },
+    });
+    const outcome = groundedOf(await executeOriginSearchGrounding(GDP_QUESTION, deps));
+
+    const extractCalls = calls.filter((call) => call.url.includes("api.tavily.com/extract"));
+    expect(extractCalls).toHaveLength(1);
+    const extractBody = JSON.parse(extractCalls[0]?.init?.body ?? "{}") as { urls?: string[] };
+    expect(extractBody.urls).toContain(GDP_SUMMARY_RESULT.url);
+    expect(extractBody.urls).not.toContain(GDP_TABLE_RESULT.url);
+
+    const adopted = outcome.sources.find((source) => source.domain === "esri.cao.go.jp");
+    expect(adopted?.url).toBe(GDP_SUMMARY_RESULT.url);
+    expect(adopted?.evidenceLevel).toBe("extracted");
+    expect(adopted?.excerpt).toContain(SUMMARY_MARKER);
   });
 });

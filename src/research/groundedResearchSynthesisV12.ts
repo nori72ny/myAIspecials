@@ -5,6 +5,7 @@ import type {
 } from "../legacy/originProviderClient.js";
 import type { GroundedResearchConflict } from "./groundedResearchV11.js";
 import { buildGroundedResearchEvidenceCards } from "./groundedResearchEvidenceCards.js";
+import { splitRecoverySentences } from "./groundedResearchEvidencePacket.js";
 import {
   parseQuoteFirstScaffold,
   type QuoteFirstRegistry,
@@ -106,11 +107,23 @@ export function excerptSentenceScore(sentence: string): number {
  * N2_N5_IMPLEMENTATION_DESIGN_2026-11-17 §1.3): one rule, so a
  * "sentence" means the same thing in the excerpt a synthesis sees and
  * in the claim sentences a card presents.
+ *
+ * The rule is the recovery packet's splitter (splitRecoverySentences,
+ * groundedResearchEvidencePacket.ts), shared since the remeasure
+ * diagnosis (ANSWER_STATISTICS_REMEASURE_DIAGNOSIS_2026-11-26,
+ * measure 1-1): this module's original regex cut at EVERY period,
+ * including the one inside a decimal, so the MHLW sentence
+ * "有効求人倍率は1.19倍で…" reached the model as the fragment pair
+ * "…倍率は1." + "19倍で…" — and the model read the pair back as
+ * "19倍", a dangerous error the substring-based validator could
+ * not see ("19" is a substring of "1.19"). The packet side had
+ * carried the protected splitter since round 5 (structure F: the
+ * known defect was fixed on only one of the two parallel paths);
+ * the card side now uses the same one, so a decimal, a version, or
+ * a URL period never splits a sentence on either path.
  */
 export function splitGroundedResearchSentences(value: string): string[] {
-  return (value.match(/[^。．.!?！？]+(?:[。．.!?！？]+|$)/g) ?? [])
-    .map((sentence) => sentence.trim())
-    .filter(Boolean);
+  return splitRecoverySentences(value);
 }
 
 export function compactExcerpt(value: string): string {
@@ -443,6 +456,91 @@ function normalizedEvidenceText(value: string): string {
   return value.normalize("NFKC").toLowerCase().replace(/[\s,，]/g, "");
 }
 
+/**
+ * Whether a normalized numeric token is supported by the normalized
+ * cited evidence (remeasure diagnosis 2026-11-26, measure 1-2).
+ *
+ * The old test was a bare substring inclusion, which is blind to
+ * leading truncation of a decimal: the token "19" IS a substring of
+ * the evidence's "1.19", so a synthesis that lost the "1." — the
+ * production shape, where a sentence splitter had cut the value
+ * apart before the model ever saw it — passed as supported. This
+ * boundary arm of the gate (numericTokenGate below) counts a token
+ * as supported only at an occurrence that is not embedded in a
+ * longer number: the character before the occurrence must be
+ * neither a digit nor "." (the "19" inside "1.19" and inside "119"
+ * fails), and for a token that itself contains a decimal point,
+ * the character after the occurrence must be neither a digit nor
+ * "." either (the "1.1" inside "1.19" fails). Date sub-tokens keep
+ * working: "11月" inside "2026年11月26日" is preceded by 年, and
+ * "0.0" inside "0.0%" is followed by "%", so both stay supported
+ * exactly as before.
+ */
+export function numericTokenSupported(normalizedToken: string, normalizedEvidence: string): boolean {
+  if (!normalizedToken) return false;
+  const decimal = normalizedToken.includes(".");
+  let index = normalizedEvidence.indexOf(normalizedToken);
+  while (index >= 0) {
+    const before = index > 0 ? normalizedEvidence.charAt(index - 1) : "";
+    const beforeOk = before !== "." && !/[0-9]/.test(before);
+    let afterOk = true;
+    if (decimal) {
+      const afterIndex = index + normalizedToken.length;
+      const after = afterIndex < normalizedEvidence.length
+        ? normalizedEvidence.charAt(afterIndex)
+        : "";
+      afterOk = after !== "." && !/[0-9]/.test(after);
+    }
+    if (beforeOk && afterOk) return true;
+    index = normalizedEvidence.indexOf(normalizedToken, index + 1);
+  }
+  return false;
+}
+
+/**
+ * The union of the cited sources' own numeric tokens. The sets are
+ * built per source from the RAW evidence components (title,
+ * excerpt, date forms) at map construction time: a date the packet
+ * states as "2026年9月24日" yields {"2026年", "9月", "24日"} — its
+ * own sub-tokens. Tokenizing the normalized union instead would
+ * fuse digit runs across the boundaries separator stripping glued
+ * together ("2026-09-20" + "2026年9月20日" → a spurious "202026年"),
+ * a shape neither the boundary test above nor a set built that way
+ * can read.
+ */
+function unionEvidenceTokens(
+  perSource: ReadonlyMap<string, ReadonlySet<string>>,
+  ids: Iterable<string>,
+): Set<string> {
+  const union = new Set<string>();
+  for (const id of ids) {
+    for (const token of perSource.get(id) ?? []) union.add(token);
+  }
+  return union;
+}
+
+/**
+ * The gate's full numeric-support test (measure 1-2): a token is
+ * supported when it is one of the evidence's own maximal tokens
+ * (set membership), OR when it occurs at a boundary that is not
+ * inside a longer number (numericTokenSupported). Neither arm
+ * alone suffices: set membership by itself would newly reject a
+ * bare number the evidence states with a unit ("100" against the
+ * evidence token "100円"), and the boundary test by itself cannot
+ * see a token that begins a number glued to the previous date
+ * form's tail. Together they keep every previously supported shape
+ * while closing the decimal-truncation hole ("19" is neither a
+ * maximal token of "…1.19倍…" nor boundary-clean inside it).
+ */
+function numericTokenGate(
+  token: string,
+  citedEvidenceNormalized: string,
+  evidenceTokens: ReadonlySet<string>,
+): boolean {
+  return evidenceTokens.has(token)
+    || numericTokenSupported(normalizedEvidenceText(token), citedEvidenceNormalized);
+}
+
 function numericTokens(value: string): string[] {
   const withoutCitations = value.replace(CITATION_PATTERN, " ");
   const matches = withoutCitations.normalize("NFKC").match(/(?:[$¥€£]\s*)?\d[\d,]*(?:\.\d+)?(?:%|円|ドル|usd|jpy|eur|gbp|年|月|日|万|億|兆)?/gi) ?? [];
@@ -483,6 +581,7 @@ export function validateGroundedResearchSynthesis(
   const bounded = sources.slice(0, 8);
   const sourceMap = new Map<string, string>();
   const sourceEvidence = new Map<string, string>();
+  const sourceEvidenceTokens = new Map<string, ReadonlySet<string>>();
   bounded.forEach((source, index) => {
     const id = sourceId(index);
     const normalized = safeHttpsUrl(source.url);
@@ -492,12 +591,14 @@ export function validateGroundedResearchSynthesis(
       // model for that source: title, excerpt, and the packet's own date
       // forms (publication / retrieval), so a synthesis can state "as of"
       // dates verbatim without being discarded as unsupported.
-      sourceEvidence.set(id, normalizedEvidenceText([
+      const components = [
         source.title,
         source.excerpt,
         ...groundedResearchPacketDateForms(source.revisionTimestamp),
         ...groundedResearchPacketDateForms(source.retrievedAt),
-      ].join("\n")));
+      ];
+      sourceEvidence.set(id, normalizedEvidenceText(components.join("\n")));
+      sourceEvidenceTokens.set(id, new Set(numericTokens(components.join("\n"))));
     }
   });
 
@@ -539,6 +640,7 @@ export function validateGroundedResearchSynthesis(
   // neighbouring citation when the packet's sources jointly support it.
   const citedEvidenceUnion = [...used].map((id) => sourceEvidence.get(id) ?? "").join("\n");
   const citedEvidenceNormalized = normalizedEvidenceText(citedEvidenceUnion);
+  const citedEvidenceTokens = unionEvidenceTokens(sourceEvidenceTokens, used);
 
   for (const unit of factualUnits(answer)) {
     CITATION_PATTERN.lastIndex = 0;
@@ -551,7 +653,7 @@ export function validateGroundedResearchSynthesis(
     }
 
     for (const token of numericTokens(unit)) {
-      if (!citedEvidenceNormalized.includes(normalizedEvidenceText(token))) {
+      if (!numericTokenGate(token, citedEvidenceNormalized, citedEvidenceTokens)) {
         return {
           ok: false,
           code: "UNSUPPORTED_NUMERIC_TOKEN",
@@ -905,6 +1007,8 @@ interface SynthesisSourceMaps {
   sourceMap: Map<string, string>;
   /** Source ID -> normalized packet evidence (title, excerpt, date forms). */
   sourceEvidence: Map<string, string>;
+  /** Source ID -> the evidence's own maximal numeric tokens (raw components). */
+  sourceEvidenceTokens: Map<string, ReadonlySet<string>>;
 }
 
 /**
@@ -918,20 +1022,23 @@ interface SynthesisSourceMaps {
 function buildSynthesisSourceMaps(sources: readonly SynthesisSource[]): SynthesisSourceMaps {
   const sourceMap = new Map<string, string>();
   const sourceEvidence = new Map<string, string>();
+  const sourceEvidenceTokens = new Map<string, ReadonlySet<string>>();
   sources.slice(0, 8).forEach((source, index) => {
     const id = sourceId(index);
     const normalized = safeHttpsUrl(source.url);
     if (normalized) {
       sourceMap.set(id, normalized);
-      sourceEvidence.set(id, normalizedEvidenceText([
+      const components = [
         source.title,
         source.excerpt,
         ...groundedResearchPacketDateForms(source.revisionTimestamp),
         ...groundedResearchPacketDateForms(source.retrievedAt),
-      ].join("\n")));
+      ];
+      sourceEvidence.set(id, normalizedEvidenceText(components.join("\n")));
+      sourceEvidenceTokens.set(id, new Set(numericTokens(components.join("\n"))));
     }
   });
-  return { sourceMap, sourceEvidence };
+  return { sourceMap, sourceEvidence, sourceEvidenceTokens };
 }
 
 function citationTokensOf(unit: string): Array<{ id: string; url: string }> {
@@ -1003,11 +1110,12 @@ function findSalvageTargetLineIndex(
     const citedEvidenceNormalized = normalizedEvidenceText(
       [...used].map((id) => maps.sourceEvidence.get(id) ?? "").join("\n"),
     );
+    const citedEvidenceTokens = unionEvidenceTokens(maps.sourceEvidenceTokens, used);
     return lines.findIndex((line) => {
       if (line.kind !== "unit") return false;
       if (!CITATION_TOKEN_PATTERN.test(line.unit)) return false;
       return numericTokens(line.unit).some(
-        (token) => !citedEvidenceNormalized.includes(normalizedEvidenceText(token)),
+        (token) => !numericTokenGate(token, citedEvidenceNormalized, citedEvidenceTokens),
       );
     });
   }
@@ -1598,17 +1706,20 @@ export function scanGroundedResearchSynthesisFeedbackMaterial(
   const bounded = sources.slice(0, 8);
   const sourceMap = new Map<string, string>();
   const sourceEvidence = new Map<string, string>();
+  const sourceEvidenceTokens = new Map<string, ReadonlySet<string>>();
   bounded.forEach((source, index) => {
     const id = sourceId(index);
     const normalized = safeHttpsUrl(source.url);
     if (normalized) {
       sourceMap.set(id, normalized);
-      sourceEvidence.set(id, normalizedEvidenceText([
+      const components = [
         source.title,
         source.excerpt,
         ...groundedResearchPacketDateForms(source.revisionTimestamp),
         ...groundedResearchPacketDateForms(source.retrievedAt),
-      ].join("\n")));
+      ];
+      sourceEvidence.set(id, normalizedEvidenceText(components.join("\n")));
+      sourceEvidenceTokens.set(id, new Set(numericTokens(components.join("\n"))));
     }
   });
 
@@ -1626,6 +1737,7 @@ export function scanGroundedResearchSynthesisFeedbackMaterial(
   const citedEvidenceNormalized = normalizedEvidenceText(
     [...used].map((id) => sourceEvidence.get(id) ?? "").join("\n"),
   );
+  const citedEvidenceTokens = unionEvidenceTokens(sourceEvidenceTokens, used);
 
   const unsupported: string[] = [];
   const seen = new Set<string>();
@@ -1633,7 +1745,7 @@ export function scanGroundedResearchSynthesisFeedbackMaterial(
     for (const token of numericTokens(unit)) {
       if (seen.has(token)) continue;
       seen.add(token);
-      if (!citedEvidenceNormalized.includes(normalizedEvidenceText(token))) {
+      if (!numericTokenGate(token, citedEvidenceNormalized, citedEvidenceTokens)) {
         unsupported.push(token);
       }
     }
