@@ -1130,6 +1130,24 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
     vi.unstubAllGlobals();
   });
 
+it('keeps the unsent composer draft across Orin panel open/close and conversation changes (UIUX state retention, 2026-11-27)', () => {
+    const { rerender } = render(<App language="ja" />);
+    const homeInput = screen.getByTestId('origin-home-request') as HTMLTextAreaElement;
+    fireEvent.change(homeInput, { target: { value: '送信していない下書き' } });
+    expect(homeInput.value).toBe('送信していない下書き');
+    // オリンパネルの開閉では消えない（パネルは App の内側に描かれ、
+    // 入力欄の状態には触れない）。
+    fireEvent.click(screen.getByRole('button', { name: 'Orin（いまの作業を表示）' }));
+    expect(screen.getByTestId('origin-orin-panel')).toBeTruthy();
+    fireEvent.click(within(screen.getByTestId('origin-orin-panel')).getByRole('button', { name: '閉じる' }));
+    expect(screen.queryByTestId('origin-orin-panel')).toBeNull();
+    expect((screen.getByTestId('origin-home-request') as HTMLTextAreaElement).value).toBe('送信していない下書き');
+    // 会話が切り替わっても消えない。シェル（PersonalEditionApp）は
+    // App を hidden でマウントしたまま messages を差し替えるため、
+    // 入力途中の文は App の状態として残るのが受け入れ条件。
+    rerender(<App language="ja" messages={[{ id: 'u-1', role: 'user', content: '前の質問' }, { id: 'a-1', role: 'assistant', content: '前の回答' }]} />);
+    expect((screen.getByTestId('origin-chat-request') as HTMLTextAreaElement).value).toBe('送信していない下書き');
+  });
   it('recognizes explicit repository code-change requests without hijacking code questions', () => {
     expect(isDirectCodingWorkspaceRequest('ログイン画面のバグを修正して、関連テストも追加して')).toBe(true);
     expect(isDirectCodingWorkspaceRequest('このAPI実装を直して')).toBe(true);
