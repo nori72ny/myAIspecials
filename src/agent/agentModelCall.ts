@@ -68,6 +68,16 @@ import {
  * (buildOriginProviderFailureDiagnostic) — route and model
  * identifiers, outcome, error code, duration, transport count —
  * never a request or response body.
+ *
+ * A failure also carries the final error's own diagnostic detail
+ * from the same builder — how the last route's completion ended
+ * (finishReason) and how many of its completion tokens went to
+ * reasoning (usageReasoningTokens) (Basel failure diagnosis
+ * 2026-11-26, 案C): until now the executor read only the attempt
+ * list out of the diagnostic and discarded exactly these two
+ * fields, so an empty-body failure could not be told apart as
+ * "length — the reasoning ate the budget" versus "stop, but
+ * empty" after the fact.
  */
 
 export const ORIGIN_AGENT_ANALYZER_ALTERNATING_ALLOCATION_ENABLED_ENV = 'ORIGIN_AGENT_ANALYZER_ALTERNATING_ALLOCATION_ENABLED' as const;
@@ -126,6 +136,21 @@ export type AgentModelCallInput = {
 export type AgentModelServing = {
   providerId: string;
   modelId?: string;
+};
+
+/**
+ * The final provider failure's own diagnostic detail (Basel
+ * failure diagnosis 2026-11-26, 案C): how the last route's
+ * completion ended and how many of its completion tokens went
+ * to reasoning. The values arrive pre-whitelisted from the
+ * provider layer's diagnostic builder — a closed finish-reason
+ * vocabulary and a bounded token count — never a request or
+ * response body. Observability only: no caller may branch on
+ * it, exactly like the attempt evidence and the timings.
+ */
+export type AgentModelProviderFailureDetail = {
+  finishReason?: string;
+  usageReasoningTokens?: number;
 };
 
 /**
@@ -272,6 +297,13 @@ export type AgentModelCallResult =
        * attempts; a plan-level refusal (no transport happened)
        * carries none. */
       providerAttempts?: readonly OriginProviderAttemptDiagnostic[];
+      /** The final failure's diagnostic detail (案C): how the
+       * last route's completion ended and how much of it went
+       * to reasoning. Present only when the failure came from a
+       * provider error whose diagnostic carried either field;
+       * a plan-level refusal (no transport happened) carries
+       * none. */
+      providerFailureDetail?: AgentModelProviderFailureDetail;
       /** The dispatch's timing evidence (D7 countermeasure A):
        * present when the failure is attributable to a route — a
        * provider error with dispatched attempts, or an invalid
@@ -293,6 +325,26 @@ export function failoverAttemptsFromProviderError(
   if (!(error instanceof OriginProviderError)) return undefined;
   const { failoverAttempts } = buildOriginProviderFailureDiagnostic(error);
   return failoverAttempts.length > 0 ? failoverAttempts : undefined;
+}
+
+/**
+ * The final failure's diagnostic detail (案C), reduced by the
+ * same whitelist builder as the attempt evidence above: the
+ * finish reason and the reasoning-token count of the error the
+ * dispatch surfaced. Returns undefined for anything that is not
+ * a provider error, and for a provider error whose diagnostic
+ * carried neither field — the caller then reports the failure
+ * exactly as before this evidence existed.
+ */
+export function providerFailureDetailFromProviderError(
+  error: unknown,
+): AgentModelProviderFailureDetail | undefined {
+  if (!(error instanceof OriginProviderError)) return undefined;
+  const diagnostic = buildOriginProviderFailureDiagnostic(error);
+  const detail: AgentModelProviderFailureDetail = {};
+  if (diagnostic.finishReason) detail.finishReason = diagnostic.finishReason;
+  if (diagnostic.usageReasoningTokens !== undefined) detail.usageReasoningTokens = diagnostic.usageReasoningTokens;
+  return Object.keys(detail).length > 0 ? detail : undefined;
 }
 
 /** The injectable seam the tools consume; production wiring leaves it
@@ -334,6 +386,7 @@ export function createAgentModelExecutor(env: NodeJS.ProcessEnv): AgentModelExec
     } catch (error) {
       if (error instanceof OriginProviderError) {
         const providerAttempts = failoverAttemptsFromProviderError(error);
+        const providerFailureDetail = providerFailureDetailFromProviderError(error);
         const timing = modelCallTimingFromDispatch({
           providerAttempts,
           code: error.code,
@@ -343,6 +396,7 @@ export function createAgentModelExecutor(env: NodeJS.ProcessEnv): AgentModelExec
           ok: false,
           code: error.code,
           ...(providerAttempts ? { providerAttempts } : {}),
+          ...(providerFailureDetail ? { providerFailureDetail } : {}),
           ...(timing ? { timing } : {}),
         };
       }

@@ -613,6 +613,53 @@ export function providerAttemptsFromAnalyzerMessage(
 }
 
 /**
+ * The analyzer's provider-failure message also carries the final
+ * failure's own diagnostic detail in a fixed parenthetical (Basel
+ * failure diagnosis 2026-11-26, 案C) — `(finish: <reason>;
+ * reasoningTokens: <count>)`, either field present only when the
+ * failed dispatch's diagnostic carried it. Read back here under
+ * the same discipline as the attempts above: the finish reason
+ * must belong to the provider layer's closed completion
+ * vocabulary and the token count to its usage bound, a malformed
+ * field contributes nothing, and a message without the
+ * parenthetical — every failure recorded before the detail
+ * existed, and every failure whose diagnostic carried neither
+ * field — records nothing.
+ */
+const ANALYZER_PROVIDER_FAILURE_DETAIL_PATTERN = /\(((?:finish|reasoningTokens): [^()]*)\)/;
+const ANALYZER_FAILURE_FINISH_REASONS: ReadonlySet<string> = new Set([
+  'stop',
+  'length',
+  'tool_calls',
+  'content_filter',
+  'function_call',
+]);
+const ANALYZER_FAILURE_REASONING_TOKENS_MAX = 10_000_000;
+
+export function providerFailureDetailFromAnalyzerMessage(
+  message: string | undefined,
+): NonNullable<AgentRunStepLiveDetail['providerFailureDetail']> | undefined {
+  if (!message) return undefined;
+  const match = ANALYZER_PROVIDER_FAILURE_DETAIL_PATTERN.exec(message);
+  if (!match) return undefined;
+  const detail: NonNullable<AgentRunStepLiveDetail['providerFailureDetail']> = {};
+  for (const part of match[1].split('; ')) {
+    const separator = part.indexOf(': ');
+    if (separator < 0) continue;
+    const key = part.slice(0, separator);
+    const value = part.slice(separator + 2);
+    if (key === 'finish') {
+      if (ANALYZER_FAILURE_FINISH_REASONS.has(value)) detail.finishReason = value;
+    } else if (key === 'reasoningTokens') {
+      if (/^\d{1,8}$/.test(value) && Number(value) <= ANALYZER_FAILURE_REASONING_TOKENS_MAX) {
+        detail.reasoningTokens = Number(value);
+      }
+    }
+  }
+  return Object.keys(detail).length > 0 ? detail : undefined;
+}
+
+/**
  * The step's model-call timings (D7 countermeasure A, diagnosis
  * AGENT_D7_DIAGNOSIS_2026-11-25 §6), carried on the execution
  * record from the tool result — unlike the message-parsed traces
@@ -873,8 +920,9 @@ export function buildStepLiveDetail(input: {
    * `ok: false`. Only an attachment_analyzer's messages are read,
    * and only for their fixed-shape parentheticals: the output-
    * invalid chunk index and reason token, the coverage scope,
-   * range and counts, and the provider failure's failover
-   * attempts — the body of any model response
+   * range and counts, the provider failure's failover
+   * attempts, and its final-failure detail (finish reason and
+   * reasoning-token count) — the body of any model response
    * never enters the record. */
   failureMessage?: string;
   /** The step's model dispatches with their measured durations
@@ -894,6 +942,8 @@ export function buildStepLiveDetail(input: {
       if (coverageFailure) detail.coverageFailure = coverageFailure;
       const providerAttempts = providerAttemptsFromAnalyzerMessage(input.failureMessage);
       if (providerAttempts) detail.providerAttempts = providerAttempts;
+      const providerFailureDetail = providerFailureDetailFromAnalyzerMessage(input.failureMessage);
+      if (providerFailureDetail) detail.providerFailureDetail = providerFailureDetail;
       const analyzerExecution = analyzerExecutionFromAnalyzerMessage(input.failureMessage)
         ?? analyzerExecutionFromArtifact(input.artifact);
       if (analyzerExecution) detail.analyzerExecution = analyzerExecution;

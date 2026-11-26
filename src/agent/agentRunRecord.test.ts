@@ -472,6 +472,45 @@ describe('agent run step live detail (PR-L1)', () => {
     expect(step?.liveDetail?.providerAttempts).toHaveLength(MAX_AGENT_RUN_LIVE_PROVIDER_ATTEMPTS);
   });
 
+  it('round-trips the provider failure detail (finish reason, reasoning tokens) unchanged (Basel 案C)', () => {
+    const liveDetail = {
+      startedAt: now - 107_200,
+      finishedAt: now,
+      providerFailureDetail: { finishReason: 'length', reasoningTokens: 2400 },
+    };
+    const [step] = normalizeAgentRunStepsState([{ ...baseStep, liveDetail }]);
+    expect(step?.liveDetail).toEqual(liveDetail);
+    // Either field may stand alone — a diagnostic that carried
+    // only one of them records only that one.
+    const finishOnly = { providerFailureDetail: { finishReason: 'stop' } };
+    const [finishStep] = normalizeAgentRunStepsState([{ ...baseStep, liveDetail: finishOnly }]);
+    expect(finishStep?.liveDetail).toEqual(finishOnly);
+    const tokensOnly = { providerFailureDetail: { reasoningTokens: 0 } };
+    const [tokensStep] = normalizeAgentRunStepsState([{ ...baseStep, liveDetail: tokensOnly }]);
+    expect(tokensStep?.liveDetail).toEqual(tokensOnly);
+  });
+
+  it('drops a malformed provider failure detail but keeps the rest of the detail (fail-soft)', () => {
+    const malformed: unknown[] = [
+      { finishReason: 'banana' },
+      { finishReason: 'a free-form sentence, not a reason' },
+      { reasoningTokens: -1 },
+      { reasoningTokens: 1.5 },
+      { reasoningTokens: 10_000_001 },
+      { reasoningTokens: 'many' },
+      { finishReason: 'length', reasoningTokens: 'many' },
+      {},
+      'not-an-object',
+    ];
+    for (const providerFailureDetail of malformed) {
+      const [step] = normalizeAgentRunStepsState([
+        { ...baseStep, liveDetail: { startedAt: now - 1_000, providerFailureDetail } } as unknown as AgentRunStepState,
+      ]);
+      expect(step?.liveDetail?.providerFailureDetail).toBeUndefined();
+      expect(step?.liveDetail?.startedAt).toBe(now - 1_000);
+    }
+  });
+
   it('round-trips model call timings (route, model, outcome, code, duration) unchanged (D7 countermeasure A)', () => {
     const liveDetail = {
       startedAt: now - 5_000,

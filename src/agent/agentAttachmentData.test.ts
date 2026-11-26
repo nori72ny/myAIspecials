@@ -41,10 +41,17 @@ describe('agentAttachmentData view building', () => {
     const lines = ['id,name'];
     for (let i = 0; i < 240; i += 1) lines.push(`R-${String(i).padStart(3, '0')},${'x'.repeat(30)}`);
     const view = buildAgentAttachmentDataView([{ name: 'big.csv', text: lines.join('\n') }]);
-    // ~37 chars per row → ~94 rows per chunk → exactly 3 chunks. A
-    // packing regression that flushes after the first chunk would
-    // produce one chunk per remaining row and fail this count.
-    expect(view.totalChunks).toBe(3);
+    // This is a keyed (primary) table, so the estimated-output
+    // budget (案A revised) binds before the character cap: each
+    // row estimates to 26 output tokens (37 chars of values plus
+    // the two field names and JSON syntax, at chars / 2), so a
+    // chunk packs floor(1,200 / 26) = 46 rows → 240 rows are
+    // exactly 6 chunks, each still under the character cap. (By
+    // characters alone — ~37 chars per row, ~94 rows per chunk —
+    // it would be 3.) A packing regression that flushes after the
+    // first chunk would produce one chunk per remaining row and
+    // fail this count.
+    expect(view.totalChunks).toBe(6);
     for (const chunk of view.chunks) {
       expect(chunk.text.length).toBeLessThanOrEqual(AGENT_ATTACHMENT_CHUNK_MAX_CHARS);
       expect(chunk.text.startsWith('id,name\n')).toBe(true);
@@ -495,6 +502,99 @@ describe('agentAttachmentData chunk-local yardsticks (Basel segment-2 fix)', () 
     const tamperedResult = verifyAgentDataLocalCoverage(view, [first], tampered);
     expect(tamperedResult.ok).toBe(false);
     if (tamperedResult.ok === false) expect(tamperedResult.numericMismatch).toEqual(['amount']);
+  });
+});
+
+describe('agentAttachmentData primary-table chunk output budget (Basel diagnosis 2026-11-26, 案A revised)', () => {
+  // The Basel shape: a 60-row keyed main table whose rows are short
+  // (~53 chars), so the 3,500-char cap alone packed 42 rows into
+  // chunk 0 — the packing whose required output (~2,043 tokens for
+  // 42 rows) starved the plan's 2,400-token completion budget in
+  // production and returned an empty body on the first analyzer
+  // call. The estimated-output budget replaces the flat 20-row
+  // cap the first 案A cut applied: a flat row count sized every
+  // table by this row shape and priced narrow-row tables out of
+  // the 48-chunk run ceiling (a 1,200-row set needed 60 chunks).
+  const eventLines = ['Event_ID\tDescription\tLoss_Amount_CNY'];
+  for (let i = 1; i <= 60; i += 1) {
+    eventLines.push(`OR${String(i).padStart(3, '0')}\t${'事'.repeat(40)}\t${i * 1_000}`);
+  }
+  const EVENTS_60 = eventLines.join('\n');
+  // A second keyed table: reference material, keyed but not the
+  // primary table, so the output budget must not touch its packing.
+  const refLines = ['Code\tLabel'];
+  for (let i = 1; i <= 30; i += 1) refLines.push(`EL${i}\tカテゴリ${i}`);
+  const REF_30 = refLines.join('\n');
+
+  it('packs the schema-less shape by estimated output while the yardstick stays whole', () => {
+    const view = buildAgentAttachmentDataView([
+      { name: 'operational_risk_events.tsv', text: EVENTS_60 },
+      { name: 'loss_event_categories.tsv', text: REF_30 },
+    ]);
+    expect(view.primaryFileName).toBe('operational_risk_events.tsv');
+    // No schema file: the output columns are the table's own
+    // header, so each row's estimate charges the 40 Japanese
+    // description chars at 1 token per char plus the ASCII field
+    // names, values and JSON syntax at chars / 2 — 69 tokens per
+    // row, so a chunk packs floor(1,200 / 69) = 17 rows and the
+    // table lands at 4 chunks (17, 17, 17, 9). The old character
+    // packing put 42 of these rows in one chunk.
+    const primaryChunks = view.chunks.filter((chunk) => chunk.fileName === 'operational_risk_events.tsv');
+    expect(primaryChunks.map((chunk) => (chunk.rowKeys ?? []).length)).toEqual([17, 17, 17, 9]);
+    for (const chunk of primaryChunks) {
+      // Chunk text lines: the repeated header line plus its rows.
+      expect(chunk.text.split('\n')).toHaveLength((chunk.rowKeys ?? []).length + 1);
+    }
+    // The yardstick is computed from the full parse, unchanged by
+    // the packing: all 60 keys in order, the loss total intact,
+    // and the chunk-local key sets partition it exactly.
+    expect(view.expectedKeys).toHaveLength(60);
+    expect(view.expectedKeys[0]).toBe('OR001');
+    expect(view.expectedKeys[59]).toBe('OR060');
+    expect(view.aggregates.Loss_Amount_CNY).toEqual({ sum: 1_830_000, count: 60, mean: 30_500 });
+    expect(primaryChunks.flatMap((chunk) => chunk.rowKeys ?? [])).toEqual(view.expectedKeys);
+  });
+
+  it('packs the production Basel shape (output schema present) at 22 rows per chunk', () => {
+    // The staged Basel set ships classified_events.schema.csv:
+    // the output columns are the schema's four, so the estimate
+    // charges the field names (55 ASCII chars), the copied
+    // Event_ID / Loss_Amount_CNY cells and a 12-char allowance
+    // for each derived code column — 53 estimated tokens per row
+    // against ~49 actual (2,043 tokens for the old 42-row chunk
+    // 0). A chunk therefore packs 22 rows (22 × 53 = 1,166 ≤
+    // 1,200; 23 × 53 = 1,219 > 1,200) and the table lands at 3
+    // chunks (22, 22, 16): the old 42-row chunk 0 is split, and
+    // its minimal correct output drops to ~1,070 actual tokens,
+    // inside the 2,400 budget with reasoning room to spare.
+    const SCHEMA = [
+      'Event_ID,Loss_Event_Category,Business_Line,Loss_Amount_CNY',
+      'EXAMPLE001,EL1,BL2,100000',
+      'EXAMPLE002,EL4,BL7,250000',
+    ].join('\n');
+    const view = buildAgentAttachmentDataView([
+      { name: 'operational_risk_events.tsv', text: EVENTS_60 },
+      { name: 'classified_events.schema.csv', text: SCHEMA },
+    ]);
+    expect(view.primaryFileName).toBe('operational_risk_events.tsv');
+    expect(view.requiredOutputColumns).toEqual([
+      'Event_ID', 'Loss_Event_Category', 'Business_Line', 'Loss_Amount_CNY',
+    ]);
+    const primaryChunks = view.chunks.filter((chunk) => chunk.fileName === 'operational_risk_events.tsv');
+    expect(primaryChunks.map((chunk) => (chunk.rowKeys ?? []).length)).toEqual([22, 22, 16]);
+    expect(primaryChunks.flatMap((chunk) => chunk.rowKeys ?? [])).toEqual(view.expectedKeys);
+    expect(view.aggregates.Loss_Amount_CNY).toEqual({ sum: 1_830_000, count: 60, mean: 30_500 });
+  });
+
+  it('leaves a non-primary table packed by the character rule alone', () => {
+    const view = buildAgentAttachmentDataView([
+      { name: 'operational_risk_events.tsv', text: EVENTS_60 },
+      { name: 'loss_event_categories.tsv', text: REF_30 },
+    ]);
+    const refChunks = view.chunks.filter((chunk) => chunk.fileName === 'loss_event_categories.tsv');
+    expect(refChunks).toHaveLength(1);
+    expect(refChunks[0].text.split('\n')).toHaveLength(31);
+    expect(refChunks[0].rowKeys).toBeUndefined();
   });
 });
 

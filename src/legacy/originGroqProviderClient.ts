@@ -164,7 +164,8 @@ export const ORIGIN_GROQ_ROUTE_INPUT_TOKEN_BUDGET = 6_000;
  * ORIGIN_GROQ_DECK_INPUT_TOKEN_BUDGET below. A proposal-deck draft is
  * worthless when truncated — the skeleton cannot be assembled into a
  * file — and the gpt-oss models spend completion tokens on reasoning
- * first (they take no reasoning_effort setting), so the standard
+ * first (deck requests are unmarked, so they carry no
+ * reasoning_effort bound — see groqReasoningEffortForAttempt), so the standard
  * min(task budget, TPM − input) could leave the skeleton unfinished
  * (remeasurement S-6, 2026-11-25: finish_reason=length, no deck).
  * The floor never raises the tokens/minute ceiling: it only trims the
@@ -564,6 +565,30 @@ function composeGroqAttemptResult(
 }
 
 /**
+ * The reasoning_effort one Groq send carries, if any (Basel failure
+ * diagnosis 2026-11-26, 案B). qwen3.8-27b keeps its documented
+ * "none" — a dual-mode model whose thinking tokens would otherwise
+ * consume the free budgets. An analyzer-marked request (the
+ * capacity-allocation hint only agent chunk calls carry) bounds
+ * the gpt-oss models to "low": gpt-oss spends the completion
+ * budget on reasoning before any body text, and the Basel run's
+ * first analyzer chunk — 42 rows whose minimal correct output
+ * alone needed ~85% of the plan's completion budget — came back
+ * with an empty body because the unbounded reasoning pass ate
+ * the rest. Unmarked requests keep their previous shape exactly:
+ * no reasoning_effort field is sent at all.
+ */
+function groqReasoningEffortForAttempt(
+  modelId: OriginGroqFreeModelId,
+  providerRequest: OriginProviderExecutionRequest,
+): "none" | "low" | undefined {
+  if (modelId === ORIGIN_GROQ_QWEN_MODEL_ID) return "none";
+  const allocation = providerRequest.groqCapacityAllocation;
+  if (allocation === "agent-analyzer-chunk" || allocation === "agent-analyzer-chunk-primary") return "low";
+  return undefined;
+}
+
+/**
  * One send against one catalog model, with every route invariant enforced for
  * that model: plan/policy validation, current per-model evidence, the pre-send
  * TPM gate against that model's ceiling, and served-model identity. The shared
@@ -586,6 +611,7 @@ async function executeGroqModelAttempt(
   if (pacing) {
     await paceGroqModelSend(pacing, modelId, estimatedInputTokens + completionBudget, options);
   }
+  const reasoningEffort = groqReasoningEffortForAttempt(modelId, providerRequest);
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   let response: Response;
@@ -599,12 +625,10 @@ async function executeGroqModelAttempt(
         messages,
         max_tokens: completionBudget,
         temperature: 0.2,
-        // qwen3.8-27b is a dual-mode (thinking / instruct) model: Groq's
-        // documented recommendation for conversational use is
-        // reasoning_effort "none", which also keeps thinking tokens from
-        // consuming the free tokens/minute and tokens/day budgets. The
-        // gpt-oss models keep their previous request shape exactly.
-        ...(modelId === ORIGIN_GROQ_QWEN_MODEL_ID ? { reasoning_effort: "none" } : {}),
+        // reasoning_effort (see groqReasoningEffortForAttempt):
+        // "none" for qwen, "low" for the gpt-oss models on an
+        // analyzer-marked request, and no field at all otherwise.
+        ...(reasoningEffort ? { reasoning_effort: reasoningEffort } : {}),
       }),
       signal: controller.signal,
     });
@@ -1043,6 +1067,7 @@ async function executeGroqModelAttemptStream(
   transport: { count: number },
 ): Promise<OriginProviderExecutionResult> {
   const { modelId, messages, completionBudget, timeoutMs } = prepareGroqModelAttempt(providerRequest, plan, options);
+  const reasoningEffort = groqReasoningEffortForAttempt(modelId, providerRequest);
   const incrementalRelease = providerRequest.streamRelease === "incremental";
   const controller = new AbortController();
   // The timer stays armed for the whole read, as in the Cloudflare
@@ -1062,12 +1087,10 @@ async function executeGroqModelAttemptStream(
         temperature: 0.2,
         stream: true,
         stream_options: { include_usage: true },
-        // qwen3.8-27b is a dual-mode (thinking / instruct) model: Groq's
-        // documented recommendation for conversational use is
-        // reasoning_effort "none", which also keeps thinking tokens from
-        // consuming the free tokens/minute and tokens/day budgets. The
-        // gpt-oss models keep their previous request shape exactly.
-        ...(modelId === ORIGIN_GROQ_QWEN_MODEL_ID ? { reasoning_effort: "none" } : {}),
+        // reasoning_effort (see groqReasoningEffortForAttempt):
+        // "none" for qwen, "low" for the gpt-oss models on an
+        // analyzer-marked request, and no field at all otherwise.
+        ...(reasoningEffort ? { reasoning_effort: reasoningEffort } : {}),
       }),
       signal: controller.signal,
     });

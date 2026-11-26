@@ -146,7 +146,14 @@ describe('agent v3 attachment plan augmentation (F2)', () => {
 
   it('splits the analyzer at 2 chunks and chains the continuations', async () => {
     const lines = ['id,item,amount'];
-    // ~41 chars per row → ~85 rows per 3,500-char chunk → 1,200 rows ≈ 15 chunks.
+    // ~41 chars per row. The primary-table estimated-output
+    // budget (Basel 案A revised) prices each row at ~32 output
+    // tokens, so a chunk packs 37 rows → 1,200 rows = 33 chunks
+    // → 17 analyzer steps at the 2-chunk segment size. (The
+    // character cap alone would pack ~85 rows per chunk — 15
+    // chunks — whose per-chunk output runs to ~2,550 actual
+    // tokens, over the completion budget the output budget
+    // exists to protect.)
     for (let i = 0; i < 1200; i += 1) lines.push(`R-${String(i).padStart(4, '0')},${'x'.repeat(28)}${i % 10},${(i % 9) * 50}`);
     const app = appFor({ runStore: new InMemoryAgentRunStore(), attachmentStore: new InMemoryAgentAttachmentStore(), modelCall: classifyingExecutor });
     const setId = await createSetWithFile(app, 'big.csv', lines.join('\n'));
@@ -154,7 +161,7 @@ describe('agent v3 attachment plan augmentation (F2)', () => {
     expect(plan.status).toBe(201);
     const body = plan.body as PlanBody;
     const analyzers = body.steps.filter((step) => step.toolName === 'attachment_analyzer');
-    expect(analyzers.length).toBe(8);
+    expect(analyzers.length).toBe(17);
     expect(analyzers[0].params.chunkOffset).toBe(0);
     expect(analyzers[0].params.chunkCount).toBe(2);
     expect(analyzers[1].params.chunkOffset).toBe(2);
@@ -162,13 +169,15 @@ describe('agent v3 attachment plan augmentation (F2)', () => {
     expect(analyzers[1].params.chunkCount).toBeLessThanOrEqual(2);
     expect(analyzers[1].params.contentFromStep).toBe(1);
     const document = body.steps.find((step) => step.toolName === 'document_generator');
-    expect(document?.params.contentFromStep).toBe(8);
+    expect(document?.params.contentFromStep).toBe(17);
     expect(document?.params.dataGrounded).toBe(true);
   });
 
   it('refuses a set needing more than 48 chunks at plan time', async () => {
     const lines = ['id,item,amount'];
-    // ~41 chars per row → 4,500 rows ≈ 53 chunks > the 48-chunk ceiling.
+    // ~41 chars per row → 4,500 rows ≈ 122 chunks at the
+    // estimated-output packing (37 rows per chunk) > the
+    // 48-chunk ceiling.
     for (let i = 0; i < 4500; i += 1) lines.push(`R-${String(i).padStart(4, '0')},${'x'.repeat(28)}${i % 10},${(i % 9) * 50}`);
     const app = appFor({ runStore: new InMemoryAgentRunStore(), attachmentStore: new InMemoryAgentAttachmentStore(), modelCall: classifyingExecutor });
     const setId = await createSetWithFile(app, 'huge.csv', lines.join('\n'));
@@ -182,15 +191,21 @@ describe('agent v3 attachment plan augmentation (F2)', () => {
 
   it('plans, approves and creates a run for a 25+ chunk set whose plan needs 16 steps', async () => {
     const lines = ['id,item,amount'];
-    // Same row shape as the chunk-split test (~80-87 rows per chunk):
-    // 2,100 rows land at roughly 26 chunks → 13 analyzers at the
-    // 2-chunk segment size. The base plan's file_writer no longer
-    // survives augmentation, so the augmented plan needs reader + 13
-    // analyzers + 2 surviving base steps = 16 steps — refused
-    // outright by the old flat ceiling of 6 (the production M&A
-    // refusal shape: mid-size set, several analyzers on top of the
-    // goal's base steps).
-    for (let i = 0; i < 2100; i += 1) lines.push(`R-${String(i).padStart(4, '0')},${'x'.repeat(28)}${i % 10},${(i % 9) * 50}`);
+    // Same row shape as the chunk-split test (37 rows per chunk
+    // at the estimated-output packing): 960 rows land at 26
+    // chunks → 13 analyzers at the 2-chunk segment size. The
+    // base plan's file_writer no longer survives augmentation,
+    // so the augmented plan needs reader + 13 analyzers + 2
+    // surviving base steps = 16 steps — refused outright by the
+    // old flat ceiling of 6 (the production M&A refusal shape:
+    // mid-size set, several analyzers on top of the goal's base
+    // steps). The row count is calibrated to the output-budget
+    // packing: the 2,100 rows this fixture used under the
+    // character-only packing (~81 rows per chunk) now make 57
+    // chunks and are refused by the 48-chunk ceiling — and that
+    // old packing's per-chunk output itself exceeded the
+    // completion budget, which is what the budget rule fixes.
+    for (let i = 0; i < 960; i += 1) lines.push(`R-${String(i).padStart(4, '0')},${'x'.repeat(28)}${i % 10},${(i % 9) * 50}`);
     const app = appFor({ runStore: new InMemoryAgentRunStore(), attachmentStore: new InMemoryAgentAttachmentStore(), modelCall: classifyingExecutor });
     const setId = await createSetWithFile(app, 'big.csv', lines.join('\n'));
     const goal = 'このCSVの各行を分類してレポートを作成し、テストで検証してください';
@@ -201,7 +216,7 @@ describe('agent v3 attachment plan augmentation (F2)', () => {
     expect(analyzers).toHaveLength(13);
     expect(body.steps).toHaveLength(16);
     // The raised ceiling is coherent across the flow: approval and
-    // run creation accept the same 10 steps /plan issued.
+    // run creation accept the same 16 steps /plan issued.
     const created = await approveAndCreate(app, body, goal);
     expect(created.status).toBe(201);
   });

@@ -794,6 +794,71 @@ describe('advanceAgentRun', () => {
     ]);
   });
 
+  it('records the final failure\'s finish reason and reasoning tokens in the step live detail (Basel 案C)', async () => {
+    const store = new InMemoryAgentRunStore();
+    const { store: consumptionStore } = makeConsumptionStore();
+    const runTool = vi.fn(async (name: ToolName, _input: ToolParams): Promise<ToolResult> => (
+      name === 'attachment_analyzer'
+        ? { ok: false, tool: name, message: 'PROVIDER_INVALID_RESPONSE (attempts: groq-free|openai/gpt-oss-120b|failed|PROVIDER_INVALID_RESPONSE|12000|1) (finish: length; reasoningTokens: 2400)' }
+        : { ok: true, tool: name, artifact: `artifact:${name}`, message: 'ok' }
+    ));
+    const seeded = await seedRun(store, [
+      { toolName: 'repository_explorer' },
+      { toolName: 'attachment_analyzer', params: { outputKind: 'rows', chunkOffset: 4, chunkCount: 2 } },
+    ]);
+
+    const outcome = await advanceAgentRun(
+      { runStore: store, consumptionStore, runTool, verifyArtifact: okVerifier },
+      seeded,
+      'driver-alpha-01',
+    );
+
+    expect(outcome).toMatchObject({ kind: 'failed', errorCode: 'PROVIDER_INVALID_RESPONSE' });
+    const record = await store.get(RUN_ID, OWNER);
+    // The message's detail parenthetical round-trips into the
+    // record: the next Basel-shaped failure can be subtyped from
+    // the record alone — length-limited, budget spent on
+    // reasoning — instead of expiring with the provider logs.
+    expect(record?.stepsState[1]?.liveDetail?.providerFailureDetail).toEqual({
+      finishReason: 'length',
+      reasoningTokens: 2400,
+    });
+    expect(record?.stepsState[0]?.liveDetail?.providerFailureDetail).toBeUndefined();
+  });
+
+  it('records no provider failure detail when the message carries none, and drops malformed fields (Basel 案C)', async () => {
+    const bare = buildStepLiveDetail({
+      toolName: 'attachment_analyzer',
+      params: {},
+      artifact: undefined,
+      failureMessage: 'PROVIDER_TIMEOUT (attempts: groq-free|openai/gpt-oss-120b|failed|PROVIDER_TIMEOUT|45000|1)',
+      startedAt: 1_700_000_000_000,
+      finishedAt: 1_700_000_005_000,
+    });
+    expect(bare?.providerAttempts).toHaveLength(1);
+    expect(bare?.providerFailureDetail).toBeUndefined();
+
+    const partial = buildStepLiveDetail({
+      toolName: 'attachment_analyzer',
+      params: {},
+      artifact: undefined,
+      failureMessage: 'PROVIDER_INVALID_RESPONSE (finish: length; reasoningTokens: lots)',
+      startedAt: 1_700_000_000_000,
+      finishedAt: 1_700_000_005_000,
+    });
+    expect(partial?.providerFailureDetail).toEqual({ finishReason: 'length' });
+
+    const malformed = buildStepLiveDetail({
+      toolName: 'attachment_analyzer',
+      params: {},
+      artifact: undefined,
+      failureMessage: 'PROVIDER_INVALID_RESPONSE (finish: banana; reasoningTokens: -5)',
+      startedAt: 1_700_000_000_000,
+      finishedAt: 1_700_000_005_000,
+    });
+    expect(malformed?.providerFailureDetail).toBeUndefined();
+  });
+
   it('records the throwing step as failed with the restored code when a tool throws', async () => {
     const store = new InMemoryAgentRunStore();
     const { store: consumptionStore } = makeConsumptionStore();

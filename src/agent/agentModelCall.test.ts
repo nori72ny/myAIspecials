@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { describe, expect, it } from 'vitest';
-import { agentAnalyzerCapacityAllocation, createAgentModelExecutor, failoverAttemptsFromProviderError, modelCallTimingFromDispatch, servingFromRoutingEvidence } from './agentModelCall.js';
+import { agentAnalyzerCapacityAllocation, createAgentModelExecutor, failoverAttemptsFromProviderError, modelCallTimingFromDispatch, providerFailureDetailFromProviderError, servingFromRoutingEvidence } from './agentModelCall.js';
 import { OriginProviderError } from '../legacy/originProviderClient.js';
 
 describe('agentModelCall (failover-backed model executor)', () => {
@@ -97,6 +97,53 @@ describe('failoverAttemptsFromProviderError (AGORA observability)', () => {
     expect(failoverAttemptsFromProviderError(new OriginProviderError('PROVIDER_TIMEOUT', 'internal', 504, false, undefined, { failoverAttempts: [] }))).toBeUndefined();
     expect(failoverAttemptsFromProviderError(new Error('boom'))).toBeUndefined();
     expect(failoverAttemptsFromProviderError(undefined)).toBeUndefined();
+  });
+});
+
+describe('providerFailureDetailFromProviderError (Basel diagnosis 2026-11-26, 案C)', () => {
+  it('carries the finish reason and reasoning tokens of the final failure', () => {
+    // The production Basel shape: the last route's completion
+    // ended at "length" with every completion token spent on
+    // reasoning and an empty body. Until now the executor built
+    // this diagnostic for its attempt evidence and discarded
+    // exactly these fields, so the shape was invisible afterwards.
+    const error = new OriginProviderError('PROVIDER_INVALID_RESPONSE', 'internal', 502, true, undefined, {
+      finishReason: 'length',
+      usagePromptTokens: 2_582,
+      usageCompletionTokens: 2_400,
+      usageReasoningTokens: 2_400,
+      failoverAttempts: [
+        { providerId: 'groq-free', modelId: 'openai/gpt-oss-120b', outcome: 'failed', errorCode: 'PROVIDER_INVALID_RESPONSE', durationMs: 8_268, transportRequestCount: 2 },
+      ],
+    });
+    expect(providerFailureDetailFromProviderError(error)).toEqual({
+      finishReason: 'length',
+      usageReasoningTokens: 2_400,
+    });
+  });
+
+  it('carries either field on its own', () => {
+    expect(providerFailureDetailFromProviderError(new OriginProviderError(
+      'PROVIDER_INVALID_RESPONSE', 'internal', 502, true, undefined, { finishReason: 'stop' },
+    ))).toEqual({ finishReason: 'stop' });
+    expect(providerFailureDetailFromProviderError(new OriginProviderError(
+      'PROVIDER_INVALID_RESPONSE', 'internal', 502, true, undefined, { usageReasoningTokens: 0 },
+    ))).toEqual({ usageReasoningTokens: 0 });
+  });
+
+  it('drops values outside the provider layer whitelist', () => {
+    const error = new OriginProviderError('PROVIDER_INVALID_RESPONSE', 'internal', 502, true, undefined, {
+      finishReason: 'length\ninjected: free text',
+      usageReasoningTokens: -5,
+    } as never);
+    expect(providerFailureDetailFromProviderError(error)).toBeUndefined();
+  });
+
+  it('returns undefined when the diagnostic carries neither field, and for non-provider errors', () => {
+    expect(providerFailureDetailFromProviderError(new OriginProviderError('PROVIDER_TIMEOUT', 'internal', 504, false))).toBeUndefined();
+    expect(providerFailureDetailFromProviderError(new OriginProviderError('PROVIDER_TIMEOUT', 'internal', 504, false, undefined, { transportRequestCount: 2 }))).toBeUndefined();
+    expect(providerFailureDetailFromProviderError(new Error('boom'))).toBeUndefined();
+    expect(providerFailureDetailFromProviderError(undefined)).toBeUndefined();
   });
 });
 

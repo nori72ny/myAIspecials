@@ -559,6 +559,83 @@ describe('attachment_analyzer transient provider retry (segment-2 wall)', () => 
     expect(result.message).not.toContain('evil');
     expect(result.message).not.toContain('has space');
   });
+
+  it('carries the final failure\'s finish reason and reasoning tokens after the attempts (Basel 案C)', async () => {
+    const { store, setDigest } = await storeWithFruits();
+    const detailExecutor: AgentModelExecutor = async () => ({
+      ok: false,
+      code: 'PROVIDER_INVALID_RESPONSE',
+      providerAttempts: [
+        { providerId: 'groq-free', modelId: 'openai/gpt-oss-120b', outcome: 'failed', errorCode: 'PROVIDER_INVALID_RESPONSE', durationMs: 12_000, transportRequestCount: 1 },
+      ],
+      providerFailureDetail: { finishReason: 'length', usageReasoningTokens: 2400 },
+    });
+    const result = await toolRegistry.attachment_analyzer.execute(
+      analyzerParams(setDigest),
+      contextFor(store, detailExecutor),
+    );
+    expect(result.ok).toBe(false);
+    // The production Basel shape with the 案C detail: the dispatch
+    // died on an invalid response, and the record can now say the
+    // completion ended at the length limit with its budget spent
+    // on reasoning — the subtype the 2026-11-26 run could not
+    // recover. The detail rides after the attempts, before the
+    // execution segment, in the same fixed-shape style.
+    expect(result.message).toBe(
+      'PROVIDER_INVALID_RESPONSE (attempts: groq-free|openai/gpt-oss-120b|failed|PROVIDER_INVALID_RESPONSE|12000|1) (finish: length; reasoningTokens: 2400) (execution: servings=groq-free|openai/gpt-oss-120b; repair=0)',
+    );
+  });
+
+  it('carries the final failure detail on its own when the dispatch recorded no attempts (Basel 案C)', async () => {
+    const { store, setDigest } = await storeWithFruits();
+    const tokensOnlyExecutor: AgentModelExecutor = async () => ({
+      ok: false,
+      code: 'PROVIDER_INVALID_RESPONSE',
+      providerFailureDetail: { usageReasoningTokens: 2400 },
+    });
+    const result = await toolRegistry.attachment_analyzer.execute(
+      analyzerParams(setDigest),
+      contextFor(store, tokensOnlyExecutor),
+    );
+    expect(result.ok).toBe(false);
+    // Only the field the diagnostic carried is encoded — no finish
+    // field is invented for a diagnostic that never reported one.
+    expect(result.message).toBe('PROVIDER_INVALID_RESPONSE (reasoningTokens: 2400)');
+  });
+
+  it('drops final-failure detail fields outside the fixed shapes instead of encoding them (Basel 案C)', async () => {
+    const { store, setDigest } = await storeWithFruits();
+    const poisonedExecutor: AgentModelExecutor = async () => ({
+      ok: false,
+      code: 'PROVIDER_INVALID_RESPONSE',
+      providerFailureDetail: { finishReason: 'a free-form sentence', usageReasoningTokens: -3 },
+    } as unknown as Awaited<ReturnType<AgentModelExecutor>>);
+    const result = await toolRegistry.attachment_analyzer.execute(
+      analyzerParams(setDigest),
+      contextFor(store, poisonedExecutor),
+    );
+    expect(result.ok).toBe(false);
+    // Neither field matches its closed shape, so the message is
+    // exactly the bare code the failure produced before the detail
+    // existed — free text never rides the message into the record.
+    expect(result.message).toBe('PROVIDER_INVALID_RESPONSE');
+    expect(result.message).not.toContain('free-form');
+  });
+
+  it('keeps a valid finish reason when the token count alone is unusable (Basel 案C)', async () => {
+    const { store, setDigest } = await storeWithFruits();
+    const partialExecutor: AgentModelExecutor = async () => ({
+      ok: false,
+      code: 'PROVIDER_INVALID_RESPONSE',
+      providerFailureDetail: { finishReason: 'stop', usageReasoningTokens: 1.5 },
+    } as unknown as Awaited<ReturnType<AgentModelExecutor>>);
+    const result = await toolRegistry.attachment_analyzer.execute(
+      analyzerParams(setDigest),
+      contextFor(store, partialExecutor),
+    );
+    expect(result.ok).toBe(false);
+    expect(result.message).toBe('PROVIDER_INVALID_RESPONSE (finish: stop)');
+  });
 });
 
 describe('document_generator dataGrounded rule (F2)', () => {
