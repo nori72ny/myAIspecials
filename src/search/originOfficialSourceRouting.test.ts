@@ -955,3 +955,134 @@ describe("selectOriginSearchSourcesWithObservation — edition recency (measure 
     expect(selected[0]?.title).toBe("日付のあるページ");
   });
 });
+
+/* ------------------------------------------------------------------ */
+/* Follow-up measure A: extract fires for statistical + official     */
+/* (ANSWER_SOURCES_ONLY_DIAGNOSIS_2026-11-26). The pools below are   */
+/* snippet-rich (>= 600 chars) and the questions are fresh_general,  */
+/* so neither pre-existing extract condition can fire: any extract   */
+/* call observed is the new condition's, and only its.               */
+/* ------------------------------------------------------------------ */
+
+describe("executeOriginSearchGrounding — follow-up measure A (statistical + official extract)", () => {
+  const EXTRACT_MARKER = "抽出された公表本文です。完全失業率は2.4%でした。";
+
+  function statisticalExtractFetch() {
+    const calls: RecordedCall[] = [];
+    const fetchImpl: OriginSearchFetch = async (url, init) => {
+      calls.push({ url, init });
+      if (url.includes("api.tavily.com/search")) {
+        const body = JSON.parse(init?.body ?? "{}") as { include_domains?: string[] };
+        if (body.include_domains?.includes("stat.go.jp")) return jsonResponse({ results: [STAT_RESULT] });
+        return jsonResponse({ results: [BLOG_RESULT] });
+      }
+      if (url.includes("api.tavily.com/extract")) {
+        return jsonResponse({
+          results: [{ url: STAT_RESULT.url, raw_content: EXTRACT_MARKER }],
+          failed_results: [],
+        });
+      }
+      const host = new URL(url).hostname;
+      if (host === "wikipedia.org" || host.endsWith(".wikipedia.org")) return jsonResponse({ pages: [] });
+      throw new Error(`unexpected URL: ${url}`);
+    };
+    return { fetchImpl, calls };
+  }
+
+  it("statistical question with an official source adopted: extract fires and the body replaces the snippet", async () => {
+    const { fetchImpl, calls } = statisticalExtractFetch();
+    const deps = makeDeps({
+      fetchImpl,
+      env: { TAVILY_API_KEY: "tvly-test-key", ORIGIN_OFFICIAL_SOURCE_ROUTING_MODE: "true" },
+    });
+    const outcome = groundedOf(await executeOriginSearchGrounding(F06_QUESTION, deps));
+    const extractCalls = calls.filter((call) => call.url.includes("api.tavily.com/extract"));
+    expect(extractCalls).toHaveLength(1);
+    const official = outcome.sources.find((source) => source.domain === "stat.go.jp");
+    expect(official).toBeDefined();
+    expect(official?.evidenceLevel).toBe("extracted");
+    expect(official?.excerpt).toContain(EXTRACT_MARKER);
+    // Two searches + one extract page = three credits, honestly recorded.
+    expect(deps.counter?.usage("tavily", NOW)).toBe(3);
+  });
+
+  it("statistical question but NO official source in the adopted pool: extract does not fire", async () => {
+    const calls: RecordedCall[] = [];
+    const fetchImpl: OriginSearchFetch = async (url, init) => {
+      calls.push({ url, init });
+      if (url.includes("api.tavily.com/search")) {
+        const body = JSON.parse(init?.body ?? "{}") as { include_domains?: string[] };
+        if (body.include_domains) return jsonResponse({ results: [] });
+        return jsonResponse({
+          results: [{ ...BLOG_RESULT, published_date: "2026-11-18T00:00:00.000Z" }],
+        });
+      }
+      if (url.includes("api.tavily.com/extract")) return jsonResponse({ results: [], failed_results: [] });
+      const host = new URL(url).hostname;
+      if (host === "wikipedia.org" || host.endsWith(".wikipedia.org")) return jsonResponse({ pages: [] });
+      throw new Error(`unexpected URL: ${url}`);
+    };
+    const deps = makeDeps({
+      fetchImpl,
+      env: { TAVILY_API_KEY: "tvly-test-key", ORIGIN_OFFICIAL_SOURCE_ROUTING_MODE: "true" },
+    });
+    const outcome = groundedOf(await executeOriginSearchGrounding(F06_QUESTION, deps));
+    expect(outcome.sources.some((source) => source.authorityTier === "official")).toBe(false);
+    expect(calls.filter((call) => call.url.includes("api.tavily.com/extract"))).toHaveLength(0);
+  });
+
+  it("non-statistical question with an official source adopted: extract does not fire", async () => {
+    const kanteiResult = {
+      title: "首相官邸ホームページ 日本の主要なニュース",
+      url: "https://www.kantei.go.jp/jp/104/actions/index.html",
+      content: "日本に関する主要なニュースの概要を掲載しています。".repeat(40),
+      score: 0.9,
+      published_date: "2026-11-18T00:00:00.000Z",
+    };
+    const newsResult = {
+      title: "主要ニュースまとめ",
+      url: "https://news.example.com/top",
+      content: "日本に関する主要なニュースを3つ紹介します。".repeat(40),
+      score: 0.85,
+      published_date: "2026-11-18T00:00:00.000Z",
+    };
+    const calls: RecordedCall[] = [];
+    const fetchImpl: OriginSearchFetch = async (url, init) => {
+      calls.push({ url, init });
+      if (url.includes("api.tavily.com/search")) return jsonResponse({ results: [kanteiResult, newsResult] });
+      if (url.includes("api.tavily.com/extract")) return jsonResponse({ results: [], failed_results: [] });
+      const host = new URL(url).hostname;
+      if (host === "wikipedia.org" || host.endsWith(".wikipedia.org")) return jsonResponse({ pages: [] });
+      throw new Error(`unexpected URL: ${url}`);
+    };
+    const deps = makeDeps({
+      fetchImpl,
+      env: { TAVILY_API_KEY: "tvly-test-key", ORIGIN_OFFICIAL_SOURCE_ROUTING_MODE: "true" },
+    });
+    const outcome = groundedOf(await executeOriginSearchGrounding(
+      "昨日から今日にかけて、日本に関する主要なニュースを3つ教えてください", deps,
+    ));
+    // The official source IS adopted — only the statistical half of
+    // the new condition is missing, and that alone keeps extract off.
+    expect(outcome.sources.some((source) => source.authorityTier === "official")).toBe(true);
+    expect(calls.filter((call) => call.url.includes("api.tavily.com/extract"))).toHaveLength(0);
+  });
+
+  it("switch OFF: no plan exists, so an adopted official source alone does not fire extract", async () => {
+    const datedStat = { ...STAT_RESULT, published_date: "2026-11-18T00:00:00.000Z" };
+    const datedBlog = { ...BLOG_RESULT, published_date: "2026-11-18T00:00:00.000Z" };
+    const calls: RecordedCall[] = [];
+    const fetchImpl: OriginSearchFetch = async (url, init) => {
+      calls.push({ url, init });
+      if (url.includes("api.tavily.com/search")) return jsonResponse({ results: [datedStat, datedBlog] });
+      if (url.includes("api.tavily.com/extract")) return jsonResponse({ results: [], failed_results: [] });
+      const host = new URL(url).hostname;
+      if (host === "wikipedia.org" || host.endsWith(".wikipedia.org")) return jsonResponse({ pages: [] });
+      throw new Error(`unexpected URL: ${url}`);
+    };
+    const deps = makeDeps({ fetchImpl });
+    const outcome = groundedOf(await executeOriginSearchGrounding(F06_QUESTION, deps));
+    expect(outcome.sources.some((source) => source.authorityTier === "official")).toBe(true);
+    expect(calls.filter((call) => call.url.includes("api.tavily.com/extract"))).toHaveLength(0);
+  });
+});

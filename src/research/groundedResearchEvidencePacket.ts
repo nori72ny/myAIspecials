@@ -1,4 +1,5 @@
 import type { OriginResearchSource } from "../legacy/originResearchSource.js";
+import { parseOriginOfficialEdition } from "../search/originOfficialEdition.js";
 
 /**
  * Recovery build Stage 1, PR-2: sentence-level evidence packet.
@@ -29,12 +30,35 @@ import type { OriginResearchSource } from "../legacy/originResearchSource.js";
  * sentences for its attribution quote and falls back to the card's
  * claim span when the packet has nothing for that source, so the
  * 240-character bound and the R-1 neutralization are unchanged.
+ *
+ * Follow-up measures B and C (ANSWER_SOURCES_ONLY_DIAGNOSIS_
+ * 2026-11-26) extend the selection in two ways:
+ *  - Label/value rejoin (B): official statistics pages (the ESRI
+ *    shape) put a heading label and its value on separate lines —
+ *    the label line carries the question keys but no value, the
+ *    value line carries the number but no key, so neither half was
+ *    quotable as the answer. When a line is a single heading
+ *    fragment ending は/が/の/： and the next line opens with a
+ *    number-bearing, key-less sentence, the two enter the packet as
+ *    one joined candidate, replacing both halves.
+ *  - Authority and edition in the ranking (C): a sentence from an
+ *    official-tier source, and a sentence from the source carrying
+ *    the pool's latest stated edition, score above an equally
+ *    key-matching sentence from a secondary or older source, so a
+ *    stale secondary value no longer outranks the current official
+ *    one merely on digit/term signals.
  */
 
 export type RecoveryPacketSentenceOrigin = "title" | "excerpt";
 
 export interface RecoveryPacketSentence {
-  /** Verbatim substring of the source title or excerpt. */
+  /**
+   * Verbatim substring of the source title or excerpt. One
+   * exception (measure B): a rejoined label/value candidate is the
+   * concatenation of two adjacent excerpt lines — every character
+   * is the source's own, only the line break between the label and
+   * its value is dropped.
+   */
   text: string;
   /** 0-based index into the sources array passed to the builder. */
   sourceIndex: number;
@@ -259,7 +283,31 @@ function isHeadingLike(sentence: string): boolean {
   );
 }
 
-type PacketSource = Pick<OriginResearchSource, "title" | "excerpt">;
+/**
+ * A heading fragment that grammatically continues into what follows
+ * (measure B): a heading-like line ending は/が/の/： is a label whose
+ * statement is completed by the next line, the layout official
+ * statistics pages use for a value ("…の実質ＧＤＰの成長率は" /
+ * "前期比−0.0%…").
+ */
+const HEADING_FRAGMENT_ENDING = /(?:は|が|の|：|:)$/;
+
+function isHeadingFragment(sentence: string): boolean {
+  return isHeadingLike(sentence) && HEADING_FRAGMENT_ENDING.test(sentence);
+}
+
+/**
+ * Measure C ranking bonuses, on the same scale as the existing
+ * signals (a key match is 1-2, a digit is 2, the two-key core is 3):
+ * large enough that the current official value sentence outranks a
+ * stale secondary one with equal key overlap, small enough that a
+ * secondary sentence matching strictly more of the question still
+ * wins on substance.
+ */
+const PACKET_OFFICIAL_TIER_BONUS = 2;
+const PACKET_LATEST_EDITION_BONUS = 2;
+
+type PacketSource = Pick<OriginResearchSource, "title" | "excerpt" | "authorityTier">;
 
 /**
  * Build the evidence packet for a list of sources and a question:
@@ -278,8 +326,27 @@ export function buildGroundedResearchEvidencePacket(
     /** Order within the source: -1 for the title, 0..n for excerpt sentences. */
     position: number;
   }
+  // Measure C: the edition each source's title states (null when it
+  // states none) and the pool's latest stated edition. Recency is
+  // judged only among sources that state an edition at all — a
+  // source with no stated edition is of unknown vintage, never old.
+  const sourceEditionSortKeys: (number | null)[] = sources.map((source) => {
+    const edition = parseOriginOfficialEdition(source.title ?? "");
+    return edition ? edition.sortKey : null;
+  });
+  const latestEditionSortKey = sourceEditionSortKeys.reduce<number | null>(
+    (latest, sortKey) =>
+      sortKey !== null && (latest === null || sortKey > latest) ? sortKey : latest,
+    null,
+  );
   const candidates: ScoredCandidate[] = [];
   sources.forEach((source, sourceIndex) => {
+    const editionSortKey = sourceEditionSortKeys[sourceIndex] ?? null;
+    const sourceBonus =
+      (source.authorityTier === "official" ? PACKET_OFFICIAL_TIER_BONUS : 0) +
+      (editionSortKey !== null && editionSortKey === latestEditionSortKey
+        ? PACKET_LATEST_EDITION_BONUS
+        : 0);
     const title = (source.title ?? "").trim();
     if (title) {
       const base = packetSentenceScore(title, keys);
@@ -294,13 +361,55 @@ export function buildGroundedResearchEvidencePacket(
       }
     }
     const excerpt = source.excerpt ?? "";
-    splitRecoverySentences(excerpt).forEach((sentence, position) => {
-      const base = packetSentenceScore(sentence, keys);
+    // Sentences keep their line structure (splitRecoverySentences
+    // splits on newlines first, so splitting line by line is the
+    // same sentence stream with the boundaries still known): the
+    // measure-B rejoin below needs to know which sentences were
+    // separated by a line break.
+    const lines: string[][] = excerpt
+      .split("\n")
+      .map((line) => splitRecoverySentences(line));
+    const lineStarts: number[] = [];
+    const flat: string[] = [];
+    for (const lineSentences of lines) {
+      lineStarts.push(flat.length);
+      flat.push(...lineSentences);
+    }
+    // Measure B: label/value rejoin. A line that is a single
+    // heading fragment (ending は/が/の/：) carrying a question key,
+    // followed by a line opening with a number-bearing sentence
+    // that matches no question key, states one fact across the two
+    // lines. The pair enters as one joined candidate (the label's
+    // position), replacing both halves: quoted alone, the label
+    // asserts nothing and the value answers nothing.
+    const joinedTextByLabelIndex = new Map<number, string>();
+    const consumedValueIndexes = new Set<number>();
+    for (let lineIndex = 0; lineIndex + 1 < lines.length; lineIndex += 1) {
+      const labelLine = lines[lineIndex];
+      const valueLine = lines[lineIndex + 1];
+      if (!labelLine || !valueLine) continue;
+      if (labelLine.length !== 1 || valueLine.length === 0) continue;
+      const labelIndex = lineStarts[lineIndex] ?? 0;
+      if (consumedValueIndexes.has(labelIndex)) continue;
+      const label = labelLine[0] ?? "";
+      const value = valueLine[0] ?? "";
+      if (!isHeadingFragment(label)) continue;
+      if (packetSentenceScore(label, keys) <= 0) continue;
+      if (!ANSWER_BEARING_NUMBER_PATTERN.test(value)) continue;
+      if (keys.some((key) => value.includes(key.text))) continue;
+      joinedTextByLabelIndex.set(labelIndex, label + value);
+      consumedValueIndexes.add(lineStarts[lineIndex + 1] ?? 0);
+    }
+    flat.forEach((sentence, position) => {
+      if (consumedValueIndexes.has(position)) return;
+      const joined = joinedTextByLabelIndex.get(position);
+      const text = joined ?? sentence;
+      const base = packetSentenceScore(text, keys);
       if (base <= 0) return;
       candidates.push({
-        text: sentence,
+        text,
         sourceIndex,
-        score: base + (isHeadingLike(sentence) ? 1 : 0),
+        score: base + (joined ? 1 : isHeadingLike(sentence) ? 1 : 0) + sourceBonus,
         origin: "excerpt",
         position,
       });

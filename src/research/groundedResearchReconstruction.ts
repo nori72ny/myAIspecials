@@ -34,6 +34,13 @@
  * holds by construction: every number in the output comes from a
  * confirmed vote value or from inside a verbatim source sentence
  * cited to that source.
+ *
+ * Follow-up measure C (ANSWER_SOURCES_ONLY_DIAGNOSIS_2026-11-26)
+ * adds an edition discipline to the packet-sentences selection:
+ * when a sentence from an official-tier source at the pool's latest
+ * stated edition is carried, sentences from sources stating a
+ * strictly older edition are excluded, so a superseded edition's
+ * value is never quoted alongside the current release.
  */
 import type { OriginResearchSource } from "../legacy/originResearchSource.js";
 import {
@@ -46,7 +53,10 @@ import {
   type RecoveryTemplateFallbackResult,
 } from "./groundedResearchTemplateFallback.js";
 import { prepareGroundedResearchVerbatimSentence } from "./groundedResearchV11.js";
-import { originSourcePeriodAnnotation } from "../search/originOfficialEdition.js";
+import {
+  originSourcePeriodAnnotation,
+  parseOriginOfficialEdition,
+} from "../search/originOfficialEdition.js";
 
 /** At most this many verbatim sentences ride the reconstruction. */
 export const GROUNDED_RESEARCH_RECONSTRUCTION_MAX_SENTENCES = 5;
@@ -186,7 +196,37 @@ export function tryGroundedResearchReconstruction(input: {
     sentences.push({ prepared, sourceIndex: sentence.sourceIndex, score: sentence.score, order });
   });
   sentences.sort((a, b) => (b.score - a.score) || (a.order - b.order));
-  const selected = sentences.slice(0, GROUNDED_RESEARCH_RECONSTRUCTION_MAX_SENTENCES);
+  // Measure C prohibition (ANSWER_SOURCES_ONLY_DIAGNOSIS_2026-11-26):
+  // when the answer carries a sentence from an official-tier source
+  // at the pool's latest stated edition, a sentence whose source
+  // states a strictly older edition never rides along — the landing
+  // must not present a superseded edition's value under a source
+  // list headed by the current release. Only a deterministically
+  // older edition is suppressed: a source stating no edition is of
+  // unknown vintage, and an unknown vintage is not a stale one.
+  const editionSortKeys = sources.map((source) => {
+    const edition = parseOriginOfficialEdition(source.title ?? "");
+    return edition ? edition.sortKey : null;
+  });
+  const latestEditionSortKey = editionSortKeys.reduce<number | null>(
+    (latest, sortKey) =>
+      sortKey !== null && (latest === null || sortKey > latest) ? sortKey : latest,
+    null,
+  );
+  const carriesCurrentOfficial =
+    latestEditionSortKey !== null &&
+    sentences.some(
+      (sentence) =>
+        sources[sentence.sourceIndex]?.authorityTier === "official" &&
+        (editionSortKeys[sentence.sourceIndex] ?? null) === latestEditionSortKey,
+    );
+  const eligible = carriesCurrentOfficial
+    ? sentences.filter((sentence) => {
+        const sortKey = editionSortKeys[sentence.sourceIndex] ?? null;
+        return sortKey === null || sortKey >= (latestEditionSortKey ?? 0);
+      })
+    : sentences;
+  const selected = eligible.slice(0, GROUNDED_RESEARCH_RECONSTRUCTION_MAX_SENTENCES);
 
   const base: GroundedResearchReconstructionAttempt = {
     established: false,
