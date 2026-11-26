@@ -2675,6 +2675,36 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
     vi.unstubAllGlobals();
   });
 
+  it('shows the unified held heading and retry under a tier-T4 abstain answer (4-C)', async () => {
+    const heldText = '「今日は何曜日ですか？」について公開情報を調べましたが、裏付けが取れなかったため、推測で回答しません。';
+    const body = [
+      `data: ${JSON.stringify({ type: 'phase', phase: 'searching' })}`,
+      `data: ${JSON.stringify({ type: 'outcome', researchTier: 'T4', researchOutcome: 'ABSTAIN' })}`,
+      `data: ${JSON.stringify({ type: 'delta', text: heldText })}`,
+      `data: ${JSON.stringify({ type: 'complete' })}`,
+      'data: [DONE]',
+      '',
+    ].join('\n\n');
+    const fetchMock = vi.fn(async () => new Response(body, {
+      status: 200,
+      headers: { 'Content-Type': 'text/event-stream', 'X-Origin-Stream-Source': 'phased', 'X-Origin-Stream-Protocol': 'origin-phased-sse-v1' },
+    }));
+    vi.stubGlobal('fetch', fetchMock);
+    render(<App language="ja" />);
+    fireEvent.change(screen.getByTestId('origin-home-request'), { target: { value: '今日は何曜日ですか？' } });
+    fireEvent.click(screen.getByTestId('start-request-button'));
+    // 拒否・保留の着地にも、失敗表示と同じ型（状態見出し＋
+    // 「もう一度試す」ボタン）を付ける。
+    await waitFor(() => expect(screen.getByText('確認できませんでした')).toBeTruthy());
+    const retryButton = await screen.findByTestId('chat-research-retry-button');
+    expect(retryButton.textContent).toBe('もう一度試す');
+    fireEvent.click(retryButton);
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+    const secondCall = fetchMock.mock.calls[1] as unknown as [string, RequestInit];
+    expect(String(secondCall[1].body)).toContain('今日は何曜日ですか？');
+    vi.unstubAllGlobals();
+  });
+
   it('does not offer a retry under an adopted (tier-T0) research answer', async () => {
     const body = [
       `data: ${JSON.stringify({ type: 'phase', phase: 'searching' })}`,

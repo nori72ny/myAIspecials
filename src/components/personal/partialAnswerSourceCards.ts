@@ -20,6 +20,13 @@ export type PartialAnswerSourceCard = {
   domain: string;
   title: string;
   url: string;
+  /**
+   * 公表日行（「公表日：…」／「Published: …」）の原文（5-A、回答表示の
+   * 外部比較 2026-11-26 §5）。生成側がカードにこの行を出した場合だけ
+   * 拾い、カードにそのまま表示する。日付が判明していない出典には
+   * 行自体が無く、表示もしない（推測で補わない）。
+   */
+  publishedLine?: string;
   /** 引用の要旨（区切り記号を除いた本文）。引用なしカードでは undefined。 */
   quote?: string;
 };
@@ -40,6 +47,7 @@ const SECTION_HEADINGS = ['## 確認できた範囲', '## What could be confirme
 const RETRIEVED_LINE_PREFIXES = ['取得日：', 'Retrieved: '] as const;
 const CARD_HEADING_PATTERN = /^### (S\d+)(?: · (.+))?$/;
 const CARD_LINK_PATTERN = /^\[(.*)\]\(([^)\s]+)\)$/;
+const CARD_PUBLISHED_LINE_PATTERN = /^(公表日：.+|Published: .+)$/;
 const JA_QUOTE_PATTERN = /^『(.*)』$/;
 const EN_QUOTE_PATTERN = /^"(.*)"$/;
 
@@ -82,6 +90,11 @@ export function splitPartialAnswerSources(content: string): PartialAnswerSplit |
       url: linkMatch[2],
     };
     cursor += 2;
+    const publishedMatch = sectionLines[cursor]?.match(CARD_PUBLISHED_LINE_PATTERN);
+    if (publishedMatch) {
+      card.publishedLine = publishedMatch[1];
+      cursor += 1;
+    }
     const quoteMatch = sectionLines[cursor]?.match(JA_QUOTE_PATTERN) ?? sectionLines[cursor]?.match(EN_QUOTE_PATTERN);
     if (quoteMatch) {
       card.quote = quoteMatch[1];
