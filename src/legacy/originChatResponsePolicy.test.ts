@@ -325,6 +325,10 @@ describe("ungrounded current-assertion gate (S-PR-1)", () => {
       "state the operative reason it is a problem for this code's purpose",
       "Leave nothing unused",
       "remove imports or names carried over from the original",
+      // CB-7 (CODE_E05_E02_DIAGNOSIS_2026-11-26): the conditional-
+      // definition sentence on the definition/use rule.
+      "A name assigned inside a `try` block may not exist when the `finally` block runs",
+      "guard the cleanup so it never touches a name that might be unbound",
     ]) expect(instruction).toContain(phrase);
   });
 });
@@ -332,9 +336,9 @@ describe("ungrounded current-assertion gate (S-PR-1)", () => {
 describe("originGroqRouteSystemInstruction (route-3 compact instruction)", () => {
   const compact = originGroqRouteSystemInstruction();
 
-  it("stays within the 2,000-6,000 character budget the Groq TPM gate can carry", () => {
+  it("stays within the 2,000-6,200 character budget the Groq TPM gate can carry", () => {
     expect(compact.length).toBeGreaterThanOrEqual(2_000);
-    expect(compact.length).toBeLessThanOrEqual(6_000);
+    expect(compact.length).toBeLessThanOrEqual(6_200);
     // The full standard instruction is several times larger; the compact variant
     // must remain a small fraction of it.
     expect(compact.length * 3).toBeLessThan(originChatSystemInstruction().length);
@@ -390,6 +394,11 @@ describe("originGroqRouteSystemInstruction (route-3 compact instruction)", () =>
       "State the operative reason each problem fails here",
       "Leave nothing unused",
       "remove imports the replacement no longer uses",
+      // CB-7 (CODE_E05_E02_DIAGNOSIS_2026-11-26): the conditional-
+      // definition sentence on the definition/use rule, in
+      // condensed form.
+      "Names assigned inside `try` may be unbound in `finally`",
+      "initialize before `try` or guard the cleanup",
     ]) {
       expect(compact).toContain(phrase);
     }
@@ -427,10 +436,17 @@ describe("originGroqRouteSystemInstruction (route-3 compact instruction)", () =>
     // alone and about 3,014 with this shortest question, so the pin
     // sits at 3,100 - and even cap + question + a 256-token completion
     // (~3,270) stays far under the ceiling below.
+    // CB-7 (CODE_E05_E02_DIAGNOSIS_2026-11-26) raised the base budget
+    // to 6,200 so this route could carry the conditional-definition
+    // sentence on the definition/use rule; at that cap the estimator
+    // reads ceil(6200/2)+4 = 3,104 tokens for the instruction alone
+    // and about 3,114 with this shortest question, so the pin sits at
+    // 3,200 - and even cap + question + a 256-token completion
+    // (~3,370) stays far under the ceiling below.
     const productionAssembledEstimate = estimateOriginGroqInputTokens(["x".repeat(15_713), "日本の首都はどこですか？"]);
     expect(productionAssembledEstimate + 256).toBeGreaterThan(ORIGIN_GROQ_TOKENS_PER_MINUTE_LIMIT);
     const compactEstimate = estimateOriginGroqInputTokens([compact, "日本の首都はどこですか？"]);
-    expect(compactEstimate).toBeLessThanOrEqual(3_100);
+    expect(compactEstimate).toBeLessThanOrEqual(3_200);
     expect(compactEstimate + 256).toBeLessThan(ORIGIN_GROQ_TOKENS_PER_MINUTE_LIMIT);
   });
 });
@@ -609,8 +625,8 @@ describe("answer-quality follow-ups (PKG-9 batch 1: safety standards and form/le
       "Specified form or length (brief, items only, one line) is strict",
       "no added versions, premises, or follow-up questions; otherwise one version only",
     ]) expect(compact).toContain(phrase);
-    expect(compact.length).toBeLessThanOrEqual(6_000);
-    expect(estimateOriginGroqInputTokens([compact, "日本の首都はどこですか？"])).toBeLessThanOrEqual(3_100);
+    expect(compact.length).toBeLessThanOrEqual(6_200);
+    expect(estimateOriginGroqInputTokens([compact, "日本の首都はどこですか？"])).toBeLessThanOrEqual(3_200);
   });
 });
 
@@ -699,8 +715,8 @@ describe("intent awareness (request-context adaptation)", () => {
       "once per topic, never repeat",
       "If unclear, keep the neutral style",
     ]) expect(compact).toContain(phrase);
-    expect(compact.length).toBeLessThanOrEqual(6_000);
-    expect(estimateOriginGroqInputTokens([compact, "日本の首都はどこですか？"])).toBeLessThanOrEqual(3_100);
+    expect(compact.length).toBeLessThanOrEqual(6_200);
+    expect(estimateOriginGroqInputTokens([compact, "日本の首都はどこですか？"])).toBeLessThanOrEqual(3_200);
   });
 
   it("pins false-premise correction: correct first at the start, then answer under the corrected premise (I-2)", () => {
@@ -820,8 +836,8 @@ describe("intent awareness (request-context adaptation)", () => {
       "Assumptions stand as posed only when explicitly framed as an assumption or hypothetical",
       "Corrections replace the old premise: rebuild on the new one alone",
     ]) expect(compact).toContain(phrase);
-    expect(compact.length).toBeLessThanOrEqual(6_000);
-    expect(estimateOriginGroqInputTokens([compact, "日本の首都はどこですか？"])).toBeLessThanOrEqual(3_100);
+    expect(compact.length).toBeLessThanOrEqual(6_200);
+    expect(estimateOriginGroqInputTokens([compact, "日本の首都はどこですか？"])).toBeLessThanOrEqual(3_200);
   });
 
   // The I-1 measurement's REP-02 was fatal: the turn-2 correction
@@ -904,8 +920,8 @@ describe("intent awareness (request-context adaptation)", () => {
       "a hypothetical framed as one may be answered as one",
       "Stated backgrounds and form preferences persist across topics",
     ]) expect(compact).toContain(phrase);
-    expect(compact.length).toBeLessThanOrEqual(6_000);
-    expect(estimateOriginGroqInputTokens([compact, "日本の首都はどこですか？"])).toBeLessThanOrEqual(3_100);
+    expect(compact.length).toBeLessThanOrEqual(6_200);
+    expect(estimateOriginGroqInputTokens([compact, "日本の首都はどこですか？"])).toBeLessThanOrEqual(3_200);
   });
 
   // The I-1 R2 re-measurement (production bc1c1918, I-3 live) found the
@@ -964,8 +980,8 @@ describe("intent awareness (request-context adaptation)", () => {
     expect(compact).toContain("\n- Corrections replace the old premise");
     // The unbounded exception form is gone.
     expect(compact).not.toContain("Hypotheticals and assumptions stand as posed");
-    expect(compact.length).toBeLessThanOrEqual(6_000);
-    expect(estimateOriginGroqInputTokens([compact, "日本の首都はどこですか？"])).toBeLessThanOrEqual(3_100);
+    expect(compact.length).toBeLessThanOrEqual(6_200);
+    expect(estimateOriginGroqInputTokens([compact, "日本の首都はどこですか？"])).toBeLessThanOrEqual(3_200);
   });
 
   it("pins the attribute/topic split and the vacuum rule on the route-3 compact instruction (I-4, D-1/D-2/D-3)", () => {
@@ -979,7 +995,7 @@ describe("intent awareness (request-context adaptation)", () => {
     ]) expect(compact).toContain(phrase);
     // The general negative form measured too weak in R2 is gone.
     expect(compact).not.toContain("never drag them in when they do not");
-    expect(compact.length).toBeLessThanOrEqual(6_000);
+    expect(compact.length).toBeLessThanOrEqual(6_200);
   });
 });
 
@@ -1077,7 +1093,7 @@ describe("originGroqRouteSystemInstruction planning augmentation (round-2 adjudi
     expect(originGroqRouteSystemInstruction(null)).toBe(base);
     expect(originGroqRouteSystemInstruction(undefined)).toBe(base);
     expect(base.length).toBeGreaterThanOrEqual(2_000);
-    expect(base.length).toBeLessThanOrEqual(6_000);
+    expect(base.length).toBeLessThanOrEqual(6_200);
     expect(base).not.toContain("Business planning rules for this request");
   });
 
@@ -1158,6 +1174,15 @@ describe("originGroqRouteSystemInstruction planning augmentation (round-2 adjudi
       // estimated 4,191 input tokens - still about seventy percent
       // of the route's 6,000-token input budget. The addendum bound
       // is unchanged (measured maximum 2,390).
+      // CB-7 (CODE_E05_E02_DIAGNOSIS_2026-11-26) raised the base
+      // substitute's budget from 6,000 to 6,200 characters (base
+      // measured 6,016 after the change) to carry the conditional-
+      // definition sentence on the definition/use rule, so the
+      // measured maxima are now combined 8,406 characters and an
+      // estimated 4,243 input tokens - still about seventy percent
+      // of the route's 6,000-token input budget. The combined and
+      // estimate pins below are unchanged: they still sit above the
+      // new maxima. The addendum bound is unchanged.
       expect(augmented.length - base.length, brief.id).toBeLessThanOrEqual(2_400);
       expect(augmented.length, brief.id).toBeLessThanOrEqual(8_450);
       expect(estimateOriginGroqInputTokens([augmented, brief.prompt]), brief.id).toBeLessThanOrEqual(4_300);
@@ -1316,6 +1341,11 @@ describe("originCloudflareRouteSystemInstruction (route-2 compressed instruction
       "state the operative reason it is a problem for this code's purpose",
       "Leave nothing unused",
       "remove imports or names carried over from the original",
+      // CB-7 (CODE_E05_E02_DIAGNOSIS_2026-11-26): the conditional-
+      // definition sentence on the definition/use rule, carried
+      // verbatim from the full base.
+      "A name assigned inside a `try` block may not exist when the `finally` block runs",
+      "guard the cleanup so it never touches a name that might be unbound",
       "state that basis compactly when it helps the user inspect the reasoning",
       "never introduce case studies, competitive superiority, adoption results, benchmarks, customer outcomes, certifications",
       "do not turn a possible rule into a universal rule without verified jurisdiction/context",
