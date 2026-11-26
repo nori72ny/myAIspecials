@@ -166,13 +166,19 @@ describe('VoiceSpeechController', () => {
     expect(controller.getActiveId()).toBeNull();
   });
 
-  it('defaults to the first on-device Japanese voice and rate 1.0', () => {
+  it('defaults to the first known male Japanese voice and rate 1.0', () => {
     const { controller, synthesis } = makeController();
     expect(controller.getRate()).toBe(1.0);
     expect(controller.speak('msg-1', 'こんにちは。')).toBe(true);
-    expect(synthesis.spoken[0]?.voice?.voiceURI).toBe('kyoko-uri');
+    expect(synthesis.spoken[0]?.voice?.voiceURI).toBe('ichiro-uri');
     expect(synthesis.spoken[0]?.rate).toBe(1.0);
     expect(synthesis.spoken[0]?.pitch).toBe(1.0);
+  });
+
+  it('falls back to the first on-device Japanese voice when none is known male', () => {
+    const { controller, synthesis } = makeController([KYOKO, GOOGLE_JA, ENGLISH]);
+    expect(controller.speak('msg-1', 'こんにちは。')).toBe(true);
+    expect(synthesis.spoken[0]?.voice?.voiceURI).toBe('kyoko-uri');
   });
 
   it('applies a per-call style override without touching stored settings', () => {
