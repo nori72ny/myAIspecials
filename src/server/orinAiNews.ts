@@ -40,6 +40,16 @@
  * で取れた。原則は同じ（サーバー側の固定クエリのみ・保存なし・
  * 費用 $0・メモリ内キャッシュのみ）。GDELT が復調すれば従来
  * どおり GDELT が主系に戻る（代替は失敗時にだけ使う）。
+ *
+ * 2026-11-27 の順序逆転（診断 AI_NEWS_HEADLINES_DIAGNOSIS_2026-11-27）：
+ * 「GDELT の復調」は起きず、本番の成功応答は現状でも全件 RSS
+ * 由来だった。新規取得は「GDELT の失敗を待ってから RSS を引く」
+ * 直列経路のため、速くても約11秒（本番実測）、経路の組み合わせ
+ * 次第で最大約55秒かかっていた。そこで取得順序を実態に合わせて
+ * 逆転し、RSS を主系・GDELT を代替にした。GDELT 側の取得
+ * （429 の引き直しを含む）はそのまま残し、RSS が失敗した時
+ * だけ通る。タイムアウト・キャッシュ（10分）・stale（24時間）
+ * ・失敗理由の記録は従来どおり。
  */
 import {
   defaultOriginSearchFetch,
@@ -50,7 +60,7 @@ import {
 
 /** 固定クエリ（利用者の情報は一切含まない。従来のエンドポイントから移設）。 */
 export const ORIN_AI_NEWS_QUERY = "人工知能 OR 生成AI OR 大規模言語モデル OR \"artificial intelligence\" OR \"large language model\"";
-/** 代替ソース（公開 RSS、鍵不要・固定クエリのみ）。 */
+/** 主系ソース（公開 RSS、鍵不要・固定クエリのみ）。 */
 export const ORIN_AI_NEWS_RSS_URL = "https://news.google.com/rss/search"
   + `?q=${encodeURIComponent("人工知能 OR 生成AI OR 大規模言語モデル")}&hl=ja&gl=JP&ceid=JP:ja`;
 export const ORIN_AI_NEWS_RSS_TIMEOUT_MS = 10_000;
@@ -114,7 +124,7 @@ function toFailure(error: unknown): OrinAiNewsFailure {
 }
 
 /* ------------------------------------------------------------------ */
-/* 代替ソース：Google ニュース検索 RSS（公開・鍵不要・固定クエリ）     */
+/* 主系ソース：Google ニュース検索 RSS（公開・鍵不要・固定クエリ）     */
 /* ------------------------------------------------------------------ */
 
 const XML_ENTITY_MAP: Readonly<Record<string, string>> = {
@@ -234,7 +244,7 @@ export function createOrinAiNewsService(deps: OrinAiNewsServiceDeps = {}): OrinA
     }
   };
 
-  /** 代替ソース（公開 RSS）の取得。失敗は rss- 接頭辞の理由で分ける。 */
+  /** 主系ソース（公開 RSS）の取得。失敗は rss- 接頭辞の理由で分ける。 */
   const fetchRssHeadlines = async (): Promise<OrinAiNewsResult> => {
     const fetchImpl = deps.fetchImpl ?? defaultOriginSearchFetch;
     const controller = new AbortController();
@@ -271,24 +281,24 @@ export function createOrinAiNewsService(deps: OrinAiNewsServiceDeps = {}): OrinA
       if (inflight) return inflight;
       inflight = (async () => {
         try {
-          const result = await fetchWithRateLimitRetry();
+          const result = await fetchRssHeadlines();
           cache = { fetchedAtMs: now(), result };
           return result;
         } catch (error) {
-          const failure = toFailure(error);
+          const failure: OrinAiNewsFailure = error instanceof OrinAiNewsUnavailableError
+            ? error.failure
+            : { code: "rss-unknown" };
           deps.onFailure?.(failure);
-          // 代替ソース（公開 RSS）の受け皿。GDELT の IP 制限が
-          // 共有出口の都合で埋まっている間も見出しを届ける。
-          // ここも失敗したら、その理由も記録に残してから、
-          // 前回分（stale）→ 主系の理由での失敗、の順に倒す。
+          // 代替ソース（GDELT）の受け皿。主系の RSS が引けない
+          // 時だけ通る。ここも失敗したら、その理由も記録に残し
+          // てから、前回分（stale）→ 主系の理由での失敗、の順に
+          // 倒す。
           try {
-            const fallback = await fetchRssHeadlines();
+            const fallback = await fetchWithRateLimitRetry();
             cache = { fetchedAtMs: now(), result: fallback };
             return fallback;
           } catch (fallbackError) {
-            deps.onFailure?.(
-              fallbackError instanceof OrinAiNewsUnavailableError ? fallbackError.failure : { code: "rss-unknown" },
-            );
+            deps.onFailure?.(toFailure(fallbackError));
           }
           if (cache && now() - cache.fetchedAtMs <= staleLimitMs) {
             return { ...cache.result, stale: true };

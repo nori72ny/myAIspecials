@@ -151,11 +151,13 @@ export function createOriginApp(
   // request coalescing, and reports the failure reason so it is
   // logged here (bounded fields only, the same discipline as the
   // function-init failure log in api/index.ts) and returned to the
-  // client in the 502 body. When the GDELT route fails, the
-  // service falls back to a keyless public RSS feed (fixed query)
-  // before giving up: GDELT's per-IP rate limit is saturated by
-  // other tenants on shared egress IPs, so spacing and a single
-  // retry cannot get through (measured 2026-11-25).
+  // client in the 502 body. The keyless public RSS feed (fixed
+  // query) is the primary route and GDELT is the fallback: every
+  // successful production response was already coming from RSS,
+  // while GDELT's per-IP rate limit stays saturated by other
+  // tenants on shared egress IPs, so leading with GDELT only made
+  // each fresh fetch wait for its failure first (order reversed
+  // 2026-11-27, see orinAiNews.ts).
   const aiNewsService = createOrinAiNewsService({
     onFailure: (failure) => {
       console.error("[origin-ai-news] headline fetch failed", failure);
