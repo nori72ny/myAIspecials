@@ -57,6 +57,7 @@ import {
 } from "./originSearchProviders.js";
 import {
   assessOfficialMaterialInsufficiency,
+  buildOfficialReleaseQueryText,
   buildOfficialRetryQueryText,
   buildOfficialSourceQueryText,
   planOriginOfficialSourceQueries,
@@ -987,9 +988,17 @@ async function cachedCandidates(
   ttlMs: number,
   load: () => Promise<OriginSearchSource[]>,
   shouldCache: (sources: readonly OriginSearchSource[]) => boolean = () => true,
+  bypassCacheRead = false,
 ): Promise<RouteResult> {
-  const cached = deps.cache.get<OriginSearchSource[]>(cacheKey, deps.now());
-  if (cached) return { sources: cached, errored: false };
+  // A bypassed read still writes: the fresh result replaces the
+  // cached set for later asks (the official retry below is the one
+  // caller — it exists because the cached/first-pass set was
+  // judged insufficient, so serving that set back would make the
+  // retry a no-op).
+  if (!bypassCacheRead) {
+    const cached = deps.cache.get<OriginSearchSource[]>(cacheKey, deps.now());
+    if (cached) return { sources: cached, errored: false };
+  }
   try {
     const sources = await load();
     if (shouldCache(sources)) deps.cache.set(cacheKey, sources, ttlMs, deps.now());
@@ -1006,6 +1015,7 @@ async function runTavilyRoute(
   timeRange: "day" | "week" | "month" | "year" | null,
   timeoutMs: number,
   includeDomains?: readonly string[],
+  routeOptions?: { bypassCache?: boolean },
 ): Promise<RouteResult> {
   // Domain-restricted runs (official-source routing, measure B) get
   // their own cache entries: the restricted candidate set is a
@@ -1038,6 +1048,7 @@ async function runTavilyRoute(
       return outcome.sources;
     },
     cacheableCandidateSet,
+    routeOptions?.bypassCache ?? false,
   );
   return {
     ...result,
@@ -1256,17 +1267,24 @@ export async function executeOriginSearchGrounding(
   }
 
   // Measure B: the additional official-domain queries run alongside
-  // the ordinary routes. Round-8 measure A aims them at the
-  // publication page: the query text pairs the minimized query
-  // (extracted keywords only — the raw message never leaves the
-  // process) with the topic's release name. Their candidates join
-  // the same pool and face the same relevance screen and freshness
-  // gate as every other candidate; the routing only steers
-  // retrieval toward the primary source, it does not privilege the
-  // results beyond the tier they already carry.
+  // the ordinary routes. Round-8 measure A aimed them at the
+  // publication page by pairing the minimized query (extracted
+  // keywords only — the raw message never leaves the process) with
+  // the topic's release name; round-5 measure 5-3a shortens the
+  // text to the release form itself (publication name + expected
+  // edition) when the topic names a release, because the long form
+  // still missed the monthly release page in production while the
+  // retry's short form is the shape that reaches release pages.
+  // Topics without a release name keep the minimized-query form.
+  // Their candidates join the same pool and face the same relevance
+  // screen and freshness gate as every other candidate; the routing
+  // only steers retrieval toward the primary source, it does not
+  // privilege the results beyond the tier they already carry.
   if (officialPlan && tavilyEnabled) {
     for (const officialQuery of officialPlan.queries) {
-      const officialQueryText = buildOfficialSourceQueryText(query, officialQuery.releaseTerms, officialQuery.editionTerms);
+      const officialQueryText = officialQuery.releaseTerms
+        ? buildOfficialReleaseQueryText(officialQuery.releaseTerms, officialQuery.editionTerms)
+        : buildOfficialSourceQueryText(query, undefined, officialQuery.editionTerms);
       addRoute("tavily", runTavilyRoute(
         deps,
         officialQueryText,
@@ -1438,6 +1456,13 @@ export async function executeOriginSearchGrounding(
             retryTopic.releaseTerms,
             retryTopic.editionTerms,
           );
+          // The cache read is bypassed: since round-5 measure
+          // 5-3a the first-pass official query and this retry share
+          // the same query text (and domains), so a cached read
+          // would hand back the very candidate set that was just
+          // judged insufficient and the retry could never bring
+          // anything new. The retry is a deliberate re-ask; its
+          // fresh result still replaces the cache entry.
           const retryResult = await runTavilyRoute(
             deps,
             retryQueryText,
@@ -1445,6 +1470,7 @@ export async function executeOriginSearchGrounding(
             requirement.tavilyTimeRange,
             searchTimeoutMs(),
             retryTopic.domains,
+            { bypassCache: true },
           );
           queriesIssued.push({
             provider: "tavily",

@@ -35,6 +35,16 @@
  *    official tier intact, so the PR-3 vote weighs them at the
  *    official weight (3) with no vote-side change.
  *
+ * Round-5 measures (ANSWER_STATISTICS_ROUND5_DIAGNOSIS_2026-11-27):
+ *  - 5-1: the type gate opens from the topic side — an `other`
+ *    question asking for a current value is planned when a curated
+ *    topic matches (isStatisticalCurrentValueRequest). The GDP
+ *    phrasing 「実質GDPの最新値」 classified as `other` and never
+ *    reached this module's topic table at all.
+ *  - 5-3a: the first-pass official query uses the release form
+ *    (buildOfficialReleaseQueryText — publication name + expected
+ *    edition) instead of the minimized-question long form.
+ *
  * The domain map is a small curated table, one entry per topic —
  * never per question. Every domain was confirmed against the primary
  * source named by the round-6 answer keys (f-keys-round6.md):
@@ -262,6 +272,47 @@ export interface OriginOfficialSourcePlan {
 }
 
 /**
+ * Current-value request markers for the topic-side gate (round-5
+ * measure 5-1, ANSWER_STATISTICS_ROUND5_DIAGNOSIS_2026-11-27 §2.2).
+ * The recovery classifier is vocabulary-based: it puts a question
+ * into a value type only when the wording carries a value word
+ * （率・倍率・％…), so "実質GDPの最新値" — no rate word in it —
+ * classifies as `other` and the plan below returned null before any
+ * topic was even consulted. The GDP topic's pattern, release name
+ * and edition schedule all existed; the type gate made them
+ * unreachable for the most natural phrasing of the question, and
+ * with no plan there is no domain-restricted search, no edition
+ * key and no material-insufficiency retry for that question at all.
+ * The gate is therefore opened from the topic side: an `other`
+ * question that asks for a current value (one of these markers) is
+ * planned like a statistical question when a curated topic matches.
+ * Only `other` gets the second look — the classifier's specific
+ * non-value types (procedure / law_existence / calculation /
+ * existence) keep their null, exactly as before.
+ */
+const STATISTICAL_CURRENT_VALUE_REQUEST_PATTERN =
+  /最新値|最新の値|現在の値|最新の数値|現在の数値|最新データ|最新のデータ|現在のデータ/;
+
+/**
+ * Explanation-shape guard for the same gate: a question asking what
+ * something IS — or how a figure is defined or computed — is not
+ * asking for its current value, even when it names one ("実質GDPの
+ * 最新値とは何ですか" defines the term; it does not request the
+ * figure). The measured non-firing case is 「実質GDPとは何か」,
+ * which carries no current-value marker anyway; the guard covers
+ * the marker-carrying explanation shapes.
+ */
+const STATISTICAL_EXPLANATION_REQUEST_PATTERN =
+  /とは|って何|の意味|意味を教えて|仕組み|定義|決め方|求め方|算出方法|計算方法/;
+
+export function isStatisticalCurrentValueRequest(normalizedMessage: string): boolean {
+  return (
+    STATISTICAL_CURRENT_VALUE_REQUEST_PATTERN.test(normalizedMessage)
+    && !STATISTICAL_EXPLANATION_REQUEST_PATTERN.test(normalizedMessage)
+  );
+}
+
+/**
  * Plan the additional official-domain queries for a question, or
  * null when the question is not a statistical value question or no
  * curated topic matches. A topic whose domain set duplicates an
@@ -273,8 +324,18 @@ export function planOriginOfficialSourceQueries(
   nowMs?: number,
 ): OriginOfficialSourcePlan | null {
   const answerType = classifyRecoveryAnswerType(message);
-  if (!STATISTICAL_ANSWER_TYPES.has(answerType)) return null;
   const normalized = message.normalize("NFKC");
+  if (!STATISTICAL_ANSWER_TYPES.has(answerType)) {
+    // Round-5 measure 5-1: the type gate opens from the topic side
+    // for an `other` question that asks for a current value (see
+    // isStatisticalCurrentValueRequest). The topic loop below is
+    // the second half of the gate — no topic match still plans
+    // nothing — so a current-value phrasing alone never spends a
+    // query on an unmapped subject.
+    if (answerType !== "other" || !isStatisticalCurrentValueRequest(normalized)) {
+      return null;
+    }
+  }
   const queries: OriginOfficialSourceQuery[] = [];
   const plannedDomainSets = new Set<string>();
   for (const topic of ORIGIN_OFFICIAL_SOURCE_TOPICS) {
@@ -330,28 +391,54 @@ export function buildOfficialSourceQueryText(
 }
 
 /**
- * The retry query (measure B): the release name alone. The first-pass
- * official search already paired the release name with the question's
- * own terms; a retry that merely repeats it would return the same
- * candidates, so the retry asks for the publication itself — the
- * release index / latest-release page is what the pool is missing.
+ * The release query (round-5 measure 5-3a): the publication name
+ * plus the expected edition's terms, in both notations — nothing
+ * else. The round-5 diagnosis measured the first-pass official
+ * query (minimized question + release name + edition terms) still
+ * missing the Labour Force Survey's monthly release page on
+ * stat.go.jp, while the retry's short form is the shape that
+ * reaches release pages; the first pass now uses the same short
+ * form, so the domain-restricted search asks for the publication
+ * itself from the start. Topics without a release name have no
+ * short form and keep the minimized-query form
+ * (buildOfficialSourceQueryText).
  */
-export function buildOfficialRetryQueryText(
+export function buildOfficialReleaseQueryText(
   releaseTerms: string,
   editionTerms?: readonly string[],
 ): string {
   const base = releaseTerms.trim();
   if (!editionTerms || editionTerms.length === 0) return base;
-  // The edition-targeted retry: the retry names the edition that
-  // must exist, in both notations, alongside the release name.
-  // Measure 2c first attached the terms for the stale-edition
-  // reason (the pool HAS the release, only in an old edition);
-  // round-4 measure 3-5 extends them to every insufficiency
-  // reason — a regional-only pool has no national edition at all,
-  // and the release name alone ranks the publisher's annual and
-  // index pages above the current monthly release page.
+  // The edition terms name the edition that must exist alongside
+  // the release name. Measure 2c first attached them for the
+  // stale-edition retry reason (the pool HAS the release, only in
+  // an old edition); round-4 measure 3-5 extends them to every
+  // insufficiency reason — a regional-only pool has no national
+  // edition at all, and the release name alone ranks the
+  // publisher's annual and index pages above the current monthly
+  // release page.
   const suffix = editionTerms.filter((term) => !base.includes(term)).join(" ");
   return (suffix ? `${base} ${suffix}` : base).trim();
+}
+
+/**
+ * The retry query (measure B): the release name alone — the same
+ * short form the first pass now uses (round-5 measure 5-3a). A
+ * retry that merely repeated the first pass's long form would
+ * return the same candidates; asking for the publication itself —
+ * the release index / latest-release page — is what the pool is
+ * missing. (The first pass and the retry now share the query text;
+ * the retry still earns its credit because it runs AFTER the
+ * adopted pool is known to be insufficient and bypasses the
+ * candidate cache — a cached read would return the very set that
+ * was just judged insufficient — and its candidates re-enter
+ * selection with the post-retry edition key.)
+ */
+export function buildOfficialRetryQueryText(
+  releaseTerms: string,
+  editionTerms?: readonly string[],
+): string {
+  return buildOfficialReleaseQueryText(releaseTerms, editionTerms);
 }
 
 /* ------------------------------------------------------------------ */

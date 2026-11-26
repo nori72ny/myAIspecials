@@ -384,4 +384,42 @@ describe("tryGroundedResearchReconstruction", () => {
     expect(attempt.text).toContain("1.19倍");
     expect(attempt.text).not.toContain("1.18倍");
   });
+
+  it("spends the sentence cap on value sentences before file-guide sentences (round-5 measure 5-3b)", () => {
+    // The measured B3 landing shape: the adopted official page's
+    // quotable sentence is a file guide (no value), and it carried
+    // the official + edition bonuses that ranked it first. Five
+    // value sentences from a second source fill the cap; the guide
+    // must not displace any of them. (The values disagree with each
+    // other, so no value vote fires — this is the packet path.)
+    const sources = [
+      source({
+        title: "労働力調査（基本集計）令和8年9月分 結果の概要",
+        url: "https://www.stat.go.jp/data/roudou/sokuhou/gaiyou.html",
+        domain: "stat.go.jp",
+        authorityTier: "official",
+        excerpt: "完全失業率の統計表（印刷用PDF：148KB）を掲載しています。",
+      }),
+      source({
+        title: "失業率の解説",
+        url: "https://blog.example.com/unemployment",
+        domain: "blog.example.com",
+        excerpt: Array.from(
+          { length: 5 },
+          (_, index) => `完全失業率は2.${index + 1}%でした。`,
+        ).join(""),
+      }),
+    ];
+    const attempt = tryGroundedResearchReconstruction({
+      question: "最新の完全失業率を教えてください。いつの分ですか？",
+      sources,
+      language: "ja",
+      nowMs: NOW,
+    });
+    expect(attempt.established).toBe(true);
+    for (let index = 1; index <= 5; index += 1) {
+      expect(attempt.text).toContain(`完全失業率は2.${index}%でした`);
+    }
+    expect(attempt.text).not.toContain("印刷用PDF");
+  });
 });

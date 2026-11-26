@@ -19,9 +19,12 @@ import { isRefinementOfPreviousAnswer, originClientPolicy, screenConversationFor
 import { isSelfContainedCodeTaskRequest, resolveOriginCodeTaskRoutingMode } from "./originChatResponsePolicy.js";
 import { buildResearchReport } from "./originResearchReport.js";
 import { researchCurrentInformation, type OriginResearchResult, type OriginResearchSource } from "./originResearchSource.js";
-import { buildOriginProviderFailureDiagnostic, OriginProviderError, type OriginProviderExecutionRequest, type OriginProviderExecutionResult } from "./originProviderClient.js";
+import { buildOriginProviderFailureDiagnostic, OriginProviderError, type OriginProviderAttemptDiagnostic, type OriginProviderExecutionRequest, type OriginProviderExecutionResult } from "./originProviderClient.js";
+import { ORIGIN_CLOUDFLARE_WORKERS_AI_FREE_PROVIDER_ID, ORIGIN_GROQ_FREE_PROVIDER_ID } from "../lib/orchestration/OriginExecutionPolicy.js";
+import { ORIGIN_CLOUDFLARE_FREE_MODEL } from "../lib/orchestration/OriginCloudflareFreeModelCatalog.js";
+import { ORIGIN_GROQ_FREE_MODEL_ID } from "../lib/orchestration/OriginGroqFreeModelCatalog.js";
 import { assertOriginZeroCostExecutionResultWithFailover } from "./originProviderFailover.js";
-import { assertGroundedResearchRecordsZeroCost, createGroundedResearchRecordsRetryExecutorWithDetail } from "./originRecordsRetryRoute.js";
+import { assertGroundedResearchRecordsZeroCost, createGroundedResearchRecordsRetryExecutorWithDetail, createGroundedResearchSynthesisProviderRetryExecutor, type GroundedResearchSynthesisProviderRetryExecutor, type GroundedResearchSynthesisProviderRetryOutcome } from "./originRecordsRetryRoute.js";
 import {
   createDefaultOriginResearchExecutor,
   type OriginSearchGroundingDeps,
@@ -41,6 +44,15 @@ export interface OriginResearchRouterOptions {
    * extractive-only behaviour (direct unit-test composition).
    */
   researchSynthesis?: OriginResearchSynthesisExecutor | null;
+  /**
+   * Provider-failure retry for the text synthesis (round-5 measure
+   * 5-2b): the same executor the chat router wires (K-06 案A). When
+   * the initial synthesis execution throws a provider failure, the
+   * request is executed once on a free route the failed dispatch
+   * did not already execute. Null keeps a test-supplied executor
+   * seam; absent builds the default from the router's env.
+   */
+  researchSynthesisProviderRetry?: GroundedResearchSynthesisProviderRetryExecutor | null;
   catalogNow?: () => number;
   freeModelCatalog?: readonly OriginFreeModelEvidence[];
 }
@@ -419,6 +431,16 @@ export function createOriginResearchRouter(options: OriginResearchRouterOptions 
     // answer is never invented and the request never becomes unanswerable.
     let synthesisStatus: string = researchSynthesis ? "not-run" : "disabled";
     let synthesisFailureCode: string | undefined;
+    // Provider-attempt observation + provider-retry record
+    // (round-5 measures 5-2a/5-2b): same fields and discipline as
+    // the chat router — the whitelisted attempt summaries of a
+    // provider-failed synthesis ride the final return's
+    // research.synthesis record, so this router's failures are
+    // attributable to a route and model from the response itself.
+    let synthesisProviderAttempts: OriginProviderAttemptDiagnostic[] = [];
+    let synthesisProviderRetryRoute: 2 | 3 | null = null;
+    let synthesisProviderRetrySkipDetail: string | null = null;
+    let synthesisProviderRetryFailed = false;
     // Set when the records path itself settled this branch with a
     // failure — a validation failure, or the records helper
     // throwing (which surfaces as provider-failed). R-PR-9d: both
@@ -536,6 +558,11 @@ export function createOriginResearchRouter(options: OriginResearchRouterOptions 
           recordsSettled = true;
           synthesisStatus = "provider-failed";
           synthesisFailureCode = error instanceof OriginProviderError ? error.code : "PROVIDER_INTERNAL_ERROR";
+          // Round-5 measure 5-2a: the attempt record also rides
+          // the response, not only the log line below.
+          if (error instanceof OriginProviderError) {
+            synthesisProviderAttempts = buildOriginProviderFailureDiagnostic(error).failoverAttempts;
+          }
           recordsFailure = true;
           // Observability (RESEARCH_FLOOR_DESIGN_2026-11-17 §3 R-0):
           // the whitelisted failover-attempt summary rides the log line
@@ -593,8 +620,92 @@ export function createOriginResearchRouter(options: OriginResearchRouterOptions 
               quoteFirstContext ? buildQuoteFirstContractInstruction(language) : undefined,
             ),
           };
-          const initialSynthesisResult = await researchSynthesis(synthesisRequest);
-          assertOriginZeroCostExecutionResultWithFailover(initialSynthesisResult, synthesisPlan.plan.modelId);
+          // Provider-failure retry (round-5 measure 5-2b): this
+          // router previously had NO retry for the text synthesis —
+          // a provider failure threw straight to the extractive
+          // landing while the chat router retried on a route the
+          // failed dispatch did not execute (K-06 案A). The same
+          // executor is wired here now, with the same discipline:
+          // validation rejections never reach this layer (they do
+          // not throw), integrity failures are not eligible, a
+          // retry failure rethrows the ORIGINAL error so the
+          // standing provider-failed handling below records the
+          // first failure exactly as before, and the retry's bare
+          // route results are verified by the records assertion
+          // (the chat router's R-PR-5 shape). Free routes only —
+          // the executor's candidates are routes 2 and 3.
+          const synthesisProviderRetryExecutor: GroundedResearchSynthesisProviderRetryExecutor =
+            options.researchSynthesisProviderRetry
+            ?? createGroundedResearchSynthesisProviderRetryExecutor({ env, nowMs: catalogNow() });
+          let initialSynthesisResult: OriginProviderExecutionResult;
+          try {
+            initialSynthesisResult = await researchSynthesis(synthesisRequest);
+            assertOriginZeroCostExecutionResultWithFailover(initialSynthesisResult, synthesisPlan.plan.modelId);
+          } catch (initialSynthesisError) {
+            // Round-5 measure 5-2a: keep the failed dispatch's
+            // attempt record for the response; the retry branches
+            // append their own attempt when one executes and fails.
+            const initialAttempts: OriginProviderAttemptDiagnostic[] =
+              initialSynthesisError instanceof OriginProviderError
+                ? buildOriginProviderFailureDiagnostic(initialSynthesisError).failoverAttempts
+                : [];
+            synthesisProviderAttempts = initialAttempts;
+            let retryOutcome: GroundedResearchSynthesisProviderRetryOutcome | null = null;
+            try {
+              retryOutcome = await synthesisProviderRetryExecutor(
+                synthesisRequest,
+                initialSynthesisError,
+                Math.max(0, catalogNow() - handlerStartedAt),
+              );
+              if (retryOutcome.kind === "executed") {
+                assertGroundedResearchRecordsZeroCost(retryOutcome.result, synthesisPlan.plan.modelId);
+              }
+            } catch {
+              retryOutcome = null;
+              synthesisProviderRetryFailed = true;
+            }
+            if (!retryOutcome) {
+              console.warn("[origin-research] research synthesis provider retry failed", {
+                code: initialSynthesisError instanceof OriginProviderError ? initialSynthesisError.code : "PROVIDER_INTERNAL_ERROR",
+              });
+              throw initialSynthesisError;
+            }
+            if (retryOutcome.kind === "skipped") {
+              synthesisProviderRetrySkipDetail = retryOutcome.skipDetail;
+              console.info("[origin-research] research synthesis provider retry skipped", {
+                synthesisProviderRetrySkipDetail: retryOutcome.skipDetail,
+                code: initialSynthesisError instanceof OriginProviderError ? initialSynthesisError.code : "PROVIDER_INTERNAL_ERROR",
+              });
+              throw initialSynthesisError;
+            }
+            if (retryOutcome.kind === "failed") {
+              synthesisProviderRetryFailed = true;
+              synthesisProviderAttempts = [
+                ...initialAttempts,
+                {
+                  providerId: retryOutcome.route === 2
+                    ? ORIGIN_CLOUDFLARE_WORKERS_AI_FREE_PROVIDER_ID
+                    : ORIGIN_GROQ_FREE_PROVIDER_ID,
+                  modelId: retryOutcome.route === 2
+                    ? ORIGIN_CLOUDFLARE_FREE_MODEL
+                    : ORIGIN_GROQ_FREE_MODEL_ID,
+                  outcome: "failed",
+                  errorCode: retryOutcome.errorCode,
+                },
+              ];
+              console.warn("[origin-research] research synthesis provider retry attempt failed", {
+                synthesisProviderRetryRoute: retryOutcome.route,
+                code: retryOutcome.errorCode,
+              });
+              throw initialSynthesisError;
+            }
+            synthesisProviderRetryRoute = retryOutcome.route;
+            console.info("[origin-research] research synthesis provider retry executed", {
+              synthesisProviderRetryRoute: retryOutcome.route,
+              code: initialSynthesisError instanceof OriginProviderError ? initialSynthesisError.code : "PROVIDER_INTERNAL_ERROR",
+            });
+            initialSynthesisResult = retryOutcome.result;
+          }
           // Same adoption gate as the chat router (synthesis salvage, §3):
           // the unchanged citation validator decides; an
           // UNCITED_FACTUAL_UNIT-only failure may be salvaged by removing
@@ -686,6 +797,7 @@ export function createOriginResearchRouter(options: OriginResearchRouterOptions 
                 synthesisSourceCount: adoption.usedSourceIds.length,
                 ...(adoption.salvaged ? { synthesisSalvaged: true, synthesisSalvageRemovedUnits: adoption.removedUnits } : {}),
                 ...(retryOutcome.retried ? { synthesisRetried: true } : {}),
+                ...(synthesisProviderRetryRoute ? { synthesisProviderRetried: true, synthesisProviderRetryRoute } : {}),
                 sourceCount: safeSources.length,
               },
               research: {
@@ -701,6 +813,7 @@ export function createOriginResearchRouter(options: OriginResearchRouterOptions 
                   sourceCount: adoption.usedSourceIds.length,
                   ...(adoption.salvaged ? { salvaged: true, salvageRemovedUnits: adoption.removedUnits } : {}),
                   ...(retryOutcome.retried ? { retried: true } : {}),
+                  ...(synthesisProviderRetryRoute ? { providerRetried: true, providerRetryRoute: synthesisProviderRetryRoute } : {}),
                 },
               },
             });
@@ -752,6 +865,14 @@ export function createOriginResearchRouter(options: OriginResearchRouterOptions 
         } catch (error) {
           synthesisStatus = "provider-failed";
           synthesisFailureCode = error instanceof OriginProviderError ? error.code : "PROVIDER_INTERNAL_ERROR";
+          // Round-5 measure 5-2a: when the provider-retry layer
+          // above did not already record the attempts (the error
+          // came from the feedback retry's own execution), take
+          // them from this error so the response still names the
+          // tried routes.
+          if (synthesisProviderAttempts.length === 0 && error instanceof OriginProviderError) {
+            synthesisProviderAttempts = buildOriginProviderFailureDiagnostic(error).failoverAttempts;
+          }
           // Observability (RESEARCH_FLOOR_DESIGN_2026-11-17 §3 R-0):
           // same failover-attempt summary as the records path above.
           console.warn("[origin-research] research synthesis unavailable; extractive report retained", {
@@ -792,7 +913,7 @@ export function createOriginResearchRouter(options: OriginResearchRouterOptions 
         ? "無料公開Web検索で取得した証拠をレコード形式で検証しましたが、検証を通ったレコードが不足し、検証済みの回答を組み立てられませんでした。要約した回答は作成せず、確認できた範囲と出典の一覧のみを示しています。主張の真偽・網羅性・媒体の権威性は独立検証していません。"
         : "Retrieved public evidence was checked in records form, but too few records passed verification to assemble a verified answer. No summarized answer was produced; only the confirmed scope and the source list are shown. Claim truth, completeness, and publisher authority were not independently verified."
       : language === "ja" ? "無料公開Web検索が実行され、取得した複数ソースを回答に添付しました。証拠レベルを各ソースに明示しています。独立AIレビューは実行していません。" : "The free public web search executed and attached multiple retrieved sources. Evidence level is explicit for each source. No independent AI review was performed.";
-    return res.status(200).json({ status: 200, content, answer: envelope(content, language, "not-run", reason, evidence), routing: { model: "ORIGIN 無料公開Web検索", provider: result.searchProvider ?? "DuckDuckGo", cost: 0, actualCostUsd: 0, costEvidenceStatus: "NOT_MEASURED", freeOnly: true, verificationStatus: "not-run", synthesisStatus }, research: { source: result.searchProvider ?? "DuckDuckGo", sources: result.sources, report, sourceAssessments, comparison, fallback: result.fallback, ...(result.grounding ? { grounding: result.grounding } : {}), synthesis: { status: synthesisStatus, ...(synthesisFailureCode ? { failureCode: synthesisFailureCode } : {}) } } });
+    return res.status(200).json({ status: 200, content, answer: envelope(content, language, "not-run", reason, evidence), routing: { model: "ORIGIN 無料公開Web検索", provider: result.searchProvider ?? "DuckDuckGo", cost: 0, actualCostUsd: 0, costEvidenceStatus: "NOT_MEASURED", freeOnly: true, verificationStatus: "not-run", synthesisStatus }, research: { source: result.searchProvider ?? "DuckDuckGo", sources: result.sources, report, sourceAssessments, comparison, fallback: result.fallback, ...(result.grounding ? { grounding: result.grounding } : {}), synthesis: { status: synthesisStatus, ...(synthesisFailureCode ? { failureCode: synthesisFailureCode } : {}), ...(synthesisProviderAttempts.length > 0 ? { attempts: synthesisProviderAttempts } : {}), ...(synthesisProviderRetrySkipDetail ? { providerRetrySkipDetail: synthesisProviderRetrySkipDetail } : {}), ...(synthesisProviderRetryFailed ? { providerRetryFailed: true } : {}) } } });
   });
   return router;
 }

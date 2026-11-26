@@ -332,6 +332,51 @@ function isHeadingFragment(sentence: string): boolean {
 const PACKET_OFFICIAL_TIER_BONUS = 2;
 const PACKET_LATEST_EDITION_BONUS = 2;
 
+/**
+ * File-description shape (round-5 measure 5-3b,
+ * ANSWER_STATISTICS_ROUND5_DIAGNOSIS_2026-11-27 §2.3): a sentence
+ * whose payload is a file guide — a format carrying a file size
+ * ("印刷用PDF：148KB", "（Excel：15KB）", "CSV 2.3MB") — states no
+ * statistic, yet it is compact and on-topic, so it scored into the
+ * packet while the adopted pool for the September Labour Force
+ * Survey was exactly such text (a census user-guide PDF and a
+ * different survey's file page) and the answer landed value-less.
+ * The test is conjunctive on purpose: the format-with-size marker
+ * (or the print-PDF label) must be present AND the sentence must
+ * carry no value token — a sentence that reports a figure AND
+ * mentions a file is a value sentence, not a guide. (The size
+ * expression itself is stripped before the value test, so a
+ * decimal file size cannot pose as a statistic.) The value-token
+ * shape mirrors OFFICIAL_VALUE_TOKEN_PATTERN in
+ * originOfficialSourceRouting (kept local: this module does not
+ * import the search layer). The predicate drives a DEMOTION only —
+ * guide-shaped sentences rank after every non-guide sentence in
+ * selection, but are never excluded, so a pool whose only
+ * sentences are guide-shaped produces exactly the packet it did
+ * before.
+ */
+const PACKET_FILE_FORMAT_SIZE_PATTERN =
+  /(?:PDF|Excel|CSV|XLSX?|Word)[:：]?\s*\d+(?:\.\d+)?\s*(?:KB|MB)/i;
+const PACKET_VALUE_TOKEN_PATTERN =
+  /\d[\d,]*\.\d+|\d[\d,]*\s*(?:%|倍|円|万人|億円|兆円|ドル|ポイント|件)/;
+
+export function packetSentenceIsFileDescription(text: string): boolean {
+  const normalized = (text ?? "").normalize("NFKC");
+  const guideShaped =
+    PACKET_FILE_FORMAT_SIZE_PATTERN.test(normalized)
+    || normalized.includes("印刷用PDF");
+  if (!guideShaped) return false;
+  // The file-size expression itself is removed before the value
+  // test: a decimal size ("PDF：2.3MB") is digit-dot-digit shaped
+  // and would otherwise read as a statistic value, exempting
+  // exactly the guide sentences this predicate exists to demote.
+  const withoutFileSizes = normalized.replace(
+    new RegExp(PACKET_FILE_FORMAT_SIZE_PATTERN.source, "gi"),
+    "",
+  );
+  return !PACKET_VALUE_TOKEN_PATTERN.test(withoutFileSizes);
+}
+
 type PacketSource = Pick<OriginResearchSource, "title" | "excerpt" | "authorityTier"> & {
   // Optional: some callers build packet sources from title +
   // excerpt alone (groundedResearchValueExtraction). The regional
@@ -481,10 +526,20 @@ export function buildGroundedResearchEvidencePacket(
     return true;
   });
 
-  // Top 8 by score (earliest source, then earliest sentence, on ties).
+  // Top 8 by score (earliest source, then earliest sentence, on
+  // ties). Round-5 measure 5-3b: file-description sentences
+  // (packetSentenceIsFileDescription) sort after every non-guide
+  // sentence regardless of score — the demotion is the primary key
+  // because a guide sentence's score (official tier + edition
+  // bonuses on an official file page) is exactly what let it crowd
+  // the value sentences out of the top 8 in the measured pool.
   const ranked = [...unique].sort(
     (a, b) =>
-      b.score - a.score || a.sourceIndex - b.sourceIndex || a.position - b.position,
+      Number(packetSentenceIsFileDescription(a.text))
+        - Number(packetSentenceIsFileDescription(b.text))
+      || b.score - a.score
+      || a.sourceIndex - b.sourceIndex
+      || a.position - b.position,
   );
   const top = ranked.slice(0, RECOVERY_EVIDENCE_PACKET_MAX_SENTENCES);
   // Return in original order so the packet reads as the sources wrote it.
