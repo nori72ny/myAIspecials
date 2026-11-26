@@ -74,6 +74,9 @@ const EN_WEEKDAY_NAMES = [
 const JA_WEEKDAY_CHARS = ["日", "月", "火", "水", "木", "金", "土"];
 
 const JA_TRAILING = "(?:ですか|です|でしょう|かな|だ|なの|の)?";
+
+/** Sentence-final punctuation stripped before shape matching (manual loop, no regex on user input). */
+const TRAILING_PUNCTUATION: ReadonlySet<string> = new Set(["。", ".", "？", "?", "！", "!"]);
 const EN_MONTH_PATTERN = Object.keys(EN_MONTH_INDEX).join("|");
 
 function warekiToGregorianYear(token: string): number {
@@ -96,7 +99,9 @@ export function parseOriginDeterministicDateQuestion(
   message: string,
 ): OriginDeterministicDateQuestion | null {
   const normalized = message.normalize("NFKC").replace(/\s+/g, " ").trim();
-  const core = normalized.replace(/[。.？?！!]+$/u, "").trim();
+  let coreEnd = normalized.length;
+  while (coreEnd > 0 && TRAILING_PUNCTUATION.has(normalized[coreEnd - 1] as string)) coreEnd -= 1;
+  const core = normalized.slice(0, coreEnd).trim();
   if (!core) return null;
 
   for (const { word, offset } of JA_RELATIVE_DAYS) {
