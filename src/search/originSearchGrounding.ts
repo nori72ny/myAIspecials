@@ -845,6 +845,56 @@ export function selectOriginSearchSourcesWithObservation<T extends OriginSearchS
   };
 }
 
+/**
+ * The extract targets (round-3 measure 2-3,
+ * ANSWER_STATISTICS_ROUND3_DIAGNOSIS_2026-11-26): the head of the
+ * adopted pool, at most MAX_EXTRACT_URLS — with one guarantee for
+ * the statistical + official case. The GDP re-measurement adopted
+ * the release's summary page yet the packet still ran on snippet
+ * fragments: whether the summary's BODY text arrives depends on
+ * the extract stage reaching it, and the head of the pool is not
+ * by construction the release summary — the publisher's index and
+ * portal pages (also national official, also not data-table
+ * pages) compete for the same two slots on provider score. So one
+ * slot is reserved for the release summary: among the pool's
+ * national official pages that are not data-table pages (the
+ * summary shape, read with the same negative signal as the
+ * sub-ranking, measure 2-1), the page that reads as the release's
+ * own summary — its title states an edition (the monthly
+ * publishers' form), or it is titled 結果の概要 (the quarterly
+ * publishers' form: a GDP release's edition is a period, not a
+ * 月分） — takes the reserved slot ahead of index and portal
+ * pages, which name the release series but never an edition or a
+ * result summary; with no such page in the pool, the topmost
+ * non-table national official takes it, exactly as measure 2-3
+ * states.
+ * Data-table pages keep their demoted place: the guarantee never
+ * promotes one, and outside the statistical + official case the
+ * targets are the pool's head exactly as before.
+ */
+export function selectOriginSearchExtractTargets<T extends OriginSearchSource>(
+  selected: readonly T[],
+  statisticalOfficialExtract: boolean,
+): T[] {
+  const targets = selected.slice(0, MAX_EXTRACT_URLS);
+  if (!statisticalOfficialExtract) return targets;
+  const summaryCandidates = selected.filter(
+    (source) =>
+      source.authorityTier === "official"
+      && !isRegionalOfficialSource(source)
+      && !isDataTablePage(source),
+  );
+  const guaranteed =
+    summaryCandidates.find(
+      (source) =>
+        parseOriginOfficialEdition(source.title) !== null
+        || source.title.includes("結果の概要"),
+    )
+    ?? summaryCandidates[0];
+  if (!guaranteed || targets.includes(guaranteed)) return targets;
+  return [...targets.slice(0, MAX_EXTRACT_URLS - 1), guaranteed];
+}
+
 /* ------------------------------------------------------------------ */
 /* Route execution                                                     */
 /* ------------------------------------------------------------------ */
@@ -1391,6 +1441,10 @@ export async function executeOriginSearchGrounding(
 
   // Extract (§2.3): only when snippets are thin or the type is number-critical
   // (price_spec / policy), only the top 2, and only inside the total budget.
+  // Round-3 measure 2-3: in the statistical + official case one of
+  // the two slots is reserved for the release summary page (see
+  // selectOriginSearchExtractTargets), so the summary's body text
+  // is not left to slot chance against index and portal pages.
   // Follow-up measure A (ANSWER_SOURCES_ONLY_DIAGNOSIS_2026-11-26):
   // a statistical question whose adopted pool already holds an
   // official-tier source extracts too. The official publication page
@@ -1416,7 +1470,8 @@ export async function executeOriginSearchGrounding(
     const extractAccess = providerAccess("tavily", deps, 1);
     if (extractAccess.enabled) {
       try {
-        const targets = selected.slice(0, MAX_EXTRACT_URLS).map((source) => source.url);
+        const targets = selectOriginSearchExtractTargets(selected, statisticalOfficialExtract)
+          .map((source) => source.url);
         const extract = await extractTavilyPages(targets, {
           fetchImpl: deps.fetchImpl,
           timeoutMs: Math.max(1, remainingMs()),
@@ -1596,6 +1651,7 @@ function groundingMetadataFromOutcome(
   freshness: OriginSearchGroundingFreshnessStats,
   candidateStats: OriginSearchCandidateStats | undefined,
   queriesIssued?: readonly OriginSearchIssuedQuery[],
+  extractedDomains?: readonly string[],
 ): OriginResearchGroundingMetadata {
   return {
     questionType,
@@ -1605,6 +1661,13 @@ function groundingMetadataFromOutcome(
     unknownDateSourceCount: freshness.unknownDateCount,
     droppedStaleSourceCount: freshness.droppedStaleCount,
     droppedUndatedSourceCount: freshness.droppedUndatedCount,
+    // Round-3 measure D: which adopted sources the extract stage
+    // actually reached (domains only), so a sources-only landing
+    // can be attributed between "extract never targeted the page"
+    // and "the fetched text held no value sentence".
+    ...(extractedDomains && extractedDomains.length > 0
+      ? { extractedDomains }
+      : {}),
     // Round-8 measure D: the searches this request issued (routes
     // and minimized query texts), so the research record can tell
     // "the official query never fired" from "it fired and lost".
@@ -1683,6 +1746,9 @@ export function originSearchGroundingToResearchResult(
       outcome.freshness,
       outcome.candidateStats,
       outcome.queriesIssued,
+      outcome.sources
+        .filter((source) => source.evidenceLevel === "extracted")
+        .map((source) => source.domain),
     ),
   };
 }

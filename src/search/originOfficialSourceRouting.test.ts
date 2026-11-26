@@ -293,10 +293,16 @@ interface RecordedCall {
 }
 
 const STAT_RESULT = {
-  title: "労働力調査（基本集計）完全失業率 総務省統計局",
+  title: "労働力調査（基本集計）2026年9月分 完全失業率 総務省統計局",
   url: "https://www.stat.go.jp/data/roudou/sokuhou/gaiyou.html",
-  // The value rides the excerpt, so the adopted pool is materially
-  // sufficient and the round-8 retry (measure B) does not fire.
+  // The value rides the excerpt AND the title states the current
+  // edition (2026年9月分 is the edition that must exist at this
+  // file's NOW), so the adopted pool is materially sufficient and
+  // the retry does not fire. Round-3 measure 3-4: an edition the
+  // pool cannot READ is no longer sufficiency — a value whose
+  // vintage cannot be shown to be current fires the stale-edition
+  // retry (pinned separately below), so this fixture states its
+  // edition, as the bureau's release page does.
   content: `${LONG_EXCERPT} 完全失業率は2.4%でした。`,
   score: 0.9,
   // No published_date: the official statistics page states no date
@@ -1005,6 +1011,12 @@ describe("executeOriginSearchGrounding — follow-up measure A (statistical + of
     expect(official?.excerpt).toContain(EXTRACT_MARKER);
     // Two searches + one extract page = three credits, honestly recorded.
     expect(deps.counter?.usage("tavily", NOW)).toBe(3);
+    // Round-3 measure D (minimal form): which adopted sources the
+    // extract stage actually read rides the research result as
+    // domains only, so the next re-measurement can tell "the
+    // summary page was adopted" apart from "its body was read".
+    const result = originSearchGroundingToResearchResult(outcome);
+    expect(result?.grounding?.extractedDomains).toEqual(["stat.go.jp"]);
   });
 
   it("statistical question but NO official source in the adopted pool: extract does not fire", async () => {
@@ -1268,4 +1280,167 @@ describe("executeOriginSearchGrounding — summary page wins the extract slot (m
     expect(adopted?.evidenceLevel).toBe("extracted");
     expect(adopted?.excerpt).toContain(SUMMARY_MARKER);
   });
+});
+
+/* ------------------------------------------------------------------ */
+/* Round-3 measures (ANSWER_STATISTICS_ROUND3_DIAGNOSIS_2026-11-26)    */
+/* ------------------------------------------------------------------ */
+
+describe("executeOriginSearchGrounding — round-3 measures 3-3 + 3-4 (B3: unreadable edition)", () => {
+  // The production B3 pool: a national official page carries A
+  // value, but its title states no edition in any form the parser
+  // knew, so the 2c stale judgement never stood, the pool read as
+  // sufficient and the retry never fired — while the bureau's
+  // actual release page carries the dual-calendar composite title
+  // the parser also could not read. Both halves are pinned here:
+  // the unreadable pool fires the stale-edition retry, and the
+  // composite-titled current release is adopted by it.
+  const UNREADABLE_STAT_RESULT = {
+    title: "労働力調査（基本集計）完全失業率 総務省統計局",
+    url: "https://www.stat.go.jp/data/roudou/sokuhou/gaiyou.html",
+    content: `${LONG_EXCERPT} 完全失業率は2.6%でした。`,
+    score: 0.9,
+  };
+  const B3_NEWS_RESULT = {
+    title: "完全失業率は2.4% 総務省が発表",
+    url: "https://www.nikkei.com/article/b3-news",
+    content: `${LONG_EXCERPT} 完全失業率は2.4%でした。`,
+    score: 0.8,
+    published_date: "2026-11-18T00:00:00.000Z",
+  };
+  const COMPOSITE_RELEASE_RESULT = {
+    title: "労働力調査（基本集計）2026年（令和8年）9月分結果",
+    url: "https://www.stat.go.jp/data/roudou/sokuhou/tsuki.html",
+    content: `${LONG_EXCERPT} 完全失業率は2.4%でした。`,
+    score: 0.95,
+  };
+
+  it("a national official value with no readable edition fires the stale-edition retry, which adopts the composite-titled current release", async () => {
+    const calls: RecordedCall[] = [];
+    const fetchImpl: OriginSearchFetch = async (url, init) => {
+      calls.push({ url, init });
+      if (url.includes("api.tavily.com/search")) {
+        const body = JSON.parse(init?.body ?? "{}") as { query?: string; include_domains?: string[] };
+        if (body.include_domains?.includes("stat.go.jp")) {
+          // The first official search already carries the edition
+          // terms in its query text (it is built from the question
+          // plus the expected edition), so the two calls are told
+          // apart by their shape: only the RETRY query is the bare
+          // release name plus edition, with no question stem.
+          return jsonResponse({
+            results: [body.query?.startsWith("労働力調査 基本集計") ? COMPOSITE_RELEASE_RESULT : UNREADABLE_STAT_RESULT],
+          });
+        }
+        return jsonResponse({ results: [B3_NEWS_RESULT] });
+      }
+      if (url.includes("api.tavily.com/extract")) return jsonResponse({ results: [], failed_results: [] });
+      const host = new URL(url).hostname;
+      if (host === "wikipedia.org" || host.endsWith(".wikipedia.org")) return jsonResponse({ pages: [] });
+      throw new Error(`unexpected URL: ${url}`);
+    };
+    const deps = makeDeps({
+      fetchImpl,
+      env: { TAVILY_API_KEY: "tvly-test-key", ORIGIN_OFFICIAL_SOURCE_ROUTING_MODE: "true" },
+    });
+    const outcome = groundedOf(await executeOriginSearchGrounding(F06_QUESTION, deps));
+    expect(outcome.candidateStats?.officialRetry).toMatchObject({
+      reason: "stale-edition",
+      fired: true,
+      candidateCount: 1,
+      keptCount: 1,
+      adoptedCount: 1,
+    });
+    expect(outcome.queriesIssued.map((query) => query.kind)).toContain("official-retry");
+    const adoptedUrls = outcome.sources.map((source) => source.url);
+    expect(adoptedUrls).toContain(COMPOSITE_RELEASE_RESULT.url);
+  });
+});
+
+describe("executeOriginSearchGrounding — round-3 measure 2-3 (B2: the summary's extract slot is guaranteed)", () => {
+  const GDP_QUESTION = "直近に公表された日本の実質GDP成長率（四半期）を教えてください。";
+  // The round-3 production shape: the release summary IS adopted,
+  // but two edition-less national official pages (a schedule page,
+  // a portal page) outrank it on provider score, and the release's
+  // own data-table page competes in the same pool. The pool's head
+  // alone would leave the summary's body unread.
+  const CAO_SCHEDULE_RESULT = {
+    title: "四半期別GDP速報 公表日程のお知らせ",
+    url: "https://www.cao.go.jp/schedule.html",
+    content: `${LONG_EXCERPT} 四半期別GDP速報の公表日程を掲載しています。`,
+    score: 0.97,
+  };
+  const ESTAT_PORTAL_RESULT = {
+    title: "e-Stat 政府統計の総合窓口 四半期別GDP速報",
+    url: "https://www.e-stat.go.jp/stat-search",
+    content: `${LONG_EXCERPT} 政府統計のポータルサイトです。`,
+    score: 0.9,
+  };
+  const GDP_TABLE_RESULT = {
+    title: "四半期別GDP速報 時系列表",
+    url: "https://www.esri.cao.go.jp/jp/sna/data/data_list/sokuhou/hyou/main.html",
+    content: `${LONG_EXCERPT} 実質GDPの時系列データを掲載しています。`,
+    score: 0.95,
+  };
+  const GDP_SUMMARY_PDF_RESULT = {
+    title: "四半期別GDP速報（2026年7-9月期）1次速報 結果の概要",
+    url: "https://www.esri.cao.go.jp/jp/sna/data/data_list/sokuhou/gaiyou/pdf/main_1.pdf",
+    content: `${LONG_EXCERPT} 2026年7～9月期の実質ＧＤＰの成長率は、`,
+    score: 0.8,
+  };
+  const SUMMARY_MARKER = "抽出された要約本文です。実質GDP成長率は前期比で-0.0%でした。";
+
+  it("extracts the release summary even when edition-less officials hold both head slots", async () => {
+    const calls: RecordedCall[] = [];
+    const fetchImpl: OriginSearchFetch = async (url, init) => {
+      calls.push({ url, init });
+      if (url.includes("api.tavily.com/search")) {
+        const body = JSON.parse(init?.body ?? "{}") as { include_domains?: string[] };
+        if (body.include_domains?.includes("esri.cao.go.jp")) {
+          return jsonResponse({ results: [GDP_TABLE_RESULT, GDP_SUMMARY_PDF_RESULT] });
+        }
+        return jsonResponse({ results: [CAO_SCHEDULE_RESULT, ESTAT_PORTAL_RESULT, GDP_NEWS_RESULT_FOR_GUARANTEE] });
+      }
+      if (url.includes("api.tavily.com/extract")) {
+        const body = JSON.parse(init?.body ?? "{}") as { urls?: string[] };
+        return jsonResponse({
+          results: (body.urls ?? []).map((targetUrl) => ({
+            url: targetUrl,
+            raw_content: targetUrl === GDP_SUMMARY_PDF_RESULT.url ? SUMMARY_MARKER : "抽出された公式本文です。",
+          })),
+          failed_results: [],
+        });
+      }
+      const host = new URL(url).hostname;
+      if (host === "wikipedia.org" || host.endsWith(".wikipedia.org")) return jsonResponse({ pages: [] });
+      throw new Error(`unexpected URL: ${url}`);
+    };
+    const deps = makeDeps({
+      fetchImpl,
+      env: { TAVILY_API_KEY: "tvly-test-key", ORIGIN_OFFICIAL_SOURCE_ROUTING_MODE: "true" },
+    });
+    const outcome = groundedOf(await executeOriginSearchGrounding(GDP_QUESTION, deps));
+
+    const extractCalls = calls.filter((call) => call.url.includes("api.tavily.com/extract"));
+    expect(extractCalls).toHaveLength(1);
+    const extractBody = JSON.parse(extractCalls[0]?.init?.body ?? "{}") as { urls?: string[] };
+    expect(extractBody.urls).toContain(GDP_SUMMARY_PDF_RESULT.url);
+    expect(extractBody.urls).not.toContain(ESTAT_PORTAL_RESULT.url);
+    expect(extractBody.urls).not.toContain(GDP_TABLE_RESULT.url);
+
+    const summary = outcome.sources.find((source) => source.url === GDP_SUMMARY_PDF_RESULT.url);
+    expect(summary?.evidenceLevel).toBe("extracted");
+    expect(summary?.excerpt).toContain(SUMMARY_MARKER);
+    // Measure D (minimal form): the extract's reach is observable
+    // on the research result as domains.
+    const result = originSearchGroundingToResearchResult(outcome);
+    expect(result?.grounding?.extractedDomains).toContain("esri.cao.go.jp");
+  });
+
+  const GDP_NEWS_RESULT_FOR_GUARANTEE = {
+    title: "GDP速報を伝える報道",
+    url: "https://news.example.com/gdp-guarantee",
+    content: LONG_EXCERPT,
+    score: 0.7,
+    published_date: "2026-11-16T00:00:00.000Z",
+  };
 });

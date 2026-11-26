@@ -304,9 +304,18 @@ function isHeadingLike(sentence: string): boolean {
  * (measure B): a heading-like line ending は/が/の/： is a label whose
  * statement is completed by the next line, the layout official
  * statistics pages use for a value ("…の実質ＧＤＰの成長率は" /
- * "前期比−0.0%…").
+ * "前期比−0.0%…"). Round-3 measure 2-4
+ * (ANSWER_STATISTICS_ROUND3_DIAGNOSIS_2026-11-26): the same label
+ * also appears with its topic particle followed by a comma —
+ * ESRI's summary writes "…の成長率は、" — and that form escaped the
+ * ending test, so the label and its value stayed separate
+ * candidates and the value-only half then failed the
+ * reconstruction's key gate. The comma forms （は、/が、/の、) are
+ * admitted alongside the bare particles; the join keeps the comma,
+ * so the rejoined candidate is the publisher's verbatim sentence
+ * ("成長率は、▲0.0％…となった。"), not a rewritten one.
  */
-const HEADING_FRAGMENT_ENDING = /(?:は|が|の|：|:)$/;
+const HEADING_FRAGMENT_ENDING = /(?:は、?|が、?|の、?|：|:)$/;
 
 function isHeadingFragment(sentence: string): boolean {
   return isHeadingLike(sentence) && HEADING_FRAGMENT_ENDING.test(sentence);
@@ -422,7 +431,8 @@ export function buildGroundedResearchEvidencePacket(
       flat.push(...lineSentences);
     }
     // Measure B: label/value rejoin. A line that is a single
-    // heading fragment (ending は/が/の/：) carrying a question key,
+    // heading fragment (ending は/が/の/：, or the comma forms
+    // は、/が、/の、 since round-3 measure 2-4) carrying a question key,
     // followed by a line opening with a number-bearing sentence
     // that matches no question key, states one fact across the two
     // lines. The pair enters as one joined candidate (the label's

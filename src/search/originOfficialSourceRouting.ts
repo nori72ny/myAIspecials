@@ -402,7 +402,11 @@ export interface OfficialMaterialAssessment {
  *  - "stale-edition" (F-05 follow-up, 2026-11-26): values arrived
  *    from national official publications, but only in editions
  *    older than the one the publication schedule says must exist —
- *    the current figure never arrived, an old one did.
+ *    the current figure never arrived, an old one did. The same
+ *    reason covers editions the parser cannot read at all: with an
+ *    expected edition standing, a national official value whose
+ *    edition is unreadable cannot be shown to BE the current
+ *    figure (round-3 measure 3-4).
  * A pool whose values ride ONLY unofficial non-regional sources
  * (the F-03 shape — no regional value in the pool at all) is NOT
  * insufficient by this measure: the first-pass official query is
@@ -446,10 +450,23 @@ export function assessOfficialMaterialInsufficiency(
   // must already exist — the pool answered with an old release
   // (the production F-05 shape: the newest adopted MHLW page was a
   // years-old edition ranked first by the provider). The edition
-  // is read from the sources' own titles (then URLs); when no
-  // value-bearing official source states an edition, no stale
-  // judgement is made — an unreadable edition is not evidence of
-  // a stale one.
+  // is read from the sources' own titles (then URLs).
+  //
+  // Round-3 robustness (measure 3-4,
+  // ANSWER_STATISTICS_ROUND3_DIAGNOSIS_2026-11-26): the 2c rule
+  // judged only editions it could READ, so a publisher whose title
+  // format the parser does not know (the Statistics Bureau's
+  // dual-calendar form was the measured case) made "only old
+  // editions present" undetectable — the pool was declared
+  // sufficient and the retry never fired. When an expected edition
+  // stands and national official values ARE present, "no readable
+  // edition among them at all" is therefore itself the
+  // insufficiency signal: the pool cannot be shown to hold the
+  // current figure, and the edition-targeted retry — which can
+  // only ADD candidates — is the remedy. This stays inside the
+  // scheduled topics (an expected edition exists only there) and
+  // does not touch the F-03 shape, which has no national official
+  // value to begin with.
   const expected = editionContext?.expectedEdition;
   if (expected) {
     const adoptedEditions = nationalOfficialValue
@@ -465,6 +482,13 @@ export function assessOfficialMaterialInsufficiency(
           nationalOfficialValueCount,
         };
       }
+    } else if (nationalOfficialValueCount > 0) {
+      return {
+        sufficient: false,
+        reason: "stale-edition",
+        valueBearingCount: valueBearing.length,
+        nationalOfficialValueCount,
+      };
     }
   }
   return { sufficient: true, valueBearingCount: valueBearing.length, nationalOfficialValueCount };

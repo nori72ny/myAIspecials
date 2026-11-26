@@ -15,6 +15,7 @@ import {
   executeOriginSearchGrounding,
   fetchOriginMarketAnswer,
   originSearchGroundingToResearchResult,
+  selectOriginSearchExtractTargets,
   selectOriginSearchSources,
   selectOriginSearchSourcesWithObservation,
   type OriginSearchGroundingDeps,
@@ -762,6 +763,94 @@ describe("selectOriginSearchSources", () => {
     const selected = selectOriginSearchSources([lowerHit, topHit]);
     expect(selected).toHaveLength(1);
     expect(selected[0]?.title).toBe("富士山");
+  });
+});
+
+describe("selectOriginSearchExtractTargets (round-3 measure 2-3: the release summary's extract slot)", () => {
+  function candidate(overrides: Partial<OriginSearchSource>): OriginSearchSource {
+    return {
+      title: "公表ページ",
+      url: "https://example.go.jp/page",
+      excerpt: "抜粋",
+      publishedAt: undefined,
+      providerId: "tavily",
+      domain: "example.go.jp",
+      authorityTier: "official",
+      evidenceLevel: "snippet",
+      providerScore: 0.5,
+      ...overrides,
+    };
+  }
+  const indexPage = candidate({
+    title: "四半期別GDP速報 公表日程",
+    url: "https://www.cao.go.jp/schedule.html",
+    domain: "www.cao.go.jp",
+  });
+  const portalPage = candidate({
+    title: "四半期別GDP速報 e-Stat",
+    url: "https://www.e-stat.go.jp/stat-search",
+    domain: "www.e-stat.go.jp",
+  });
+  const summaryPage = candidate({
+    title: "四半期別GDP速報（2026年7-9月期）1次速報 結果の概要",
+    url: "https://www.esri.cao.go.jp/gaiyou.pdf",
+    domain: "www.esri.cao.go.jp",
+  });
+  const tablePage = candidate({
+    title: "四半期別GDP速報 時系列表",
+    url: "https://esri.cao.go.jp/hyou.html",
+    domain: "esri.cao.go.jp",
+  });
+
+  it("outside the statistical + official case the targets are the pool's head, unchanged", () => {
+    expect(selectOriginSearchExtractTargets([indexPage, portalPage, summaryPage, tablePage], false))
+      .toEqual([indexPage, portalPage]);
+  });
+
+  it("reserves the last slot for the edition-stating release summary behind edition-less officials, table page coexisting", () => {
+    const targets = selectOriginSearchExtractTargets([indexPage, portalPage, summaryPage, tablePage], true);
+    expect(targets).toHaveLength(2);
+    expect(targets).toContain(summaryPage);
+    expect(targets).not.toContain(tablePage);
+  });
+
+  it("falls back to the topmost non-table national official when no page states an edition", () => {
+    const news = candidate({
+      title: "GDP速報を報じる記事",
+      url: "https://www.nikkei.com/article/1",
+      domain: "www.nikkei.com",
+      authorityTier: "major-news",
+    });
+    const specialist = candidate({
+      title: "GDP速報の解説",
+      url: "https://example.com/gdp",
+      domain: "example.com",
+      authorityTier: "specialist",
+    });
+    expect(selectOriginSearchExtractTargets([news, specialist, portalPage], true))
+      .toEqual([news, portalPage]);
+  });
+
+  it("never promotes a data-table page through the guarantee", () => {
+    const news = candidate({
+      title: "GDP速報を報じる記事",
+      url: "https://www.nikkei.com/article/1",
+      domain: "www.nikkei.com",
+      authorityTier: "major-news",
+    });
+    const specialist = candidate({
+      title: "GDP速報の解説",
+      url: "https://example.com/gdp",
+      domain: "example.com",
+      authorityTier: "specialist",
+    });
+    expect(selectOriginSearchExtractTargets([news, specialist, tablePage], true))
+      .toEqual([news, specialist]);
+  });
+
+  it("leaves the head untouched when the summary already holds a slot", () => {
+    expect(selectOriginSearchExtractTargets([summaryPage, indexPage, tablePage], true))
+      .toEqual([summaryPage, indexPage]);
   });
 });
 

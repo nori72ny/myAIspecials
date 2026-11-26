@@ -24,6 +24,21 @@ describe("parseOriginOfficialEdition", () => {
       .toMatchObject({ year: 2026, month: 9, label: "2026年9月分", sortKey: 202609 });
   });
 
+  it("reads the Statistics Bureau's dual-calendar composite (round-3 measure 3-3)", () => {
+    // The bureau's real title form: Gregorian year, the same year
+    // in era form in parentheses, then the month — both plain
+    // patterns break on the parenthesised era.
+    expect(parseOriginOfficialEdition("労働力調査（基本集計）2026年（令和8年）9月分結果"))
+      .toMatchObject({ year: 2026, month: 9, sortKey: 202609 });
+    expect(parseOriginOfficialEdition("労働力調査（基本集計）2026年（令和8年）7月分結果"))
+      .toMatchObject({ year: 2026, month: 7, sortKey: 202607 });
+    // The era-only parenthesised form.
+    expect(parseOriginOfficialEdition("月次公表資料（令和8年）9月分"))
+      .toMatchObject({ year: 2026, month: 9, sortKey: 202609 });
+    // An annual composite states no monthly edition.
+    expect(parseOriginOfficialEdition("労働力調査（基本集計）2026年（令和8年）平均結果")).toBeNull();
+  });
+
   it("resolves the composite 令和7年12月分及び令和7年分 title to its monthly part", () => {
     expect(parseOriginOfficialEdition("一般職業紹介状況（令和7年12月分及び令和7年分）"))
       .toMatchObject({ year: 2025, month: 12, sortKey: 202512 });
@@ -153,10 +168,34 @@ describe("assessOfficialMaterialInsufficiency — stale-edition (measure 2c)", (
     expect(assessment.sufficient).toBe(true);
   });
 
-  it("no stale judgement when no adopted official source states an edition", () => {
+  it("an expected edition with NO readable edition among national official values is stale-edition (round-3 measure 3-4)", () => {
+    // The round-3 B3 shape: the pool holds a national official
+    // value, but its title states no edition the parser can read,
+    // so the pool cannot be shown to hold the current figure. The
+    // 2c rule judged only readable editions and called this pool
+    // sufficient, which silently disabled the retry for any
+    // publisher whose title format was unknown to the parser
+    // (ANSWER_STATISTICS_ROUND3_DIAGNOSIS_2026-11-26, structure I).
     const assessment = assessOfficialMaterialInsufficiency([
       official("一般職業紹介状況を公表しました", "全国の有効求人倍率は1.19倍でした。"),
     ], { expectedEdition: expected });
+    expect(assessment.sufficient).toBe(false);
+    expect(assessment.reason).toBe("stale-edition");
+    expect(assessment.nationalOfficialValueCount).toBe(1);
+  });
+
+  it("a readable CURRENT edition anywhere among the national official values is sufficient, unreadable siblings notwithstanding", () => {
+    const assessment = assessOfficialMaterialInsufficiency([
+      official("一般職業紹介状況を公表しました", "全国の有効求人倍率は1.19倍でした。"),
+      official("一般職業紹介状況（令和8年9月分）を公表しました", "全国の有効求人倍率は1.19倍でした。"),
+    ], { expectedEdition: expected });
+    expect(assessment.sufficient).toBe(true);
+  });
+
+  it("the unreadable-edition rule needs an expected edition too (no schedule, no judgement)", () => {
+    const assessment = assessOfficialMaterialInsufficiency([
+      official("一般職業紹介状況を公表しました", "全国の有効求人倍率は1.19倍でした。"),
+    ]);
     expect(assessment.sufficient).toBe(true);
   });
 

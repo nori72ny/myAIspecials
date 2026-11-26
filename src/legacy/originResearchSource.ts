@@ -147,6 +147,19 @@ export interface OriginResearchGroundingMetadata {
    * weather/market routes and legacy-path results.
    */
   queriesIssued?: readonly OriginResearchGroundingIssuedQuery[];
+  /**
+   * Domains of the adopted sources whose body text the extract
+   * stage actually fetched (round-3 measure D,
+   * ANSWER_STATISTICS_ROUND3_DIAGNOSIS_2026-11-26): the GDP
+   * re-measurement failure could not be attributed between
+   * "extract never targeted the summary page" and "it targeted it
+   * but the returned text held no value sentence" because the
+   * extract's reach was recorded nowhere the response carries.
+   * Domains only — the same discipline as every tally above; the
+   * adopted sources themselves (with their URLs) ride the result
+   * as always. Absent when no adopted source was extracted.
+   */
+  extractedDomains?: readonly string[];
 }
 
 export interface OriginResearchResult {

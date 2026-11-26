@@ -18,7 +18,8 @@
  *
  *  - parse: the edition as the source itself states it in its
  *    title (令和○年○月分 / 20○○年○月分 monthly forms, the
- *    composite 令和7年12月分及び令和7年分 shape, quarterly
+ *    Statistics Bureau's dual-calendar 20○○年（令和○年）○月分
+ *    composite, the composite 令和7年12月分及び令和7年分 shape, quarterly
  *    ○年○-○月期 forms, and the population estimate's
  *    ○月1日現在 reference date). Nothing is inferred from the
  *    page's publication date — an edition exists only where the
@@ -81,6 +82,37 @@ export function parseOriginOfficialEdition(text: string): OriginOfficialEdition 
   if (!text) return null;
   const normalized = text.normalize("NFKC");
 
+  // Composite notation (round-3 measure 3-3,
+  // ANSWER_STATISTICS_ROUND3_DIAGNOSIS_2026-11-26): the Statistics
+  // Bureau names an edition with BOTH calendars —
+  // 労働力調査（基本集計）2026年（令和8年）9月分結果 — and the plain
+  // patterns below both break on the parenthesised era, so the
+  // bureau's editions were unreadable and every edition-based
+  // judgement (stale-edition retry, packet bonus, selection
+  // recency) silently skipped this publisher. The composite forms
+  // run first so they win over any plain form elsewhere in a title.
+  // The Gregorian year is the reading (it is the sort key's basis);
+  // the era in parentheses is the same year in the other calendar.
+  const monthlyCompositeSeireki = normalized.match(
+    /(20\d{2})年[（(]令和(元|\d{1,2})年[）)](\d{1,2})月分/,
+  );
+  if (monthlyCompositeSeireki) {
+    return monthlyEdition(
+      Number(monthlyCompositeSeireki[1]),
+      Number(monthlyCompositeSeireki[3]),
+      monthlyCompositeSeireki[0],
+    );
+  }
+  const monthlyCompositeWareki = normalized.match(
+    /[（(]令和(元|\d{1,2})年[）)](\d{1,2})月分/,
+  );
+  if (monthlyCompositeWareki) {
+    return monthlyEdition(
+      warekiYear(monthlyCompositeWareki[1]),
+      Number(monthlyCompositeWareki[2]),
+      monthlyCompositeWareki[0],
+    );
+  }
   const monthlyWareki = normalized.match(/令和(元|\d{1,2})年(\d{1,2})月分/);
   if (monthlyWareki) {
     return monthlyEdition(warekiYear(monthlyWareki[1]), Number(monthlyWareki[2]), monthlyWareki[0]);

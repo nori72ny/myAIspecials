@@ -176,6 +176,33 @@ describe("chat router synthesis salvage", () => {
     expect(response.body.content).not.toContain("補足文");
     expect(response.body.content).not.toContain("照合メモ");
   });
+
+  it("S16: the fallback routing also carries WHY the synthesis was discarded (round-3 measure D, minimal form)", async () => {
+    // ANSWER_STATISTICS_ROUND3_DIAGNOSIS_2026-11-26, structure D:
+    // a sources-only landing used to be undiagnosable from the
+    // client — the salvage's outcome and the retry's outcome never
+    // left the router. The fallback routing now records them as
+    // additive fields; the delivered content is unchanged.
+    const response = await request(createChatApp(synthesisReturning([
+      "内閣総理大臣は高市早苗氏です [S1](https://www.kantei.go.jp/jp/104/actions/index.html)",
+      "補足文その1です",
+      "記者会見も行われました [S2](https://www.nhk.or.jp/politics/articles/1.html)",
+      "補足文その2です",
+      "補足文その3です",
+      "補足文その4です",
+    ].join("\n")))).post("/api/chat")
+      .send({ messages: [{ role: "user", content: "今日の公開情報を調査してください" }] });
+
+    expect(response.status).toBe(200);
+    expect(response.body.routing.synthesisStatus).toBe("citation-validation-failed");
+    expect(response.body.routing.synthesisSalvageAttempted).toBe(true);
+    expect(response.body.routing.synthesisSalvageRemovedUnits).toBe(3);
+    expect(response.body.routing.synthesisSalvageAbortCode).toBe("UNCITED_FACTUAL_UNIT");
+    expect(response.body.routing.synthesisRemainingUncitedUnits).toBe(1);
+    expect(response.body.routing.synthesisRetried).toBe(true);
+    expect(response.body.routing.synthesisRetryFailureCode).toBe("UNCITED_FACTUAL_UNIT");
+    expect(response.body.content).toBe(buildGroundedResearchPartialAnswer(salvageSources, "ja"));
+  });
 });
 
 describe("research router synthesis salvage", () => {
