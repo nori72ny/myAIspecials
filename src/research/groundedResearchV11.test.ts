@@ -180,6 +180,57 @@ describe("source card vintage line (display measure 5-A, server side)", () => {
     expect(text).not.toContain("公表日");
   });
 
+  it("states the vintage is unknown when an undated card quotes a value that does not date itself (推奨2)", () => {
+    // The B3 failure shape: an undated long-term-statistics page
+    // quotes a stale figure (2.7%) next to the current release.
+    // With no vintage line at all, the value read as current;
+    // the card now says the vintage is unknown — no date is
+    // invented, and the quote itself is untouched.
+    const text = buildGroundedResearchPartialAnswer([
+      source({
+        title: "労働統計の長期推移",
+        url: "https://a.example/long-term",
+        domain: "a.example",
+        excerpt: "完全失業率は2.7%でした。完全失業率は季節調整値で示されています。",
+      }),
+    ], "ja", "最新の完全失業率を教えてください");
+    expect(text).toContain("『完全失業率は2.7%でした。");
+    expect(text).toContain("公表日：不明");
+    // The unknown line sits in the vintage position: under the
+    // title link, ahead of the quote.
+    const linkIndex = text.indexOf("[労働統計の長期推移](https://a.example/long-term)");
+    const lineIndex = text.indexOf("公表日：不明");
+    const quoteIndex = text.indexOf("『完全失業率は2.7%でした。");
+    expect(linkIndex).toBeGreaterThanOrEqual(0);
+    expect(lineIndex).toBeGreaterThan(linkIndex);
+    expect(quoteIndex).toBeGreaterThan(lineIndex);
+  });
+
+  it("adds no unknown line when the quoted value dates itself (推奨2)", () => {
+    const text = buildGroundedResearchPartialAnswer([
+      source({
+        title: "労働力調査の解説ページ",
+        url: "https://a.example/explainer",
+        domain: "a.example",
+        excerpt: "令和8年9月の完全失業率は2.4%でした。",
+      }),
+    ], "ja", "最新の完全失業率を教えてください");
+    expect(text).toContain("『令和8年9月の完全失業率は2.4%でした。』");
+    expect(text).not.toContain("公表日");
+  });
+
+  it("renders the English unknown-vintage line (推奨2)", () => {
+    const text = buildGroundedResearchPartialAnswer([
+      source({
+        title: "Long-term labor statistics",
+        url: "https://a.example/long-term",
+        domain: "a.example",
+        excerpt: "The unemployment rate was 2.7%. The rate is seasonally adjusted.",
+      }),
+    ], "en", "What is the latest unemployment rate?");
+    expect(text).toContain("Published: unknown");
+  });
+
   it("renders the English forms", () => {
     const dated = buildGroundedResearchPartialAnswer([
       source({

@@ -54,6 +54,7 @@ import {
 } from "./groundedResearchTemplateFallback.js";
 import { prepareGroundedResearchVerbatimSentence } from "./groundedResearchV11.js";
 import {
+  originQuotedValuePeriodAnnotation,
   originSourcePeriodAnnotation,
   parseOriginOfficialEdition,
 } from "../search/originOfficialEdition.js";
@@ -245,7 +246,20 @@ export function tryGroundedResearchReconstruction(input: {
     // Measure E: the carrying source's date rides after the
     // citation, so a quoted value's vintage is visible at the
     // point where the value is read (see sourceDateAnnotation).
-    const annotation = sourceDateAnnotation(source, language);
+    // Certainty-display systematization (REFERENCE_EVALUATION_
+    // MAXIMUM_2026-11-27 推奨2): when the source's vintage cannot
+    // be read at all, a value-bearing quote that does not date
+    // itself carries the explicit unknown marker instead of
+    // silence — silence was indistinguishable from "current",
+    // which is how undated stale values posed as the latest
+    // figure (F-03 shape). The marker sits outside the quote,
+    // like every annotation here, so the quote stays verbatim.
+    const annotation = originQuotedValuePeriodAnnotation(
+      source,
+      language,
+      sentence.prepared,
+      packetSentenceHasAnswerBearingSignal(sentence.prepared),
+    );
     const line = language === "en"
       ? `"${sentence.prepared}" ${citation}`
       : `「${sentence.prepared}」 ${citation}`;

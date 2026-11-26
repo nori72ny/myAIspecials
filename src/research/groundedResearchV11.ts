@@ -5,10 +5,12 @@ import {
 } from "./groundedResearchEvidenceCards.js";
 import {
   buildGroundedResearchEvidencePacket,
+  packetSentenceHasAnswerBearingSignal,
   splitRecoverySentences,
 } from "./groundedResearchEvidencePacket.js";
 import {
   originSourcePeriodAnnotation,
+  originTextStatesPeriod,
   parseOriginOfficialEdition,
 } from "../search/originOfficialEdition.js";
 
@@ -320,6 +322,20 @@ function sourceCardPublishedLine(source: OriginResearchSource, language: "ja" | 
   return language === "en" ? `Published: ${dateLabel}` : `公表日：${dateLabel}`;
 }
 
+/**
+ * The vintage line for a card whose source states neither an
+ * edition nor a date, used only when the card's quote presents a
+ * value that does not date itself (see buildSourceCardsSection):
+ * the line states that the vintage is unknown rather than
+ * inventing one — the same fail-honest shape as the
+ * reconstruction's （時点不明） marker, in this surface's
+ * labeled-line form, which the chat display's card parser
+ * already carries verbatim.
+ */
+function sourceCardUnknownVintageLine(language: "ja" | "en"): string {
+  return language === "en" ? "Published: unknown" : "公表日：不明";
+}
+
 function scoreSource(source: OriginResearchSource, domainOccurrenceCount: number): number {
   let score = source.evidenceLevel === "page-verified" ? 55 : 30;
   if (source.freshness === "recent") score += 15;
@@ -520,26 +536,43 @@ function buildSourceCardsSection(
     const domain = domainForList(source);
     const heading = domain ? `### ${id} · ${domain}` : `### ${id}`;
     const parts = [heading, `[${linkLabel(source)}](${source.url})`];
-    // The vintage line sits directly under the title link (the
-    // position the chat display's card parser expects), ahead of
-    // the quote. Sources with no readable vintage omit it.
-    const publishedLine = sourceCardPublishedLine(source, language);
-    if (publishedLine) parts.push(publishedLine);
     // Quotes ride only on the top three cards, as before the redesign:
     // they are the gist of the highest-ranked sources, and bounding
     // them keeps this section from becoming a second search dump.
-    if (includeQuotes && index < 3) {
-      // PR-2: prefer the packet's sentences for the quote; fall back
-      // to the N-2b claim span when the packet has nothing for this
-      // source. Either raw quote goes through the chrome filter and
-      // the same R-1 neutralization and character bound, exactly once.
-      const quote = neutralizePartialAnswerQuote(
+    // PR-2: prefer the packet's sentences for the quote; fall back
+    // to the N-2b claim span when the packet has nothing for this
+    // source. Either raw quote goes through the chrome filter and
+    // the same R-1 neutralization and character bound, exactly once.
+    const quote = includeQuotes && index < 3
+      ? neutralizePartialAnswerQuote(
         cleanPartialAnswerQuoteText(
           packetQuoteForSource(index) || claimQuoteSpan(cards[index]),
         ),
-      );
-      if (quote) parts.push(language === "en" ? `"${quote}"` : `『${quote}』`);
+      )
+      : "";
+    // The vintage line sits directly under the title link (the
+    // position the chat display's card parser expects), ahead of
+    // the quote. Sources with no readable vintage omit it —
+    // unless the card carries a value-bearing quote that does
+    // not date itself: then the line states the vintage is
+    // unknown (certainty-display systematization,
+    // REFERENCE_EVALUATION_MAXIMUM_2026-11-27 推奨2). An
+    // unmarked value from an undated source reads as current
+    // (the F-03 shape); the unknown line invents no date — it
+    // only stops the silence from posing as currency. Cards
+    // without a quote present no value and stay line-free, as
+    // do quotes that state their own period.
+    const publishedLine = sourceCardPublishedLine(source, language);
+    if (publishedLine) {
+      parts.push(publishedLine);
+    } else if (
+      quote
+      && packetSentenceHasAnswerBearingSignal(quote)
+      && !originTextStatesPeriod(quote)
+    ) {
+      parts.push(sourceCardUnknownVintageLine(language));
     }
+    if (quote) parts.push(language === "en" ? `"${quote}"` : `『${quote}』`);
     return parts.join("\n\n");
   });
   // Retrieval dates, collected once: every distinct known date, in
