@@ -10,7 +10,7 @@ import PersonalEditionApp from './components/personal/PersonalEditionApp';
 import { isCreativeArtifactMetaV15, type CreativeArtifactMetaV15 } from './creative/creativeStudioV15';
 import { usePersonalSettings } from './hooks/usePersonalSettings';
 import { getTranslations } from './i18n';
-import { migrateOriginLegacySnapshot, originIndexedDbAdapter, type OriginPersistedSnapshot, type OriginStorageWriteResult } from './lib/local/OriginIndexedDb';
+import { decryptHistoryText, encryptHistoryText, isEncryptedHistoryText, migrateOriginLegacySnapshot, originIndexedDbAdapter, type OriginPersistedSnapshot, type OriginStorageWriteResult } from './lib/local/OriginIndexedDb';
 import { isResearchReportResult } from './research/researchReport';
 import { registerOriginServiceWorker } from './pwa/registerServiceWorker';
 import { installActiveContextChatBridge } from './services/activeContextChatBridge';
@@ -163,7 +163,24 @@ export function parseImportedHistory(value: unknown): ConversationMessage[] {
     };
   });
 }
-function loadStoredHistory(): ConversationMessage[] { try { const raw = window.localStorage.getItem(HISTORY_STORAGE_KEY); return raw ? parseImportedHistory(JSON.parse(raw)) : []; } catch { return []; } }
+/**
+ * ジャーナル（localStorage の会話控え）を読む。暗号化された履歴エンベロープ
+ * （S3）なら復号し、旧形式の平文はそのまま返す。今使える鍵で復号できない
+ * ジャーナル（例：パスキーで守られていて、まだ解錠していない）は
+ * unreadable として区別する：空の履歴と取り違えず、キー自体も消さずに残し、
+ * 次回起動（解錠後）に再試行できるようにするため。
+ */
+async function readLegacyJournal(): Promise<{ text: string | null; unreadable: boolean }> {
+  let raw: string | null;
+  try { raw = window.localStorage.getItem(HISTORY_STORAGE_KEY); } catch { return { text: null, unreadable: false }; }
+  if (!raw) return { text: null, unreadable: false };
+  if (!isEncryptedHistoryText(raw)) return { text: raw, unreadable: false };
+  try {
+    return { text: await decryptHistoryText(raw), unreadable: false };
+  } catch {
+    return { text: null, unreadable: true };
+  }
+}
 function loadStoredSessions(): ConversationSession[] { try { const raw = window.localStorage.getItem(SESSION_STORAGE_KEY); if (!raw) return []; const parsed = JSON.parse(raw) as unknown; if (!Array.isArray(parsed)) return []; return parsed.slice(0, 24).flatMap((candidate, index) => { if (!candidate || typeof candidate !== 'object') return []; const source = candidate as Partial<ConversationSession>; if (typeof source.id !== 'string' || typeof source.title !== 'string' || typeof source.createdAt !== 'number' || !Array.isArray(source.messages)) return []; try { return [{ id: source.id.slice(0, 128) || `session-${index}`, title: source.title.slice(0, 120), createdAt: source.createdAt, messages: parseImportedHistory({ messages: source.messages }) }]; } catch { return []; } }); } catch { return []; } }
 function loadSessionsFromSnapshot(value: unknown): ConversationSession[] { if (!Array.isArray(value)) return []; return value.slice(0, 24).flatMap((candidate, index) => { if (!candidate || typeof candidate !== 'object') return []; const source = candidate as Partial<ConversationSession>; if (typeof source.id !== 'string' || typeof source.title !== 'string' || typeof source.createdAt !== 'number' || !Array.isArray(source.messages)) return []; try { return [{ id: source.id.slice(0, 128) || `session-${index}`, title: source.title.slice(0, 120), createdAt: source.createdAt, messages: parseImportedHistory({ messages: source.messages }) }]; } catch { return []; } }); }
 function parseStoredArtifacts(value: unknown): PersistedArtifact[] { if (!Array.isArray(value)) return []; return value.slice(0, 500).flatMap((candidate) => { if (!candidate || typeof candidate !== 'object') return []; const source = candidate as Partial<PersistedArtifact>; if (typeof source.id !== 'string' || typeof source.title !== 'string' || typeof source.language !== 'string' || typeof source.content !== 'string' || typeof source.isComplete !== 'boolean' || !source.type || !['code', 'markdown', 'mermaid', 'html'].includes(source.type)) return []; return [{ id: source.id.slice(0, 160), type: source.type, title: source.title.slice(0, 160), language: source.language.slice(0, 48), content: source.content.slice(0, 1_000_000), isComplete: source.isComplete, revision: typeof source.revision === 'number' ? Math.max(1, Math.floor(source.revision)) : undefined, revisions: undefined, creative: isCreativeArtifactMetaV15(source.creative) ? source.creative : undefined }]; }); }
@@ -176,26 +193,32 @@ function snapshotFromState(messages: ConversationMessage[], sessions: Conversati
     updatedAt: Date.now(),
   };
 }
-function loadLegacySnapshot(): OriginPersistedSnapshot | null {
-  let historyRaw: string | null;
-  let sessionsRaw: string | null;
-  try {
-    historyRaw = window.localStorage.getItem(HISTORY_STORAGE_KEY);
-    sessionsRaw = window.localStorage.getItem(SESSION_STORAGE_KEY);
-  } catch { return null; }
-  if (!historyRaw && !sessionsRaw) return null;
+type LegacySnapshotRead = { snapshot: OriginPersistedSnapshot | null; journalUnreadable: boolean };
 
-  const messages = historyRaw ? loadStoredHistory() : [];
-  const sessions = sessionsRaw ? loadStoredSessions() : [];
+async function loadLegacySnapshot(): Promise<LegacySnapshotRead> {
+  let sessionsRaw: string | null;
+  try { sessionsRaw = window.localStorage.getItem(SESSION_STORAGE_KEY); } catch { sessionsRaw = null; }
+  const journal = await readLegacyJournal();
+  if (!journal.text && !journal.unreadable && !sessionsRaw) return { snapshot: null, journalUnreadable: false };
+
+  let messages: ConversationMessage[] = [];
   let historyUpdatedAt = 0;
-  if (historyRaw) {
+  if (journal.text) {
+    try { messages = parseImportedHistory(JSON.parse(journal.text)); } catch { messages = []; }
     try {
-      const parsed = JSON.parse(historyRaw) as { updatedAt?: unknown };
+      const parsed = JSON.parse(journal.text) as { updatedAt?: unknown };
       if (typeof parsed?.updatedAt === 'number' && Number.isFinite(parsed.updatedAt)) historyUpdatedAt = parsed.updatedAt;
     } catch { /* Invalid legacy history is treated as older than any valid durable snapshot. */ }
   }
+  const sessions = sessionsRaw ? loadStoredSessions() : [];
   const sessionUpdatedAt = sessions.reduce((latest, session) => Math.max(latest, session.createdAt), 0);
-  return { version: 1, messages, sessions, artifacts: [], updatedAt: Math.max(historyUpdatedAt, sessionUpdatedAt) };
+  // 読めないジャーナルだけが残っている場合は「何も保存されていない」と
+  // 取り違えないよう、スナップショット自体を返さない（キーは残る）。
+  if (journal.unreadable && !sessionsRaw) return { snapshot: null, journalUnreadable: true };
+  return {
+    snapshot: { version: 1, messages, sessions, artifacts: [], updatedAt: Math.max(historyUpdatedAt, sessionUpdatedAt) },
+    journalUnreadable: journal.unreadable,
+  };
 }
 
 /**
@@ -230,14 +253,23 @@ export function withStartupArchivedSession(sessions: readonly ConversationSessio
   return [archived, ...sessions].slice(0, 24);
 }
 
+// 暗号化が非同期になったため、ジャーナル書き込みは直列化する。古い内容が
+// 新しい内容より後に書き込まれて巻き戻ることを防ぐ。
+let journalWriteChain: Promise<void> = Promise.resolve();
+
 function journalMessages(messages: ConversationMessage[]): void {
-  try {
-    window.localStorage.setItem(HISTORY_STORAGE_KEY, JSON.stringify({
-      version: HISTORY_EXPORT_VERSION,
-      messages: persistableConversationMessages(messages),
-      updatedAt: Date.now(),
-    }));
-  } catch { /* IndexedDB persistence and the visible storage health remain authoritative. */ }
+  const payload = JSON.stringify({
+    version: HISTORY_EXPORT_VERSION,
+    messages: persistableConversationMessages(messages),
+    updatedAt: Date.now(),
+  });
+  journalWriteChain = journalWriteChain.then(async () => {
+    try {
+      // ジャーナルは履歴ストアの鍵で暗号化する（S3）。暗号化できない場合は
+      // 平文で書かず、その回の書き込み自体を見送る。
+      window.localStorage.setItem(HISTORY_STORAGE_KEY, await encryptHistoryText(payload));
+    } catch { /* IndexedDB persistence and the visible storage health remain authoritative. */ }
+  });
 }
 
 function PersonalReleaseRoot() {
@@ -281,12 +313,13 @@ function PersonalReleaseRoot() {
   useEffect(() => { const root = document.documentElement; const season = resolveOriginCatSeason(new Date()); if (season) root.dataset.season = season; else delete root.dataset.season; }, []);
   useEffect(() => { document.documentElement.dataset.originStorageState = !isHydrated ? 'hydrating' : storageHealth === 'ready' ? 'ready' : 'degraded'; }, [isHydrated, storageHealth]);
   useEffect(() => { let second = 0; const first = window.requestAnimationFrame(() => { second = window.requestAnimationFrame(() => setHasPainted(true)); }); return () => { window.cancelAnimationFrame(first); if (second) window.cancelAnimationFrame(second); }; }, []);
-  useEffect(() => { let active = true; const legacy = loadLegacySnapshot(); const cancelIdle = scheduleIdle(() => { void migrateOriginLegacySnapshot(originIndexedDbAdapter, legacy, () => { window.localStorage.removeItem(HISTORY_STORAGE_KEY); window.localStorage.removeItem(SESSION_STORAGE_KEY); }).then((result) => { if (!active) return; if (result.snapshot) { // 保存されていた進行中会話は開かず、履歴セッションへ退避する（起動時は必ずトップ画面）。
+  useEffect(() => { let active = true; const cancelIdle = scheduleIdle(() => { void (async () => { const legacy = await loadLegacySnapshot(); const result = await migrateOriginLegacySnapshot(originIndexedDbAdapter, legacy.snapshot, () => { // 読めないジャーナル（S3）は旧データの残骸ではない。まだ使えない鍵で守られた最新の進行中会話かもしれないため、その場合は履歴キーを消さずに残す。
+      if (!legacy.journalUnreadable) window.localStorage.removeItem(HISTORY_STORAGE_KEY); window.localStorage.removeItem(SESSION_STORAGE_KEY); }); if (!active) return; if (result.snapshot) { // 保存されていた進行中会話は開かず、履歴セッションへ退避する（起動時は必ずトップ画面）。
         let storedMessages: ConversationMessage[] = []; try { storedMessages = parseImportedHistory({ messages: result.snapshot.messages }); } catch { storedMessages = []; }
         const archivedAt = typeof result.snapshot.updatedAt === 'number' && Number.isFinite(result.snapshot.updatedAt) && result.snapshot.updatedAt > 0 ? result.snapshot.updatedAt : Date.now();
         if (!dirtyDuringHydration.current.sessions) { setSessions(withStartupArchivedSession(loadSessionsFromSnapshot(result.snapshot.sessions), storedMessages, archivedAt)); }
         else if (storedMessages.length) { setSessions((current) => withStartupArchivedSession(current, storedMessages, archivedAt)); }
-        if (!dirtyDuringHydration.current.artifacts) setArtifacts(parseStoredArtifacts(result.snapshot.artifacts)); } setStorageReadFailed(result.readFailed === true); setStorageHealth(result.writeResult && result.writeResult !== 'saved' ? result.writeResult : 'ready'); setIsHydrated(true); }); }); return () => { active = false; cancelIdle(); }; }, []);
+        if (!dirtyDuringHydration.current.artifacts) setArtifacts(parseStoredArtifacts(result.snapshot.artifacts)); } setStorageReadFailed(result.readFailed === true); setStorageHealth(result.writeResult && result.writeResult !== 'saved' ? result.writeResult : 'ready'); setIsHydrated(true); })(); }); return () => { active = false; cancelIdle(); }; }, []);
   useEffect(() => { if (!isHydrated || storageReadFailed) return; const snapshot = snapshotFromState(messages, sessions, artifacts); const timer = window.setTimeout(() => { void originIndexedDbAdapter.save(snapshot).then((result) => setStorageHealth(result === 'saved' ? 'ready' : result)); }, 180); return () => window.clearTimeout(timer); }, [artifacts, isHydrated, messages, sessions, storageReadFailed]);
 
   const archiveSession = (source: readonly ConversationMessage[]) => { if (!source.length) return; dirtyDuringHydration.current.sessions = true; const snapshot: ConversationSession = { id: `session-${Date.now()}`, title: historySessionTitle(source), createdAt: Date.now(), messages: persistableConversationMessages(source) }; setSessions((current) => [snapshot, ...current.filter((session) => session.title !== snapshot.title)].slice(0, 24)); };

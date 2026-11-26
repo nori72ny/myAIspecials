@@ -1,5 +1,37 @@
-import { expect, test } from '@playwright/test';
+import { expect, test, type Page } from '@playwright/test';
 import AxeBuilder from '@axe-core/playwright';
+
+// S3（会話履歴の端末内暗号化）以降、保存レコードは暗号化エンベロープ
+// { version, iv, ciphertext } で IndexedDB に入る。検証は端末内キー
+// （同じ DB の 'aes-gcm-256' レコード）で復号してから行い、検証の強度は
+// 平文時代と変えない。平文の旧レコードはそのまま返す。
+async function readDecryptedPrimarySnapshot(page: Page) {
+  return page.evaluate(async () => {
+    const db = await new Promise<IDBDatabase>((resolve, reject) => {
+      const request = indexedDB.open('origin-personal-local', 1);
+      request.onerror = () => reject(new Error('open failed'));
+      request.onsuccess = () => resolve(request.result);
+    });
+    try {
+      const get = (key: string) => new Promise<unknown>((resolve, reject) => {
+        const read = db.transaction('snapshots', 'readonly').objectStore('snapshots').get(key);
+        read.onsuccess = () => resolve(read.result);
+        read.onerror = () => reject(new Error('read failed'));
+      });
+      const raw = await get('primary');
+      if (!raw || typeof raw !== 'object') return raw;
+      const payload = raw as { iv?: unknown; ciphertext?: unknown };
+      if (typeof payload.iv !== 'string' || typeof payload.ciphertext !== 'string') return raw;
+      const key = await get('aes-gcm-256');
+      if (!key) return raw;
+      const decode = (value: string) => Uint8Array.from(atob(value), (ch) => ch.charCodeAt(0));
+      const plain = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: decode(payload.iv) }, key as CryptoKey, decode(payload.ciphertext));
+      return JSON.parse(new TextDecoder().decode(plain)) as unknown;
+    } finally {
+      db.close();
+    }
+  });
+}
 
 test.describe('ORIGIN Personal 2.0 critical journey', () => {
   test('renders a focused core identity and a compact single-row command bar without starter-card noise', async ({ page }) => {
@@ -416,14 +448,11 @@ test.describe('ORIGIN Personal 2.0 critical journey', () => {
     // Opening version 1 before the app's idle migration creates a schema-less
     // database. Wait for successful storage initialization before inspecting it.
     await expect(page.locator('html')).toHaveAttribute('data-origin-storage-state', 'ready');
-    await expect.poll(() => page.evaluate(async () => new Promise<{ legacy: string | null; snapshot: unknown }>((resolve) => {
-      const request = indexedDB.open('origin-personal-local', 1);
-      request.onsuccess = () => {
-        const database = request.result;
-        const read = database.transaction('snapshots', 'readonly').objectStore('snapshots').get('primary');
-        read.onsuccess = () => { resolve({ legacy: localStorage.getItem('origin_personal_history'), snapshot: read.result }); database.close(); };
-      };
-    }))).toMatchObject({ legacy: null, snapshot: { messages: [], sessions: [{ id: 'legacy-session', messages: [{ content: 'IndexedDBへ移行する履歴' }] }] } });
+    await expect.poll(async () => {
+      const snapshot = await readDecryptedPrimarySnapshot(page);
+      const legacy = await page.evaluate(() => localStorage.getItem('origin_personal_history'));
+      return { legacy, snapshot };
+    }).toMatchObject({ legacy: null, snapshot: { messages: [], sessions: [{ id: 'legacy-session', messages: [{ content: 'IndexedDBへ移行する履歴' }] }] } });
     // 退避された会話は履歴ドロワーから明示的に選んで復元する。
     await page.getByTestId('history-drawer-toggle').click();
     await page.getByTestId('history-search-input').fill('IndexedDB');
@@ -433,14 +462,7 @@ test.describe('ORIGIN Personal 2.0 critical journey', () => {
     await page.getByTestId('origin-chat-request').fill('成果物を生成');
     await page.getByTestId('origin-chat-request').press('Control+Enter');
     await expect(page.getByTestId('artifact-workspace')).toBeVisible({ timeout: 15_000 });
-    await expect.poll(() => page.evaluate(async () => new Promise<unknown>((resolve) => {
-      const request = indexedDB.open('origin-personal-local', 1);
-      request.onsuccess = () => {
-        const database = request.result;
-        const read = database.transaction('snapshots', 'readonly').objectStore('snapshots').get('primary');
-        read.onsuccess = () => { resolve(read.result); database.close(); };
-      };
-    }))).toMatchObject({ artifacts: [expect.objectContaining({ title: 'persisted.html', content: expect.stringContaining('<main>Persisted artifact</main>') })] });
+    await expect.poll(() => readDecryptedPrimarySnapshot(page)).toMatchObject({ artifacts: [expect.objectContaining({ title: 'persisted.html', content: expect.stringContaining('<main>Persisted artifact</main>') })] });
   });
 
   test('searches IndexedDB-backed sessions and artifact code locally from the history drawer', async ({ page }) => {

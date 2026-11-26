@@ -181,7 +181,7 @@ describe('passkey migration hardening', () => {
 
     const targetKey = await generateTargetKey();
     const result = await migration.migrateToPasskeyEncryption(targetKey);
-    expect(result).toEqual({ checkpoints: true, activeContext: 1 });
+    expect(result).toEqual({ checkpoints: true, activeContext: 1, history: false });
 
     // The pre-migration backups — copies readable with the device-local
     // key — are gone from both stores.
@@ -236,7 +236,7 @@ describe('passkey migration hardening', () => {
     const targetKey = await generateTargetKey();
     await migration.migrateToPasskeyEncryption(targetKey);
     const again = await migration.migrateToPasskeyEncryption(targetKey);
-    expect(again).toEqual({ checkpoints: false, activeContext: 0 });
+    expect(again).toEqual({ checkpoints: false, activeContext: 0, history: false });
 
     const localKeys: string[] = [];
     for (let index = 0; index < window.localStorage.length; index += 1) {
