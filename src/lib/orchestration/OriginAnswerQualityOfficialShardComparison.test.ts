@@ -116,12 +116,12 @@ function proof(
   return {
     ok: true as const,
     value: {
-      schemaVersion: "origin.aq-benchmark-scoped-environment-proof.v1" as const,
+      schemaVersion: "origin.aq-benchmark-scoped-environment-proof.v2" as const,
       baseUrl,
       expectedGitSha: gitSha,
       observedReleaseSha: gitSha,
       freeOnly: true as const,
-      costUsd: 0 as const,
+      maxPermittedCostUsd: 0 as const,
       paidFallbackEnabled: false as const,
       requiredLanes,
       runtimeIds,
