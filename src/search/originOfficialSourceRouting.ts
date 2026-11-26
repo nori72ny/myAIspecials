@@ -342,9 +342,14 @@ export function buildOfficialRetryQueryText(
 ): string {
   const base = releaseTerms.trim();
   if (!editionTerms || editionTerms.length === 0) return base;
-  // The stale-edition retry (measure 2c): the pool HAS the release,
-  // only in an old edition — so the retry names the edition that
+  // The edition-targeted retry: the retry names the edition that
   // must exist, in both notations, alongside the release name.
+  // Measure 2c first attached the terms for the stale-edition
+  // reason (the pool HAS the release, only in an old edition);
+  // round-4 measure 3-5 extends them to every insufficiency
+  // reason — a regional-only pool has no national edition at all,
+  // and the release name alone ranks the publisher's annual and
+  // index pages above the current monthly release page.
   const suffix = editionTerms.filter((term) => !base.includes(term)).join(" ");
   return (suffix ? `${base} ${suffix}` : base).trim();
 }

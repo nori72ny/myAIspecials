@@ -520,6 +520,68 @@ function unionEvidenceTokens(
 }
 
 /**
+ * Characters that, immediately after a bare number in the cited
+ * evidence, mark that number as carrying a DIFFERENT unit than the
+ * one a draft token claims (round-4 measure 4-1's same-unit limit):
+ * currency / counter / date units, the ratio unit 倍, the
+ * percentage-point reading ポ (ポイント), and the traditional
+ * tenth 割. A latin letter is rejected for the same reason (the
+ * usd / jpy / eur / gbp tails and unit-like identifiers).
+ */
+const PERCENT_CORE_FOREIGN_UNIT_CHARS = "円ドル年日月万億兆倍件人ポ割";
+
+/**
+ * The percent-core arm of the gate (round-4 measure 4-1,
+ * ANSWER_STATISTICS_ROUND4_DIAGNOSIS_2026-11-27 §1.2 / §1.7).
+ *
+ * The two standing arms are asymmetric in exactly one direction:
+ * a draft's bare "0.0" is supported by evidence "0.0%" (the
+ * boundary test sees "0.0" followed by "%"), but a draft's "0.0%"
+ * is supported by NOTHING when the evidence holds the value only
+ * as a bare number — the shape of an official data-table page,
+ * whose cells carry bare numbers while the percent unit lives in
+ * the table heading. That was the GDP production shape: the
+ * synthesis wrote the value in the normal style, with "%", and
+ * the gate discarded it as UNSUPPORTED_NUMERIC_TOKEN; the retry
+ * feedback ("not present verbatim") cannot teach the model to
+ * drop the unit, so the retry failed the same way.
+ *
+ * This arm supports a "%"-suffixed token by its bare core when
+ * the cited evidence states that core WITHOUT a different unit:
+ * an occurrence of the core that is boundary-clean (not inside a
+ * longer number — the measure 1-2 discipline, unchanged) and is
+ * not immediately followed by another unit's marker. Two limits
+ * keep the symmetrization inside the same unit system, as the
+ * diagnosis requires: the percent unit must be in play in the
+ * cited evidence at all (a percent-headed table carries "%" in
+ * its heading text; evidence that never deals in percents gives
+ * a "%" token nothing to symmetrize against), and a core the
+ * evidence states in 倍 / 円 / ポイント never supports a "%"
+ * claim — a draft that re-units a value still fails. The sign
+ * discipline is untouched (the gate never read signs; diagnosis
+ * §1.3 E-B2), as is the decimal boundary discipline.
+ */
+function percentCoreSupported(core: string, normalizedEvidence: string): boolean {
+  if (!core) return false;
+  if (!normalizedEvidence.includes("%")) return false;
+  let index = normalizedEvidence.indexOf(core);
+  while (index >= 0) {
+    const before = index > 0 ? normalizedEvidence.charAt(index - 1) : "";
+    const beforeOk = before !== "." && !/[0-9]/.test(before);
+    const afterIndex = index + core.length;
+    const after = afterIndex < normalizedEvidence.length
+      ? normalizedEvidence.charAt(afterIndex)
+      : "";
+    const afterOk = after !== "." && !/[0-9]/.test(after)
+      && !/[a-z]/i.test(after)
+      && !PERCENT_CORE_FOREIGN_UNIT_CHARS.includes(after);
+    if (beforeOk && afterOk) return true;
+    index = normalizedEvidence.indexOf(core, index + 1);
+  }
+  return false;
+}
+
+/**
  * The gate's full numeric-support test (measure 1-2): a token is
  * supported when it is one of the evidence's own maximal tokens
  * (set membership), OR when it occurs at a boundary that is not
@@ -531,14 +593,25 @@ function unionEvidenceTokens(
  * form's tail. Together they keep every previously supported shape
  * while closing the decimal-truncation hole ("19" is neither a
  * maximal token of "…1.19倍…" nor boundary-clean inside it).
+ * Round-4 measure 4-1 adds the third arm (percentCoreSupported):
+ * a "%"-suffixed token whose bare core the evidence states
+ * unit-free — the table-evidence shape — is supported; see its
+ * own notes for the same-unit limits.
  */
 function numericTokenGate(
   token: string,
   citedEvidenceNormalized: string,
   evidenceTokens: ReadonlySet<string>,
 ): boolean {
-  return evidenceTokens.has(token)
-    || numericTokenSupported(normalizedEvidenceText(token), citedEvidenceNormalized);
+  if (evidenceTokens.has(token)
+    || numericTokenSupported(normalizedEvidenceText(token), citedEvidenceNormalized)) {
+    return true;
+  }
+  const normalizedToken = normalizedEvidenceText(token);
+  if (normalizedToken.endsWith("%")) {
+    return percentCoreSupported(normalizedToken.slice(0, -1), citedEvidenceNormalized);
+  }
+  return false;
 }
 
 function numericTokens(value: string): string[] {
