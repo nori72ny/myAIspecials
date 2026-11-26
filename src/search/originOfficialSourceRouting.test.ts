@@ -14,10 +14,12 @@ import { OriginSearchUsageCounter } from "./originSearchProviderCatalog";
 import { OriginSearchTtlCache } from "./originSearchCache";
 import {
   assessOfficialMaterialInsufficiency,
+  buildOfficialReleaseQueryText,
   buildOfficialRetryQueryText,
   buildOfficialSourceQueryText,
   excerptHasOfficialValueToken,
   isRegionalOfficialSource,
+  isStatisticalCurrentValueRequest,
   MAX_OFFICIAL_SOURCE_QUERIES,
   planOriginOfficialSourceQueries,
   resolveOriginOfficialSourceRoutingEnabled,
@@ -104,6 +106,65 @@ describe("planOriginOfficialSourceQueries", () => {
     ]) {
       expect(planOriginOfficialSourceQueries(question)).toBeNull();
     }
+  });
+
+  /* Round-5 measure 5-1: the type gate opens from the topic side.
+   * 「実質GDPの最新値」 carries no rate word, so the recovery
+   * classifier returns `other` and — before this measure — the plan
+   * returned null before the topic table was consulted: no
+   * domain-restricted search, no edition key, no insufficiency
+   * retry, ever, for the most natural phrasing of the question. */
+  it("plans the GDP topic for current-value phrasings the classifier types as other (round-5 measure 5-1)", () => {
+    for (const question of [
+      "実質GDPの最新値を教えてください",
+      "GDPの最新値を教えてください",
+      "国内総生産の最新値はいくつですか？",
+      "実質GDPの現在の値を教えてください",
+    ]) {
+      const plan = planOriginOfficialSourceQueries(question, NOW);
+      expect(plan, question).not.toBeNull();
+      expect(plan?.queries).toHaveLength(1);
+      expect(plan?.queries[0]?.topic).toBe("gdp-and-economy");
+      expect(plan?.queries[0]?.domains).toEqual(["esri.cao.go.jp", "cao.go.jp"]);
+      expect(plan?.queries[0]?.releaseTerms).toBe("四半期別GDP速報");
+      // The edition key rides the plan, so the insufficiency retry
+      // and the sub-ranking work for this phrasing too. At NOW
+      // (2026-11-19) the edition that must exist is 2026年7-9月期.
+      expect(plan?.queries[0]?.expectedEdition?.label).toBe("2026年7-9月期");
+      expect(plan?.queries[0]?.editionTerms).toEqual(["2026年7-9月期", "令和8年7-9月期"]);
+    }
+  });
+
+  it("plans nothing for explanation questions about the same topics (round-5 measure 5-1)", () => {
+    for (const question of [
+      "実質GDPとは何か教えてください",
+      "GDPとは何ですか？",
+      "実質GDPの最新値とは何ですか",
+      "実質GDPの算出方法を教えてください",
+      "国内総生産の決め方を教えてください",
+    ]) {
+      expect(planOriginOfficialSourceQueries(question, NOW), question).toBeNull();
+    }
+  });
+
+  it("the topic-side gate still requires a curated topic match", () => {
+    // A current-value phrasing alone never spends a query: no topic
+    // in the map matches these subjects.
+    for (const question of [
+      "私の体重の最新値を教えてください",
+      "この会社の株価の最新値を教えてください",
+    ]) {
+      expect(planOriginOfficialSourceQueries(question, NOW), question).toBeNull();
+    }
+  });
+
+  it("isStatisticalCurrentValueRequest separates value requests from explanations", () => {
+    expect(isStatisticalCurrentValueRequest("実質GDPの最新値を教えてください")).toBe(true);
+    expect(isStatisticalCurrentValueRequest("完全失業率の現在の値は？")).toBe(true);
+    expect(isStatisticalCurrentValueRequest("実質GDPとは何か")).toBe(false);
+    expect(isStatisticalCurrentValueRequest("実質GDPの最新値とは何ですか")).toBe(false);
+    expect(isStatisticalCurrentValueRequest("GDPの仕組みを教えてください")).toBe(false);
+    expect(isStatisticalCurrentValueRequest("今日の天気は？")).toBe(false);
   });
 
   it("caps additional queries at MAX_OFFICIAL_SOURCE_QUERIES, in topic priority order", () => {
@@ -450,6 +511,22 @@ describe("buildOfficialSourceQueryText / buildOfficialRetryQueryText (round-8 me
   it("the retry query is the release name alone (a different formulation)", () => {
     expect(buildOfficialRetryQueryText("一般職業紹介状況")).toBe("一般職業紹介状況");
   });
+
+  it("the release query (round-5 measure 5-3a) is the publication name plus the expected edition, in both notations", () => {
+    expect(buildOfficialReleaseQueryText("労働力調査 基本集計", ["令和8年9月分", "2026年9月分"]))
+      .toBe("労働力調査 基本集計 令和8年9月分 2026年9月分");
+    expect(buildOfficialReleaseQueryText("四半期別GDP速報", ["2026年7-9月期", "令和8年7-9月期"]))
+      .toBe("四半期別GDP速報 2026年7-9月期 令和8年7-9月期");
+    // No edition known: the release name alone.
+    expect(buildOfficialReleaseQueryText("労働力調査 基本集計")).toBe("労働力調査 基本集計");
+    // An edition term already inside the release name is not duplicated.
+    expect(buildOfficialReleaseQueryText("労働力調査 基本集計 令和8年9月分", ["令和8年9月分", "2026年9月分"]))
+      .toBe("労働力調査 基本集計 令和8年9月分 2026年9月分");
+    // The retry builder is the same form (the two passes share the
+    // short query since round 5).
+    expect(buildOfficialRetryQueryText("労働力調査 基本集計", ["令和8年9月分", "2026年9月分"]))
+      .toBe(buildOfficialReleaseQueryText("労働力調査 基本集計", ["令和8年9月分", "2026年9月分"]));
+  });
 });
 
 /* ------------------------------------------------------------------ */
@@ -674,15 +751,18 @@ const LABOUR_RELEASE_RESULT = {
 
 function labourRetryFetch() {
   const calls: RecordedCall[] = [];
+  let statRestrictedCalls = 0;
   const fetchImpl: OriginSearchFetch = async (url, init) => {
     calls.push({ url, init });
     if (url.includes("api.tavily.com/search")) {
       const body = JSON.parse(init?.body ?? "{}") as { query?: string; include_domains?: string[] };
       if (body.include_domains?.includes("stat.go.jp")) {
-        // First-pass official search misses; the retry — the release
-        // name plus the expected edition (round-4 measure 3-5) —
-        // finds the publication page.
-        return jsonResponse({ results: body.query === "労働力調査 基本集計 令和8年9月分 2026年9月分" ? [LABOUR_RELEASE_RESULT] : [] });
+        // First-pass official search misses; the retry finds the
+        // publication page. Since round-5 measure 5-3a the first
+        // pass and the retry share the short release-form query
+        // text, so the mock distinguishes them by call order.
+        statRestrictedCalls += 1;
+        return jsonResponse({ results: statRestrictedCalls >= 2 ? [LABOUR_RELEASE_RESULT] : [] });
       }
       return jsonResponse({ results: [JILPT_NAV_RESULT] });
     }
@@ -724,6 +804,10 @@ describe("executeOriginSearchGrounding — round-8 measures A + B + D", () => {
     // ordinary + official + exactly one retry — never two.
     expect(searchCalls).toHaveLength(3);
     const bodies = searchCalls.map((call) => JSON.parse(call.init?.body ?? "{}") as { query?: string; include_domains?: string[] });
+    // Round-5 measure 5-3a: the FIRST-pass official query is the
+    // short release form (publication name + expected edition),
+    // not the minimized-question long form.
+    expect(bodies[1]?.query).toBe("労働力調査 基本集計 令和8年9月分 2026年9月分");
     // Round-4 measure 3-5: the reason here is no-numeric-span, yet
     // the retry still names the edition that must exist — the
     // edition terms are no longer a stale-edition-only attachment.
@@ -775,14 +859,18 @@ describe("executeOriginSearchGrounding — round-8 measures A + B + D", () => {
       score: 0.85,
     };
     const calls: RecordedCall[] = [];
+    let mhlwRestrictedCalls = 0;
     const fetchImpl: OriginSearchFetch = async (url, init) => {
       calls.push({ url, init });
       if (url.includes("api.tavily.com/search")) {
         const body = JSON.parse(init?.body ?? "{}") as { query?: string; include_domains?: string[] };
         if (body.include_domains?.includes("mhlw.go.jp")) {
-          // Round-4 measure 3-5: the regional-only retry also names
-          // the expected edition, in both notations.
-          return jsonResponse({ results: body.query === "一般職業紹介状況 令和8年9月分 2026年9月分" ? [mhlwRelease] : [] });
+          // The first-pass official search misses the national
+          // release; the retry finds it. Since round-5 measure
+          // 5-3a both passes use the same short release-form query
+          // text, the mock distinguishes them by call order.
+          mhlwRestrictedCalls += 1;
+          return jsonResponse({ results: mhlwRestrictedCalls >= 2 ? [mhlwRelease] : [] });
         }
         return jsonResponse({ results: [miyagi] });
       }
@@ -816,6 +904,77 @@ describe("executeOriginSearchGrounding — round-8 measures A + B + D", () => {
 });
 
 /* ------------------------------------------------------------------ */
+/* Round-5 measure 5-1 end to end: the GDP current-value phrasing      */
+/* reaches the official route (before round 5 the plan was null and   */
+/* no official query was ever issued for this question).               */
+/* ------------------------------------------------------------------ */
+
+describe("executeOriginSearchGrounding — round-5 measure 5-1 (GDP current value)", () => {
+  it("switch ON: 「実質GDPの最新値」 issues the ESRI-restricted official query in the release form and adopts the release", async () => {
+    const gdpRelease = {
+      title: "四半期別GDP速報（2026年7-9月期・1次速報値）内閣府経済社会総合研究所",
+      url: "https://www.esri.cao.go.jp/jp/sna/data/data_list/sokuhou/sokuhou_top.html",
+      content: "2026年7-9月期の実質GDP成長率は、前期比-0.0%、年率換算-0.1%となりました。2026年11月16日に公表しました。",
+      score: 0.95,
+    };
+    const blog = {
+      title: "GDPとは？分かりやすく解説",
+      url: "https://blog.example.com/gdp",
+      content: LONG_EXCERPT,
+      score: 0.8,
+    };
+    const calls: RecordedCall[] = [];
+    const fetchImpl: OriginSearchFetch = async (url, init) => {
+      calls.push({ url, init });
+      if (url.includes("api.tavily.com/search")) {
+        const body = JSON.parse(init?.body ?? "{}") as { query?: string; include_domains?: string[] };
+        if (body.include_domains?.includes("esri.cao.go.jp")) {
+          return jsonResponse({ results: [gdpRelease] });
+        }
+        return jsonResponse({ results: [blog] });
+      }
+      if (url.includes("api.tavily.com/extract")) return jsonResponse({ results: [], failed_results: [] });
+      const host = new URL(url).hostname;
+      if (host === "wikipedia.org" || host.endsWith(".wikipedia.org")) return jsonResponse({ pages: [] });
+      throw new Error(`unexpected URL: ${url}`);
+    };
+    const deps = makeDeps({
+      fetchImpl,
+      env: { TAVILY_API_KEY: "tvly-test-key", ORIGIN_OFFICIAL_SOURCE_ROUTING_MODE: "true" },
+    });
+    const outcome = groundedOf(await executeOriginSearchGrounding(
+      "実質GDPの最新値を教えてください", deps,
+    ));
+    const officialIssued = outcome.queriesIssued?.find((issued) => issued.kind === "official");
+    expect(officialIssued).toEqual({
+      provider: "tavily",
+      kind: "official",
+      query: "四半期別GDP速報 2026年7-9月期 令和8年7-9月期",
+      includeDomains: ["esri.cao.go.jp", "cao.go.jp"],
+    });
+    const adopted = outcome.sources.find((source) => source.domain === "esri.cao.go.jp");
+    expect(adopted).toBeDefined();
+    expect(adopted?.excerpt).toContain("-0.0%");
+    // The pool is materially sufficient (current edition, value
+    // present), so no insufficiency retry fires.
+    expect(outcome.candidateStats?.officialRetry).toBeUndefined();
+  });
+
+  it("switch ON: the explanation phrasing 「実質GDPとは何か」 issues no official query", async () => {
+    const { fetchImpl, calls } = officialAwareFetch();
+    const deps = makeDeps({
+      fetchImpl,
+      env: { TAVILY_API_KEY: "tvly-test-key", ORIGIN_OFFICIAL_SOURCE_ROUTING_MODE: "true" },
+    });
+    await executeOriginSearchGrounding("実質GDPとは何か教えてください", deps);
+    const bodies = calls
+      .filter((call) => call.url.includes("api.tavily.com/search"))
+      .map((call) => JSON.parse(call.init?.body ?? "{}") as { include_domains?: string[] });
+    expect(bodies.every((body) => !body.include_domains)).toBe(true);
+  });
+});
+
+/* ------------------------------------------------------------------ */
 /* Follow-up measures 2a/2b/2c: edition targeting end to end           */
 /* (ANSWER_FOLLOWUP_DIAGNOSIS_2026-11-26). NOW is 2026-11-19 JST, so  */
 /* the edition that must exist for a monthly statistic is 2026年9月分. */
@@ -842,15 +1001,18 @@ describe("executeOriginSearchGrounding — follow-up measure 2 (editions)", () =
       score: 0.7,
     };
     const calls: RecordedCall[] = [];
+    let mhlwRestrictedCalls = 0;
     const fetchImpl: OriginSearchFetch = async (url, init) => {
       calls.push({ url, init });
       if (url.includes("api.tavily.com/search")) {
         const body = JSON.parse(init?.body ?? "{}") as { query?: string; include_domains?: string[] };
-        if (body.query === "一般職業紹介状況 令和8年9月分 2026年9月分") {
-          return jsonResponse({ results: [currentRelease] });
-        }
         if (body.include_domains?.includes("mhlw.go.jp")) {
-          return jsonResponse({ results: [staleRelease] });
+          // The first pass returns the stale edition; the retry
+          // returns the current one. Since round-5 measure 5-3a
+          // both passes share the short release-form query text,
+          // the mock distinguishes them by call order.
+          mhlwRestrictedCalls += 1;
+          return jsonResponse({ results: mhlwRestrictedCalls >= 2 ? [currentRelease] : [staleRelease] });
         }
         return jsonResponse({ results: [blog] });
       }
@@ -1453,18 +1615,20 @@ describe("executeOriginSearchGrounding — round-3 measures 3-3 + 3-4 (B3: unrea
 
   it("a national official value with no readable edition fires the stale-edition retry, which adopts the composite-titled current release", async () => {
     const calls: RecordedCall[] = [];
+    let statRestrictedCalls = 0;
     const fetchImpl: OriginSearchFetch = async (url, init) => {
       calls.push({ url, init });
       if (url.includes("api.tavily.com/search")) {
         const body = JSON.parse(init?.body ?? "{}") as { query?: string; include_domains?: string[] };
         if (body.include_domains?.includes("stat.go.jp")) {
-          // The first official search already carries the edition
-          // terms in its query text (it is built from the question
-          // plus the expected edition), so the two calls are told
-          // apart by their shape: only the RETRY query is the bare
-          // release name plus edition, with no question stem.
+          // The first official search returns the unreadable-edition
+          // page; the retry returns the composite-titled release.
+          // Since round-5 measure 5-3a both passes use the same
+          // short release-form query text, the mock distinguishes
+          // them by call order.
+          statRestrictedCalls += 1;
           return jsonResponse({
-            results: [body.query?.startsWith("労働力調査 基本集計") ? COMPOSITE_RELEASE_RESULT : UNREADABLE_STAT_RESULT],
+            results: [statRestrictedCalls >= 2 ? COMPOSITE_RELEASE_RESULT : UNREADABLE_STAT_RESULT],
           });
         }
         return jsonResponse({ results: [B3_NEWS_RESULT] });

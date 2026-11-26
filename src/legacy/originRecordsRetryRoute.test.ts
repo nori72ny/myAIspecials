@@ -583,12 +583,33 @@ describe("createGroundedResearchSynthesisProviderRetryExecutor (K-06 plan A)", (
     expect(outcome).toEqual({ kind: "skipped", skipDetail: "groq-not-configured" });
   });
 
-  it("propagates a candidate execution error (the router contains it)", async () => {
+  it("returns a candidate execution failure as the failed outcome naming the route and code (round-5 measure 5-2a)", async () => {
     const retry = createGroundedResearchSynthesisProviderRetryExecutor({
       env: CF_ENV,
       nowMs: CF_NOW_MS,
       cloudflareExecute: vi.fn(async () => { throw new OriginProviderError("PROVIDER_UNAVAILABLE", "internal", 503, true); }) as never,
     });
-    await expect(retry(REQUEST, rateLimitedError(), 1_000)).rejects.toBeInstanceOf(OriginProviderError);
+    // Before round 5 this throw propagated and the router discarded
+    // it — the attempt left no record anywhere. The outcome now
+    // carries the route and the code so the router can record the
+    // attempt in the response routing.
+    await expect(retry(REQUEST, rateLimitedError(), 1_000)).resolves.toEqual({
+      kind: "failed",
+      route: 2,
+      errorCode: "PROVIDER_UNAVAILABLE",
+    });
+  });
+
+  it("a non-provider candidate execution error still names its route, with the internal code", async () => {
+    const retry = createGroundedResearchSynthesisProviderRetryExecutor({
+      env: CF_ENV,
+      nowMs: CF_NOW_MS,
+      cloudflareExecute: vi.fn(async () => { throw new Error("socket exploded"); }) as never,
+    });
+    await expect(retry(REQUEST, rateLimitedError(), 1_000)).resolves.toEqual({
+      kind: "failed",
+      route: 2,
+      errorCode: "PROVIDER_INTERNAL_ERROR",
+    });
   });
 });

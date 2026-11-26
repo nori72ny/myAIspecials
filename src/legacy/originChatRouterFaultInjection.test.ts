@@ -348,6 +348,10 @@ describe("fault injection: research router (extractive tier)", () => {
     expect(response.body.research.synthesis).toEqual({
       status: "provider-failed",
       failureCode: "PROVIDER_RATE_LIMITED",
+      // Round-5 measure 5-2b: this router now runs the provider
+      // retry layer too; with no free route configured in this
+      // env it skips at the last stage, and the skip is recorded.
+      providerRetrySkipDetail: "groq-not-configured",
     });
   });
 
@@ -423,6 +427,55 @@ describe("fault injection: K-06 plan A (provider retry + deterministic reconstru
     const retryError = (providerRetry as unknown as ReturnType<typeof vi.fn>).mock.calls[0][1] as OriginProviderError;
     expect(retryError).toBeInstanceOf(OriginProviderError);
     expect(retryError.code).toBe("PROVIDER_RATE_LIMITED");
+  });
+
+  it("records every tried route in the routing when the provider retry also fails (round-5 measure 5-2a)", async () => {
+    // The round-5 measurement shape: the initial dispatch failed on
+    // route 2, the different-route retry executed on route 3 and
+    // failed there too. Before measure 5-2a the landing carried
+    // providerRouting null and NO attempt record — the failure
+    // could not be attributed to a route or a model from the
+    // response at all.
+    const initialError = new OriginProviderError("PROVIDER_RATE_LIMITED", "internal", 429, true, undefined, {
+      failoverAttempts: [{
+        providerId: "cloudflare-workers-ai-free",
+        modelId: "@cf/google/gemma-4-26b-a4b-it",
+        outcome: "availability-error",
+        errorCode: "PROVIDER_RATE_LIMITED",
+        transportRequestCount: 1,
+      }],
+    });
+    const synthesis = vi.fn().mockRejectedValue(initialError) as unknown as OriginChatExecutor;
+    const providerRetry = vi.fn().mockResolvedValue({
+      kind: "failed",
+      route: 3,
+      errorCode: "PROVIDER_RATE_LIMITED",
+    }) as unknown as GroundedResearchSynthesisProviderRetryExecutor;
+    const response = await request(createPlanAChatApp(researchOk, synthesis, providerRetry))
+      .post("/api/chat")
+      .send({ messages: [{ role: "user", content: "今日の公開情報を調査してください" }] });
+    expect(response.status).toBe(200);
+    // The landing is unchanged: the standing fallback, provider-failed.
+    expectSourceListFallback(response.body);
+    expect(response.body.routing.synthesisStatus).toBe("provider-failed");
+    expect(response.body.routing.synthesisProviderRetryFailed).toBe(true);
+    // …but the attempts are now in the response: the initial
+    // dispatch's route-2 attempt, then the retry's route-3 attempt.
+    expect(response.body.routing.synthesisProviderAttempts).toEqual([
+      {
+        providerId: "cloudflare-workers-ai-free",
+        modelId: "@cf/google/gemma-4-26b-a4b-it",
+        outcome: "availability-error",
+        errorCode: "PROVIDER_RATE_LIMITED",
+        transportRequestCount: 1,
+      },
+      {
+        providerId: "groq-free",
+        modelId: "openai/gpt-oss-120b",
+        outcome: "failed",
+        errorCode: "PROVIDER_RATE_LIMITED",
+      },
+    ]);
   });
 
   it("answers with verbatim source sentences only when synthesis is rejected and the reconstruction establishes", async () => {

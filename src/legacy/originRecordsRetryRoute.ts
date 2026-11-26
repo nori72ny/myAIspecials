@@ -35,6 +35,7 @@ import type { OriginGroqFreeModelEvidence } from "../lib/orchestration/OriginGro
 import {
   OriginProviderError,
   type OriginFetch,
+  type OriginProviderErrorCode,
   type OriginProviderExecutionRequest,
   type OriginProviderExecutionResult,
 } from "./originProviderClient.js";
@@ -310,15 +311,30 @@ export type GroundedResearchSynthesisProviderRetrySkipDetail =
 
 export type GroundedResearchSynthesisProviderRetryOutcome =
   | { kind: "executed"; result: OriginProviderExecutionResult; route: 2 | 3 }
-  | { kind: "skipped"; skipDetail: GroundedResearchSynthesisProviderRetrySkipDetail };
+  | { kind: "skipped"; skipDetail: GroundedResearchSynthesisProviderRetrySkipDetail }
+  /**
+   * Round-5 measure 5-2a: a candidate route was selected and
+   * EXECUTED, and the execution itself failed. The route and the
+   * error code ride the outcome so the router can record the
+   * attempt in the response's routing observation — before this
+   * outcome existed, the execution error propagated as a bare
+   * throw, the router discarded it, and a provider-failed landing
+   * carried providerRouting null with no record of which routes
+   * and models were ever tried (the round-5 probes could not
+   * attribute 6 of 8 synthesis failures to a route at all). The
+   * router still keeps the INITIAL failure as the outcome; this
+   * kind only adds the observation.
+   */
+  | { kind: "failed"; route: 2 | 3; errorCode: OriginProviderErrorCode };
 
 /**
- * The retry executor the chat router wires for the text synthesis
- * path: given the synthesis request, the error the initial execution
- * threw, and the elapsed grounded time, execute the request once on
- * a route the failed dispatch did not already execute — or report
- * why not. Execution errors propagate; the router contains them in
- * the retry layer and keeps the initial failure as the outcome.
+ * The retry executor the grounded routers wire for the text
+ * synthesis path: given the synthesis request, the error the
+ * initial execution threw, and the elapsed grounded time, execute
+ * the request once on a route the failed dispatch did not already
+ * execute — or report why not. A candidate execution failure is
+ * returned as the "failed" outcome (round-5 measure 5-2a), not
+ * thrown; the router keeps the initial failure as the outcome.
  */
 export type GroundedResearchSynthesisProviderRetryExecutor = (
   request: OriginProviderExecutionRequest,
@@ -367,8 +383,10 @@ function routeForFailoverAttemptProvider(providerId: string): GroundedResearchSe
  * different-route retry the diagnosis prescribes. A candidate whose
  * route is not configured or whose plan cannot be derived falls
  * through to the next candidate; a candidate that executes and
- * fails ends the retry (its error propagates and the router keeps
- * the initial failure).
+ * fails ends the retry — returned as the "failed" outcome naming
+ * the route and the error code (round-5 measure 5-2a), so the
+ * router can record the attempt before keeping the initial
+ * failure as the outcome.
  */
 export function createGroundedResearchSynthesisProviderRetryExecutor(
   deps: GroundedResearchRecordsRetryRouteDeps,
@@ -389,7 +407,22 @@ export function createGroundedResearchSynthesisProviderRetryExecutor(
     let skipDetail: GroundedResearchSynthesisProviderRetrySkipDetail = "all-routes-attempted";
     for (const candidate of [2, 3] as const) {
       if (executedRoutes.has(candidate)) continue;
-      const derivation = await executeGroundedResearchRetryRoute(deps, request, candidate);
+      let derivation: GroundedResearchRecordsRetryDerivation;
+      try {
+        derivation = await executeGroundedResearchRetryRoute(deps, request, candidate);
+      } catch (executionError) {
+        // Round-5 measure 5-2a: the candidate executed and failed.
+        // Name the route and the failure code in the outcome
+        // instead of throwing the attempt away unrecorded.
+        return {
+          kind: "failed",
+          route: candidate,
+          errorCode:
+            executionError instanceof OriginProviderError
+              ? executionError.code
+              : "PROVIDER_INTERNAL_ERROR",
+        };
+      }
       if (derivation.kind === "executed") {
         return { kind: "executed", result: derivation.result, route: candidate };
       }

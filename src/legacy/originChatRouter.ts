@@ -3,7 +3,7 @@ import { Router } from "express";
 import { createOriginAnswerEnvelope, type OriginAnswerEnvelope, type OriginAnswerEvidenceItem, type OriginAnswerRichOutput, type OriginAnswerVerificationStatus } from "../lib/orchestration/OriginAnswerEnvelope.js";
 import { extractProvidedOriginEvidence } from "../lib/orchestration/OriginAnswerEvidence.js";
 import { DEFAULT_ORIGIN_CONTEXT_POLICY, minimizeOriginContext, type OriginContextPolicy } from "../lib/orchestration/OriginContextPolicy.js";
-import { buildOriginExecutionPlan, type OriginExecutionPlan } from "../lib/orchestration/OriginExecutionPolicy.js";
+import { buildOriginExecutionPlan, ORIGIN_CLOUDFLARE_WORKERS_AI_FREE_PROVIDER_ID, ORIGIN_GROQ_FREE_PROVIDER_ID, type OriginExecutionPlan } from "../lib/orchestration/OriginExecutionPolicy.js";
 import type { OriginFreeModelEvidence } from "../lib/orchestration/OriginFreeModelCatalog.js";
 import { decideOriginReviewForMessage } from "../lib/orchestration/OriginReviewPolicy.js";
 import { classifyOriginRequestIntent, originIntentInputFromContext, type OriginRequestIntent } from "../lib/orchestration/OriginRequestIntent.js";
@@ -16,8 +16,10 @@ import { applyOriginPublicationGate, publicationGateFiringKinds } from "../lib/o
 import { applyOriginDateWeekdayVerificationGate } from "../lib/orchestration/OriginDateWeekdayVerification.js";
 import { resolveOriginAgentWorkPlan, type OriginResolvedWorkPlan } from "../lib/orchestration/OriginServiceRegistry.js";
 import { generateOriginSupervisorArtifactsV2, ORIGIN_SUPERVISOR_VERSION_V2 } from "../lib/orchestration/OriginSupervisorV2.js";
-import { buildOriginProviderFailureDiagnostic, OriginProviderError, type OriginProviderExecutionRequest, type OriginProviderExecutionResult } from "./originProviderClient.js";
+import { buildOriginProviderFailureDiagnostic, OriginProviderError, type OriginProviderAttemptDiagnostic, type OriginProviderExecutionRequest, type OriginProviderExecutionResult } from "./originProviderClient.js";
 import { assertOriginZeroCostExecutionResultWithFailover, executeOriginProviderWithFailover } from "./originProviderFailover.js";
+import { ORIGIN_CLOUDFLARE_FREE_MODEL } from "../lib/orchestration/OriginCloudflareFreeModelCatalog.js";
+import { ORIGIN_GROQ_FREE_MODEL_ID } from "../lib/orchestration/OriginGroqFreeModelCatalog.js";
 import { assertGroundedResearchRecordsZeroCost, createGroundedResearchRecordsRetryExecutorWithDetail, createGroundedResearchSynthesisProviderRetryExecutor, type GroundedResearchSynthesisProviderRetryExecutor, type GroundedResearchSynthesisProviderRetryOutcome } from "./originRecordsRetryRoute.js";
 import { researchCurrentInformation, type OriginResearchResult, type OriginResearchSource } from "./originResearchSource.js";
 import {
@@ -826,6 +828,21 @@ export function createOriginChatRouter(options: OriginChatRouterOptions = {}) {
       let synthesisProviderRetryRoute: 2 | 3 | null = null;
       let synthesisProviderRetrySkipDetail: string | null = null;
       let synthesisProviderRetryFailed = false;
+      // Provider-attempt observation (round-5 measure 5-2a,
+      // ANSWER_STATISTICS_ROUND5_DIAGNOSIS_2026-11-27 §2.1): the
+      // whitelisted failover-attempt summaries of a provider-failed
+      // synthesis — the initial dispatch's attempts, plus the
+      // provider retry's own attempt when it executed and failed.
+      // Before this record existed the attempts reached only the
+      // server log, so a provider-failed landing carried
+      // providerRouting null and NO route/model attribution at
+      // all: the round-5 probes could not tell which route's 429
+      // or invalid response produced 6 of 8 synthesis failures.
+      // The final fallback routing carries the record whenever it
+      // is non-empty. Whitelisted fields only (provider / model /
+      // outcome / error code), exactly the failure diagnostic's
+      // shape — no upstream text, no credentials.
+      let synthesisProviderAttempts: OriginProviderAttemptDiagnostic[] = [];
 
       if (researchSynthesis && grounded.sources.length > 0) {
         const synthesisPlan = buildOriginExecutionPlan(
@@ -1033,6 +1050,11 @@ export function createOriginChatRouter(options: OriginChatRouterOptions = {}) {
               recordsSettled = true;
               synthesisStatus = "provider-failed";
               synthesisFailureCode = error instanceof OriginProviderError ? error.code : "PROVIDER_INTERNAL_ERROR";
+              // Round-5 measure 5-2a: the attempt record also rides
+              // the response routing, not only the log line below.
+              if (error instanceof OriginProviderError) {
+                synthesisProviderAttempts = buildOriginProviderFailureDiagnostic(error).failoverAttempts;
+              }
               // Observability (RESEARCH_FLOOR_DESIGN_2026-11-17 §3 R-0):
               // the final code alone cannot attribute an unavailability
               // to a route, so the whitelisted failover-attempt summary
@@ -1122,6 +1144,15 @@ export function createOriginChatRouter(options: OriginChatRouterOptions = {}) {
               initialSynthesisResult = await researchSynthesis(synthesisRequest);
               assertOriginZeroCostExecutionResultWithFailover(initialSynthesisResult, synthesisPlan.plan.modelId);
             } catch (initialSynthesisError) {
+              // Round-5 measure 5-2a: keep the failed dispatch's
+              // attempt record for the response routing (it was
+              // log-only before); the retry branches below append
+              // the retry's own attempt when one executes and fails.
+              const initialAttempts: OriginProviderAttemptDiagnostic[] =
+                initialSynthesisError instanceof OriginProviderError
+                  ? buildOriginProviderFailureDiagnostic(initialSynthesisError).failoverAttempts
+                  : [];
+              synthesisProviderAttempts = initialAttempts;
               let retryOutcome: GroundedResearchSynthesisProviderRetryOutcome | null = null;
               try {
                 retryOutcome = await synthesisProviderRetryExecutor(
@@ -1152,6 +1183,33 @@ export function createOriginChatRouter(options: OriginChatRouterOptions = {}) {
                   requestId,
                   synthesisProviderRetrySkipDetail: retryOutcome.skipDetail,
                   code: initialSynthesisError instanceof OriginProviderError ? initialSynthesisError.code : "PROVIDER_INTERNAL_ERROR",
+                });
+                throw initialSynthesisError;
+              }
+              if (retryOutcome.kind === "failed") {
+                // The retry executed on the other route and failed
+                // there too: the standing landing is unchanged (the
+                // original error is rethrown), but the retry's
+                // attempt now joins the response's routing record
+                // (round-5 measure 5-2a) instead of vanishing.
+                synthesisProviderRetryFailed = true;
+                synthesisProviderAttempts = [
+                  ...initialAttempts,
+                  {
+                    providerId: retryOutcome.route === 2
+                      ? ORIGIN_CLOUDFLARE_WORKERS_AI_FREE_PROVIDER_ID
+                      : ORIGIN_GROQ_FREE_PROVIDER_ID,
+                    modelId: retryOutcome.route === 2
+                      ? ORIGIN_CLOUDFLARE_FREE_MODEL
+                      : ORIGIN_GROQ_FREE_MODEL_ID,
+                    outcome: "failed",
+                    errorCode: retryOutcome.errorCode,
+                  },
+                ];
+                console.warn("[origin-chat] research synthesis provider retry attempt failed", {
+                  requestId,
+                  synthesisProviderRetryRoute: retryOutcome.route,
+                  code: retryOutcome.errorCode,
                 });
                 throw initialSynthesisError;
               }
@@ -1510,6 +1568,14 @@ export function createOriginChatRouter(options: OriginChatRouterOptions = {}) {
           } catch (error) {
             synthesisStatus = "provider-failed";
             synthesisFailureCode = error instanceof OriginProviderError ? error.code : "PROVIDER_INTERNAL_ERROR";
+            // Round-5 measure 5-2a: when the provider-retry layer
+            // above did not already record the attempts (the error
+            // came from the feedback retry's own execution, which
+            // runs after that layer), take them from this error so
+            // the response routing still names the tried routes.
+            if (synthesisProviderAttempts.length === 0 && error instanceof OriginProviderError) {
+              synthesisProviderAttempts = buildOriginProviderFailureDiagnostic(error).failoverAttempts;
+            }
             // Observability (RESEARCH_FLOOR_DESIGN_2026-11-17 §3 R-0):
             // same failover-attempt summary as the records path above, so
             // a PROVIDER_RATE_LIMITED unavailability (failure type T-1)
@@ -1896,6 +1962,15 @@ export function createOriginChatRouter(options: OriginChatRouterOptions = {}) {
           ...(researchReconstruction ? { researchReconstruction: researchReconstruction.via } : {}),
           ...(synthesisProviderRetrySkipDetail ? { synthesisProviderRetrySkipDetail } : {}),
           ...(synthesisProviderRetryFailed ? { synthesisProviderRetryFailed: true } : {}),
+          // Round-5 measure 5-2a: the provider attempts behind a
+          // provider-failed synthesis, in the response itself —
+          // providerRouting above stays null on this landing (no
+          // route served), and before this field the attempts
+          // existed only in the server log, so the failure could
+          // not be attributed to a route or model from outside.
+          ...(synthesisProviderAttempts.length > 0
+            ? { synthesisProviderAttempts }
+            : {}),
           requestedOutputs: researchRequestedOutputs,
           supervisorMode: researchRequestedOutputs.length > 0 ? "research-output-contract-v1" : "research-only",
           downstreamDeliverablePending: researchNeedsDownstreamDeliverable,

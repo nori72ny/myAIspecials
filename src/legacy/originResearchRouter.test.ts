@@ -7,6 +7,8 @@ vi.mock("./originResearchSource.js", () => ({ researchCurrentInformation: resear
 
 import { DEFAULT_ORIGIN_FREE_MODEL_CATALOG } from "../lib/orchestration/OriginFreeModelCatalog";
 import { createOriginResearchRouter, type OriginResearchSynthesisExecutor } from "./originResearchRouter.js";
+import { OriginProviderError } from "./originProviderClient.js";
+import type { GroundedResearchSynthesisProviderRetryExecutor } from "./originRecordsRetryRoute.js";
 import { requiresOriginGroundedResearchRouted } from "./originChatResponsePolicy.js";
 import type { OriginResearchResult } from "./originResearchSource.js";
 
@@ -318,6 +320,102 @@ describe("originResearchRouter", () => {
     expect(response.status).toBe(200);
     expect(response.body.content).toContain("出典付き調査レポート（抽出方式）");
     expect(response.body.research.synthesis.status).toBe("provider-failed");
+  });
+
+  it("adopts the synthesis when the provider-failure retry succeeds on another route (round-5 measure 5-2b)", async () => {
+    researchMock.mockResolvedValue({ ok: true, searchProvider: "Tavily", sources: iphoneSources });
+    // Before round 5 this router had no provider retry at all: the
+    // initial throw went straight to the extractive landing.
+    const synthesis = vi.fn().mockRejectedValue(
+      new OriginProviderError("PROVIDER_RATE_LIMITED", "internal", 429, true),
+    );
+    const providerRetry = vi.fn().mockResolvedValue({
+      kind: "executed",
+      route: 2,
+      result: {
+        ...synthesisExecutionResult,
+        text: [
+          "## 結論",
+          "",
+          "iPhone 18 Proは219,800円で、2026年9月18日に発売されます。[S1](https://www.apple.com/jp/newsroom/iphone18)",
+          "価格は別の資料でも219,800円とされています。[S2](https://example.jp/iphone)",
+          "",
+          "出典",
+          "- Apple Newsroom（apple.com、2026年9月10日公開）[S1](https://www.apple.com/jp/newsroom/iphone18)",
+          "- example.jp（example.jp、公開日不明）[S2](https://example.jp/iphone)",
+        ].join("\n"),
+      },
+    });
+    const app = express();
+    app.use(express.json());
+    app.use(createOriginResearchRouter({
+      env: { OPENROUTER_API_KEY: "synthetic-test-key" },
+      researchSynthesis: synthesis as unknown as OriginResearchSynthesisExecutor,
+      researchSynthesisProviderRetry: providerRetry as unknown as GroundedResearchSynthesisProviderRetryExecutor,
+      catalogNow: () => verifiedCatalogTime,
+    }));
+    const response = await request(app).post("/api/chat").send({ messages: [{ role: "user", content: iphoneQuery }] });
+    expect(response.status).toBe(200);
+    expect(synthesis).toHaveBeenCalledTimes(1);
+    expect(providerRetry).toHaveBeenCalledTimes(1);
+    expect(response.body.content).toContain("## 結論");
+    expect(response.body.routing.synthesisStatus).toBe("citation-validated");
+    expect(response.body.routing.synthesisProviderRetried).toBe(true);
+    expect(response.body.routing.synthesisProviderRetryRoute).toBe(2);
+    expect(response.body.research.synthesis).toEqual({
+      status: "citation-validated",
+      sourceCount: 2,
+      providerRetried: true,
+      providerRetryRoute: 2,
+    });
+  });
+
+  it("records every tried route in research.synthesis when the provider retry also fails (round-5 measures 5-2a/5-2b)", async () => {
+    researchMock.mockResolvedValue({ ok: true, searchProvider: "Tavily", sources: iphoneSources });
+    const initialError = new OriginProviderError("PROVIDER_RATE_LIMITED", "internal", 429, true, undefined, {
+      failoverAttempts: [{
+        providerId: "cloudflare-workers-ai-free",
+        modelId: "@cf/google/gemma-4-26b-a4b-it",
+        outcome: "availability-error",
+        errorCode: "PROVIDER_RATE_LIMITED",
+        transportRequestCount: 1,
+      }],
+    });
+    const synthesis = vi.fn().mockRejectedValue(initialError);
+    const providerRetry = vi.fn().mockResolvedValue({
+      kind: "failed",
+      route: 3,
+      errorCode: "PROVIDER_UNAVAILABLE",
+    });
+    const app = express();
+    app.use(express.json());
+    app.use(createOriginResearchRouter({
+      env: { OPENROUTER_API_KEY: "synthetic-test-key" },
+      researchSynthesis: synthesis as unknown as OriginResearchSynthesisExecutor,
+      researchSynthesisProviderRetry: providerRetry as unknown as GroundedResearchSynthesisProviderRetryExecutor,
+      catalogNow: () => verifiedCatalogTime,
+    }));
+    const response = await request(app).post("/api/chat").send({ messages: [{ role: "user", content: iphoneQuery }] });
+    expect(response.status).toBe(200);
+    // The landing is unchanged: the extractive report.
+    expect(response.body.content).toContain("出典付き調査レポート（抽出方式）");
+    expect(response.body.research.synthesis.status).toBe("provider-failed");
+    expect(response.body.research.synthesis.providerRetryFailed).toBe(true);
+    expect(response.body.research.synthesis.attempts).toEqual([
+      {
+        providerId: "cloudflare-workers-ai-free",
+        modelId: "@cf/google/gemma-4-26b-a4b-it",
+        outcome: "availability-error",
+        errorCode: "PROVIDER_RATE_LIMITED",
+        transportRequestCount: 1,
+      },
+      {
+        providerId: "groq-free",
+        modelId: "openai/gpt-oss-120b",
+        outcome: "failed",
+        errorCode: "PROVIDER_UNAVAILABLE",
+      },
+    ]);
   });
 });
 

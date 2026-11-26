@@ -47,6 +47,7 @@ import {
   buildGroundedResearchEvidencePacket,
   extractPacketQuestionKeys,
   packetSentenceHasAnswerBearingSignal,
+  packetSentenceIsFileDescription,
 } from "./groundedResearchEvidencePacket.js";
 import {
   tryRecoveryTemplateFallback,
@@ -196,7 +197,18 @@ export function tryGroundedResearchReconstruction(input: {
     seenPrepared.add(prepared);
     sentences.push({ prepared, sourceIndex: sentence.sourceIndex, score: sentence.score, order });
   });
-  sentences.sort((a, b) => (b.score - a.score) || (a.order - b.order));
+  // Round-5 measure 5-3b: file-description sentences (file guides
+  // carrying no value) sort after every value-bearing sentence, so
+  // the 5-sentence cap spends itself on statements before guides.
+  // Demotion only — a pool whose sentences are all guide-shaped
+  // keeps them, in the same score order as before.
+  sentences.sort(
+    (a, b) =>
+      Number(packetSentenceIsFileDescription(a.prepared))
+        - Number(packetSentenceIsFileDescription(b.prepared))
+      || (b.score - a.score)
+      || (a.order - b.order),
+  );
   // Measure C prohibition (ANSWER_SOURCES_ONLY_DIAGNOSIS_2026-11-26):
   // when the answer carries a sentence from an official-tier source
   // at the pool's latest stated edition, a sentence whose source

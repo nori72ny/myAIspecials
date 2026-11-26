@@ -3,6 +3,7 @@ import type { OriginResearchSource } from "../legacy/originResearchSource";
 import {
   buildGroundedResearchEvidencePacket,
   extractPacketQuestionKeys,
+  packetSentenceIsFileDescription,
   splitRecoverySentences,
 } from "./groundedResearchEvidencePacket";
 
@@ -347,5 +348,69 @@ describe("regional sub-ranking (remeasure measure 3-1)", () => {
     expect(byText.get("完全失業率は1.2%でした。")!.score).toBeGreaterThan(
       byText.get("完全失業率は2.4%でした。")!.score,
     );
+  });
+});
+
+describe("file-description demotion (round-5 measure 5-3b)", () => {
+  it("recognizes file-guide sentences and only those", () => {
+    expect(packetSentenceIsFileDescription("印刷用PDF：148KBで提供しています。")).toBe(true);
+    expect(packetSentenceIsFileDescription("統計表（Excel：15KB）をダウンロードできます。")).toBe(true);
+    // A decimal file size is still a file size, not a statistic.
+    expect(packetSentenceIsFileDescription("結果の概要（PDF：2.3MB）を掲載しています。")).toBe(true);
+    // A sentence that reports a figure AND mentions a file is a
+    // value sentence, not a guide.
+    expect(packetSentenceIsFileDescription("完全失業率は2.4%でした。詳細は印刷用PDF：148KBをご覧ください。")).toBe(false);
+    expect(packetSentenceIsFileDescription("完全失業率は2.4%でした。")).toBe(false);
+    expect(packetSentenceIsFileDescription("労働力調査 基本集計 令和8年9月分 結果の概要")).toBe(false);
+    expect(packetSentenceIsFileDescription("ファイルサイズは148KBです。")).toBe(false);
+  });
+
+  it("a guide sentence on an official page no longer crowds value sentences out of the top 8", () => {
+    // The measured B3 pool shape: an official file page whose guide
+    // sentence carries the official + latest-edition bonuses and
+    // outscores plain value sentences. Nine candidates compete for
+    // eight slots; before the demotion the guide took one.
+    const guide = source({
+      title: "労働力調査（基本集計）令和8年9月分 結果の概要",
+      url: "https://www.stat.go.jp/data/roudou/sokuhou/gaiyou.html",
+      domain: "stat.go.jp",
+      authorityTier: "official",
+      excerpt: "完全失業率の統計表（印刷用PDF：148KB）を掲載しています。",
+    });
+    const values = source({
+      title: "失業率の解説",
+      url: "https://blog.example.com/unemployment",
+      domain: "blog.example.com",
+      excerpt: Array.from(
+        { length: 8 },
+        (_, index) => `完全失業率は2.${index}%でした。`,
+      ).join(""),
+    });
+    const packet = buildGroundedResearchEvidencePacket(
+      [guide, values],
+      "最新の完全失業率を教えてください。いつの分ですか？",
+    );
+    const texts = packet.sentences.map((sentence) => sentence.text);
+    expect(texts).toHaveLength(8);
+    expect(texts).not.toContain("完全失業率の統計表（印刷用PDF：148KB）を掲載しています。");
+    for (let index = 0; index < 8; index += 1) {
+      expect(texts).toContain(`完全失業率は2.${index}%でした。`);
+    }
+  });
+
+  it("demotion is not exclusion: a pool whose only candidate is a guide sentence keeps it", () => {
+    const guideOnly = source({
+      title: "労働力調査（基本集計）令和8年9月分 結果の概要",
+      url: "https://www.stat.go.jp/data/roudou/sokuhou/gaiyou.html",
+      domain: "stat.go.jp",
+      authorityTier: "official",
+      excerpt: "完全失業率の統計表（印刷用PDF：148KB）を掲載しています。",
+    });
+    const packet = buildGroundedResearchEvidencePacket(
+      [guideOnly],
+      "最新の完全失業率を教えてください。いつの分ですか？",
+    );
+    const texts = packet.sentences.map((sentence) => sentence.text);
+    expect(texts).toContain("完全失業率の統計表（印刷用PDF：148KB）を掲載しています。");
   });
 });
