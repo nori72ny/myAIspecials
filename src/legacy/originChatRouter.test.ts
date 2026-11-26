@@ -1364,7 +1364,7 @@ describe("createOriginChatRouter", () => {
 
     expect(response.status).toBe(200);
     // Tier-T4 hold text (N-1): no guessing, with the concrete reason.
-    expect(response.body.content).toContain("裏付けが取れなかったため、推測で回答しません");
+    expect(response.body.content).toContain("確認できた情報がないため、推測で回答しません");
     expect(response.body.content).toContain("出典を確認できませんでした");
     expect(response.body.routing.answerMode).toBe("research");
     expect(response.body.routing.sourceCount).toBe(0);

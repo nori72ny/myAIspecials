@@ -82,6 +82,40 @@ describe("tryRecoveryTemplateFallback", () => {
     expect(enforce.value).toBe(shadow.value);
   });
 
+  it("annotates confirming sources with their stated edition (follow-up measure 3)", () => {
+    // The template landing's source list used to carry no vintage
+    // at all: the as-of date in the opening sentence was the only
+    // signal. A confirming statistics release now names the
+    // edition it reports, under the same rule as the
+    // reconstruction landing.
+    const question = "最新の有効求人倍率を教えてください。いつの分ですか？";
+    const sources: RecoveryValueSourceInput[] = [
+      source(
+        "mhlw.go.jp",
+        "厚生労働省が2026年10月30日に公表した一般職業紹介状況では、全国の有効求人倍率は1.19倍でした。",
+        "一般職業紹介状況（令和8年9月分）を公表しました",
+      ),
+      source(
+        "news.example",
+        "2026年10月30日公表の統計では、有効求人倍率は1.19倍でした。",
+        "有効求人倍率は1.19倍（令和8年9月分）",
+      ),
+    ];
+    const result = tryRecoveryTemplateFallback({
+      question,
+      sources,
+      mode: "enforce",
+      nowMs: NOW,
+    });
+    expect(result.fired).toBe(true);
+    expect(result.value).toBe("1.19倍");
+    expect(result.confirmingSources).toHaveLength(2);
+    for (const confirming of result.confirmingSources) {
+      expect(confirming.annotation).toBe("（対象：令和8年9月分）");
+    }
+    expect(result.text).toContain("（対象：令和8年9月分）");
+  });
+
   it("accepts the replay-harness call shape (candidates + answerType)", () => {
     const result = tryRecoveryTemplateFallback({
       question: GASOLINE_QUESTION,

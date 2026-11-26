@@ -147,7 +147,7 @@ describe("publication gate enforcement mode (streaming router)", () => {
     expect(response.status).toBe(200);
     // The stale figure never reaches the client; the hold text does.
     expect(response.text).not.toContain("245名");
-    expect(response.text).toContain("出典による裏付けが取れなかったため、推測で回答しません");
+    expect(response.text).toContain("確認できた情報がないため、推測で回答しません");
     const enforceCall = infoSpy.mock.calls.find(([message]) => String(message).includes("publication gate (enforce)"));
     expect(enforceCall).toBeDefined();
     const fields = enforceCall?.[1] as Record<string, unknown>;

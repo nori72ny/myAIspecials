@@ -141,7 +141,7 @@ describe("N-1 ladder: tier T4 abstain reasons reach routing and body", () => {
 
 describe("N-1 tier-T4 hold text builder", () => {
   const reasons: Array<[OriginResearchAbstainReason, string]> = [
-    ["no-sources", "条件に合う出典が見つからず"],
+    ["no-sources", "条件に合う出典が見つかりませんでした"],
     ["no-fresh-sources", "古い情報を現在の情報として示すことはしませんでした"],
     ["provider-error", "情報源を取得する処理で問題が発生し"],
     ["monthly-cap-reached", "今月の検索利用の上限に達しているため"],
@@ -167,7 +167,7 @@ describe("N-1 tier-T4 hold text builder", () => {
 
   it("omits the topic clause when the query is empty (terminal-guard form)", () => {
     const text = buildGroundedResearchAbstainAnswer({ query: "", language: "ja", reason: "provider-error" });
-    expect(text.startsWith("公開情報を調べましたが")).toBe(true);
+    expect(text.startsWith("確認できた情報がないため、推測で回答しません。")).toBe(true);
     expect(text).toContain("出典を確認できませんでした");
   });
 });

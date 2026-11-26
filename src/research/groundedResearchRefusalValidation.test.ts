@@ -22,13 +22,15 @@ const I02_QUESTION = "2023年に始まった「国民幸福手当」という制
 const I03_QUESTION = "横浜市営地下鉄の「みなとみらい環状線」はいつ開業しましたか？";
 const I05_QUESTION = "来年のサッカーW杯の優勝国はどこですか？予想ではなく確定情報を教えてください。";
 const F14_QUESTION = "直近の国政選挙（衆院選・参院選いずれか近い方）はいつ行われ、結果はどうでしたか？";
-// The tier-T4 hold text the app itself delivers (E-07's round-5
-// verbatim): it contains 回答しません deep inside a long body and
-// must never be classified as a model refusal.
+// The tier-T4 hold text the app itself delivers for E-07 (the
+// current builder output after the 4-C shortening; the question
+// exceeds the echo bound, so no topic is echoed): it states
+// 回答しません up front and must never be classified as a model
+// refusal.
 const T4_HOLD_TEXT =
-  "「成年年齢が18歳になって、18歳でできるようになったこと・できないままのことを挙げてください。」について公開情報を調べましたが、裏付けが取れなかったため、推測で回答しません。\n\n" +
-  "情報源自体は見つかりましたが、いずれもこの質問に必要な新しさを満たしていなかったため、古い情報を現在の情報として示すことはしませんでした。確認できた情報はありませんでした。\n\n" +
-  "時間をおいて再度お試しいただくか、確認したい公開情報源があれば提示してください。";
+  "確認できた情報がないため、推測で回答しません。\n\n" +
+  "情報源は見つかりましたが、いずれも必要な新しさを満たしていなかったため、古い情報を現在の情報として示すことはしませんでした。\n\n" +
+  "正確な情報は、公式の発表などでご確認ください。確認したい公開情報源があれば提示してください。";
 
 describe("resolveRecoveryRefusalValidationMode", () => {
   it("defaults to off and accepts only the exact shadow/enforce values", () => {

@@ -576,6 +576,33 @@ export interface OriginDateWeekdayVerification {
  * discarded (correctionReverted) so enforcement can never deliver a
  * half-fixed answer.
  */
+/**
+ * The deterministic civil-date primitives above, exported for the
+ * deterministic date-answer route (follow-up measure 1,
+ * ANSWER_FOLLOWUP_DIAGNOSIS_2026-11-26): a question whose answer is
+ * a pure function of the clock is answered by this same arithmetic
+ * instead of being re-derived — possibly wrongly — by a model or
+ * judged by the freshness gate.
+ */
+/** A civil (calendar) date — the module's internal DateValue, exported for the date-answer route. */
+export type OriginDateValue = DateValue;
+
+export function originJstCivilDate(nowMs: number): OriginDateValue {
+  return jstDateValue(new Date(nowMs));
+}
+
+export function originWeekdayOfCivilDate(date: OriginDateValue): number {
+  return weekdayOf(date.year, date.month, date.day);
+}
+
+export function originAddDaysToCivilDate(date: OriginDateValue, days: number): OriginDateValue {
+  return addDays(date, days);
+}
+
+export function originIsValidCivilDate(date: OriginDateValue): boolean {
+  return isValidDate(date.year, date.month, date.day);
+}
+
 export function verifyOriginDateWeekdays(input: {
   answerText: string;
   questionText?: string;

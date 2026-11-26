@@ -8,6 +8,7 @@ import {
   type RecoveryValueSourceInput,
 } from "./groundedResearchValueExtraction.js";
 import { ORIGIN_OFFICIAL_SOURCE_TOPICS } from "../search/originOfficialSourceRouting.js";
+import { originSourcePeriodAnnotation } from "../search/originOfficialEdition.js";
 
 /**
  * Recovery build Stage 1, PR-4: the template direct-answer fallback
@@ -190,6 +191,16 @@ export interface RecoveryTemplateConfirmingSource {
   title: string;
   url: string;
   domain: string;
+  /**
+   * The source's period annotation (follow-up measure 3): its
+   * stated edition （対象：令和○年○月分） or, failing that, its
+   * stated date — the same rule the reconstruction landing
+   * applies, so a template landing names the vintage of the
+   * sources confirming its value instead of leaving the as-of
+   * date in the opening sentence as the only vintage signal.
+   * Absent when the source states neither.
+   */
+  annotation?: string;
 }
 
 export interface RecoveryTemplateFallbackResult {
@@ -372,7 +383,8 @@ function buildTemplateText(input: {
     const head = input.language === "en"
       ? (source.domain ? `- ${id}: ${source.title} (${source.domain})` : `- ${id}: ${source.title}`)
       : (source.domain ? `- ${id}: ${source.title}（${source.domain}）` : `- ${id}: ${source.title}`);
-    return source.url ? `${head}\n  ${source.url}` : head;
+    const headed = source.annotation ? `${head} ${source.annotation}` : head;
+    return source.url ? `${headed}\n  ${source.url}` : headed;
   });
   if (input.language === "en") {
     return `For ${input.topic}, the information published as of ${input.asOfIso} gives ${input.value} (sources: ${input.domains.join(", ")}). Please check the official announcement for the definitive information.\n\n## Sources\n${lines.join("\n")}`;
@@ -509,11 +521,21 @@ export function tryRecoveryTemplateFallback(
     .sort((a, b) => a - b)
     .map((sourceIndex) => sources[sourceIndex])
     .filter((source): source is RecoveryValueSourceInput => Boolean(source))
-    .map((source) => ({
-      title: source.title ?? "",
-      url: source.url ?? "",
-      domain: domainOfSource(source),
-    }));
+    .map((source) => {
+      const annotation = originSourcePeriodAnnotation(
+        {
+          title: source.title ?? "",
+          revisionTimestamp: source.publishedAt ?? source.revisionTimestamp,
+        },
+        language,
+      );
+      return {
+        title: source.title ?? "",
+        url: source.url ?? "",
+        domain: domainOfSource(source),
+        ...(annotation ? { annotation } : {}),
+      };
+    });
 
   const text = buildTemplateText({
     language,

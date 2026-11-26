@@ -225,7 +225,7 @@ describe("createOriginChatRouter phased streaming (origin-phased-sse-v1)", () =>
     expect(events.at(-1)?.type).toBe("complete");
     // Tier-T4 hold text (N-1): states that nothing could be verified
     // and the concrete reason (retrieval failed), never an empty body.
-    expect(deltaText(events)).toContain("裏付けが取れなかったため、推測で回答しません");
+    expect(deltaText(events)).toContain("確認できた情報がないため、推測で回答しません");
     expect(deltaText(events)).toContain("出典を確認できませんでした");
     expect(executeMock).not.toHaveBeenCalled();
   });

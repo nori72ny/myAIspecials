@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 import type { OriginResearchSource } from "../legacy/originResearchSource.js";
-import { buildGroundedResearchReport } from "./groundedResearchV11.js";
+import {
+  buildGroundedResearchPartialAnswer,
+  buildGroundedResearchReport,
+} from "./groundedResearchV11.js";
 
 function source(overrides: Partial<OriginResearchSource>): OriginResearchSource {
   return {
@@ -130,5 +133,83 @@ describe("Grounded Research V1.1 evidence engine", () => {
     // The retrieval-metadata section is unchanged.
     expect(result.report).toContain("## 出典と取得状況");
     expect(result.report).toContain("取得状態: 本文確認済み");
+  });
+});
+
+describe("source card vintage line (display measure 5-A, server side)", () => {
+  it("shows the publication date under the title link when revisionTimestamp is known", () => {
+    const text = buildGroundedResearchPartialAnswer([
+      source({
+        title: "一般求人情報",
+        url: "https://a.example/jobs",
+        domain: "a.example",
+        revisionTimestamp: "2026-10-31T00:00:00.000Z",
+      }),
+    ], "ja", "求人について");
+    expect(text).toContain("公表日：2026年10月31日");
+    // The line sits directly under the title link, ahead of any quote.
+    const linkIndex = text.indexOf("[一般求人情報](https://a.example/jobs)");
+    const lineIndex = text.indexOf("公表日：2026年10月31日");
+    expect(linkIndex).toBeGreaterThanOrEqual(0);
+    expect(lineIndex).toBeGreaterThan(linkIndex);
+  });
+
+  it("prefers the edition stated in the title over the publication date (measure-3 rule)", () => {
+    const text = buildGroundedResearchPartialAnswer([
+      source({
+        title: "一般職業紹介状況（令和8年9月分）",
+        url: "https://www.mhlw.go.jp/stf/release",
+        domain: "mhlw.go.jp",
+        revisionTimestamp: "2026-10-30T00:00:00.000Z",
+      }),
+    ], "ja", "有効求人倍率を教えてください");
+    expect(text).toContain("公表日：対象：令和8年9月分");
+    expect(text).not.toContain("公表日：2026年10月30日");
+  });
+
+  it("omits the line entirely when the vintage cannot be read (no invented date)", () => {
+    const text = buildGroundedResearchPartialAnswer([
+      source({ title: "日付のないページ", url: "https://a.example/x", domain: "a.example" }),
+      source({
+        title: "読めない日付のページ",
+        url: "https://b.example/y",
+        domain: "b.example",
+        revisionTimestamp: "not-a-date",
+      }),
+    ], "ja", "質問");
+    expect(text).not.toContain("公表日");
+  });
+
+  it("renders the English forms", () => {
+    const dated = buildGroundedResearchPartialAnswer([
+      source({
+        title: "Jobs report",
+        url: "https://a.example/jobs",
+        domain: "a.example",
+        revisionTimestamp: "2026-10-31T00:00:00.000Z",
+      }),
+    ], "en", "jobs");
+    expect(dated).toContain("Published: 2026-10-31");
+    const edition = buildGroundedResearchPartialAnswer([
+      source({
+        title: "一般職業紹介状況（令和8年9月分）",
+        url: "https://www.mhlw.go.jp/stf/release",
+        domain: "mhlw.go.jp",
+        revisionTimestamp: "2026-10-30T00:00:00.000Z",
+      }),
+    ], "en", "job openings ratio");
+    expect(edition).toContain("Published: reference period: September 2026");
+  });
+
+  it("carries the same line on the research report's cards", () => {
+    const result = buildGroundedResearchReport("調査依頼", [
+      source({
+        title: "公表資料",
+        url: "https://a.example/release",
+        domain: "a.example",
+        revisionTimestamp: "2026-10-31T00:00:00.000Z",
+      }),
+    ]);
+    expect(result.report).toContain("公表日：2026年10月31日");
   });
 });

@@ -95,8 +95,8 @@ describe("applyOriginPublicationGate — enforce mode holds the round-4 fatal ca
     // The stale figure is not published, and the hold text carries no
     // internal vocabulary (no tier label, no reason code).
     expect(outcome.answerText).not.toContain("245名");
-    expect(outcome.answerText).toContain("出典による裏付けが取れなかったため、推測で回答しません");
-    expect(outcome.answerText).toContain("確認できた情報はありませんでした");
+    expect(outcome.answerText).toContain("確認できた情報がないため、推測で回答しません");
+    expect(outcome.answerText).toContain("十分な出典が揃いませんでした");
     expect(outcome.answerText).not.toContain("T4");
     expect(outcome.answerText).not.toContain("high-risk-insufficient-sources");
     // The direct path performed no search, so the hold must not claim one.
@@ -219,7 +219,7 @@ describe("applyOriginPublicationGate — shadow mode never alters the answer", (
       logger: () => {},
     });
     expect(outcome.held).toBe(true);
-    expect(outcome.answerText).toContain("I could not verify reliable backing");
+    expect(outcome.answerText).toContain("I have no confirmed information, so I will not guess an answer.");
     expect(outcome.answerText).not.toContain("I searched public sources");
   });
 });

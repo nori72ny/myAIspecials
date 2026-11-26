@@ -7,6 +7,10 @@ import {
   buildGroundedResearchEvidencePacket,
   splitRecoverySentences,
 } from "./groundedResearchEvidencePacket.js";
+import {
+  originSourcePeriodAnnotation,
+  parseOriginOfficialEdition,
+} from "../search/originOfficialEdition.js";
 
 export type GroundedResearchConfidence = "strong" | "moderate" | "limited";
 
@@ -285,6 +289,37 @@ function retrievedDateLabel(value: string | undefined, language: "ja" | "en"): s
     : `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
 }
 
+/**
+ * The card's own vintage line (display measure 5-A, server side;
+ * ANSWER_DISPLAY_COMPARISON_2026-11-26 §5): one line under the
+ * card's title link, in the fixed shape the chat display parses
+ * (「公表日：…」 / "Published: …"). The line follows the same
+ * rule as the measure-3 period annotation
+ * (originSourcePeriodAnnotation): when the source's title states
+ * an edition （対象期間）, the edition wins — an official
+ * statistics release is current or stale by the edition it
+ * reports, not by the day its page was posted — and the line
+ * carries the annotation's own wording （対象：令和○年○月分 /
+ * reference period: …). Otherwise the line is the source's own
+ * publication date, read from revisionTimestamp in the same UTC
+ * calendar forms the evidence packet exposes
+ * (groundedResearchPacketDateForms). A source whose vintage
+ * cannot be read gets NO line: an unknown date is shown as
+ * unknown, never dressed up with the retrieval date or a guess.
+ */
+function sourceCardPublishedLine(source: OriginResearchSource, language: "ja" | "en"): string | null {
+  if (parseOriginOfficialEdition(source.title)) {
+    const period = originSourcePeriodAnnotation(source, language)
+      .replace(/^[（(]/, "")
+      .replace(/[）)]$/, "");
+    if (!period) return null;
+    return language === "en" ? `Published: ${period}` : `公表日：${period}`;
+  }
+  const dateLabel = retrievedDateLabel(source.revisionTimestamp, language);
+  if (!dateLabel) return null;
+  return language === "en" ? `Published: ${dateLabel}` : `公表日：${dateLabel}`;
+}
+
 function scoreSource(source: OriginResearchSource, domainOccurrenceCount: number): number {
   let score = source.evidenceLevel === "page-verified" ? 55 : 30;
   if (source.freshness === "recent") score += 15;
@@ -386,6 +421,9 @@ export function buildGroundedResearchReport(query: string, sources: OriginResear
   // source, with the retrieval dates collected into a single line. The
   // per-source attribution boilerplate the cards replaced is gone here
   // as well (SOURCES_DISPLAY_REDESIGN 2026-11-20, report follow-up).
+  // Each card also carries its own vintage line (「公表日：…」) when
+  // the source's edition or publication date can be read
+  // (sourceCardPublishedLine).
   // The cards' quote does NOT carry to this surface: snippet-level
   // excerpts are often a single fragment with no sentence boundary, so
   // even the deterministically selected quote span can be the raw
@@ -435,7 +473,9 @@ export function buildGroundedResearchReport(query: string, sources: OriginResear
  * then one card per source — a heading with the source id and domain
  * (the outlet label — the source data carries no publisher name, so
  * the domain stands in for it), the title as a link to the source,
- * and, for the top three sources, a short verbatim quote (the
+ * the source's vintage line (「公表日：…」, when its edition or
+ * publication date can be read), and, for the top three sources, a
+ * short verbatim quote (the
  * evidence packet's answer-bearing sentences, falling back to the
  * N-2b claim span) after the site-chrome filter and the R-1
  * neutralization. Callers pass an already-bounded list (at most
@@ -480,6 +520,11 @@ function buildSourceCardsSection(
     const domain = domainForList(source);
     const heading = domain ? `### ${id} · ${domain}` : `### ${id}`;
     const parts = [heading, `[${linkLabel(source)}](${source.url})`];
+    // The vintage line sits directly under the title link (the
+    // position the chat display's card parser expects), ahead of
+    // the quote. Sources with no readable vintage omit it.
+    const publishedLine = sourceCardPublishedLine(source, language);
+    if (publishedLine) parts.push(publishedLine);
     // Quotes ride only on the top three cards, as before the redesign:
     // they are the gist of the highest-ranked sources, and bounding
     // them keeps this section from becoming a second search dump.

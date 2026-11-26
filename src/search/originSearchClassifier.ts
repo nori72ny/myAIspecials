@@ -9,6 +9,8 @@
 * answer may be grounded.
 */
 
+import { parseOriginDeterministicDateQuestion } from "./originDeterministicDateAnswer.js";
+
 export type OriginSearchQuestionType =
 | "weather"
 | "news"
@@ -332,6 +334,16 @@ rule,
 if (!text) return done("no_search", "empty");
 if (isTransformOnlyRequest(text)) return done("no_search", "transform-only");
 if (isDeterministicCalculation(text)) return done("no_search", "deterministic-calculation");
+// A deterministic DATE question (follow-up measure 1,
+// ANSWER_FOLLOWUP_DIAGNOSIS_2026-11-26): the answer is a pure function
+// of the clock — a relative day's weekday or date, or the weekday of a
+// fully specified date. It needs no source and no freshness judgement;
+// without this guard the bare 今日 fell into the freshness-marker rule
+// below and the fresh_general wipe refused a question the calendar
+// answers exactly (production-observed 2026-11-25 and 2026-11-26).
+// The parser is whole-question strict, so 今日のニュース / 今日の天気 /
+// 今日は何日までにやるべき？ never land here.
+if (parseOriginDeterministicDateQuestion(text)) return done("no_search", "deterministic-date");
 
 const hasFreshnessMarker = FRESHNESS_MARKER.test(text);
 const hasConceptMarker = CONCEPT_MARKER.test(text);
