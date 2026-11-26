@@ -1,16 +1,22 @@
 import type { OriginResearchSource } from "../legacy/originResearchSource.js";
 import { parseOriginOfficialEdition } from "../search/originOfficialEdition.js";
+import {
+  isRegionalOfficialSource,
+  type OfficialMaterialSourceShape,
+} from "../search/originRegionalOfficialSource.js";
 
 /**
  * Recovery build Stage 1, PR-2: sentence-level evidence packet.
  *
  * The N-2b claim sentences (groundedResearchEvidenceCards.ts) select at
  * most two sentences per source from the 600-character compacted excerpt,
- * split by `splitGroundedResearchSentences` — a splitter that cuts at
- * every period, including the period inside a decimal ("1.0%" becomes
- * "1." + "0%…") and inside a URL. Round 5 showed the cost: F-03's
- * 1.25% fact sat in a source whose claim sentences never carried it,
- * and F-01's current-office statement was never quoted at all.
+ * split by `splitGroundedResearchSentences` — at the time a splitter
+ * that cut at every period, including the period inside a decimal
+ * ("1.0%" becomes "1." + "0%…") and inside a URL. Round 5 showed the
+ * cost: F-03's 1.25% fact sat in a source whose claim sentences never
+ * carried it, and F-01's current-office statement was never quoted at
+ * all. (The card side shares this module's protected splitter since
+ * the 2026-11-26 remeasure diagnosis, measure 1-1.)
  *
  * The packet is a second, independent selection that runs on the RAW
  * source excerpt (before compactExcerpt) plus the source title:
@@ -47,6 +53,16 @@ import { parseOriginOfficialEdition } from "../search/originOfficialEdition.js";
  *    key-matching sentence from a secondary or older source, so a
  *    stale secondary value no longer outranks the current official
  *    one merely on digit/term signals.
+ *  - Regional sub-ranking (remeasure measure 3-1,
+ *    ANSWER_STATISTICS_REMEASURE_DIAGNOSIS_2026-11-26): the
+ *    official bonus speaks for the publishing authority, and a
+ *    regional (prefectural) publication is not the national
+ *    authority — when a national official source is in the pool,
+ *    a regional official source does not receive the bonus, so
+ *    its local figure no longer ties with (and, on key overlap,
+ *    beats) the national release's value sentence. The tier is
+ *    unchanged; this is a sub-rank inside the official group,
+ *    mirroring the pool selection in originSearchGrounding.
  */
 
 export type RecoveryPacketSentenceOrigin = "title" | "excerpt";
@@ -307,7 +323,24 @@ function isHeadingFragment(sentence: string): boolean {
 const PACKET_OFFICIAL_TIER_BONUS = 2;
 const PACKET_LATEST_EDITION_BONUS = 2;
 
-type PacketSource = Pick<OriginResearchSource, "title" | "excerpt" | "authorityTier">;
+type PacketSource = Pick<OriginResearchSource, "title" | "excerpt" | "authorityTier"> & {
+  // Optional: some callers build packet sources from title +
+  // excerpt alone (groundedResearchValueExtraction). The regional
+  // sub-ranking simply cannot recognize such a source as regional.
+  url?: string;
+  domain?: string;
+};
+
+/** The regional predicate's input shape, filled from a packet source. */
+function toRegionalShape(source: PacketSource): OfficialMaterialSourceShape {
+  return {
+    title: source.title ?? "",
+    url: source.url ?? "",
+    excerpt: source.excerpt ?? "",
+    domain: source.domain ?? "",
+    authorityTier: source.authorityTier ?? "",
+  };
+}
 
 /**
  * Build the evidence packet for a list of sources and a question:
@@ -339,11 +372,24 @@ export function buildGroundedResearchEvidencePacket(
       sortKey !== null && (latest === null || sortKey > latest) ? sortKey : latest,
     null,
   );
+  // Regional sub-ranking (measure 3-1): whether the pool holds a
+  // national official source at all decides the regional official
+  // sources' bonus below — a pool with only regional officials
+  // keeps their bonus exactly as before.
+  const hasNationalOfficial = sources.some(
+    (source) =>
+      source.authorityTier === "official" && !isRegionalOfficialSource(toRegionalShape(source)),
+  );
   const candidates: ScoredCandidate[] = [];
   sources.forEach((source, sourceIndex) => {
     const editionSortKey = sourceEditionSortKeys[sourceIndex] ?? null;
+    const officialBonus =
+      source.authorityTier === "official"
+      && !(hasNationalOfficial && isRegionalOfficialSource(toRegionalShape(source)))
+        ? PACKET_OFFICIAL_TIER_BONUS
+        : 0;
     const sourceBonus =
-      (source.authorityTier === "official" ? PACKET_OFFICIAL_TIER_BONUS : 0) +
+      officialBonus +
       (editionSortKey !== null && editionSortKey === latestEditionSortKey
         ? PACKET_LATEST_EDITION_BONUS
         : 0);

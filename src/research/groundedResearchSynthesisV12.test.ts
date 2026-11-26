@@ -1,9 +1,12 @@
 import { describe, expect, it } from "vitest";
 import type { OriginResearchSource } from "../legacy/originResearchSource";
+import { buildGroundedResearchEvidenceCards } from "./groundedResearchEvidenceCards";
 import {
   buildGroundedResearchSynthesisInstruction,
   buildGroundedResearchSynthesisPrompt,
   buildGroundedResearchSynthesisRetryFeedback,
+  compactExcerpt,
+  numericTokenSupported,
   validateGroundedResearchSynthesis,
 } from "./groundedResearchSynthesisV12";
 
@@ -412,5 +415,95 @@ describe("groundedResearchSynthesisV12", () => {
       ok: true,
       usedSourceIds: ["S1"],
     });
+  });
+});
+
+describe("statistics remeasure fixes (diagnosis 2026-11-26, measures 1-1 / 1-2)", () => {
+  // The production failure: the MHLW release sentence carries
+  // "1.19倍"; the old card-side splitter cut it into "1." + "19倍…"
+  // and the model read the fragments back as "19倍".
+  const mhlwLongExcerpt = [
+    "厚生労働省は雇用情勢の月次統計を公表しました。",
+    "令和8年9月の有効求人倍率は1.19倍で、前月と比べて0.01ポイント上昇しました。",
+    "本統計は全国の公共職業安定所における求人、求職、就職の取扱状況を集計したもので、季節調整済みの数値を中心に掲載しています。",
+    "就業地別の有効求人倍率は、東京都が最も高く、沖縄県が最も低くなりました。受理地別では福井県が最も高くなりました。",
+    "新規求人倍率は2.05倍で、前年同月と比べて低下しました。新規求人数は前年同月比で減少が続いています。",
+    "有効求職者数は前月からほぼ横ばいで、有効求人数は製造業を中心に持ち直しの動きが見られます。",
+    "本資料は一般職業紹介状況の月次公表資料であり、次回公表は翌月末の予定です。問い合わせは職業安定局までお願いします。",
+    "数値の詳細な内訳や過去の推移については、別表および政府統計の総合窓口に掲載のデータをご覧ください。",
+    "なお、本統計における求人倍率は新規学卒者を除き、パートタイムを含む常用の数値を用いて算出しています。",
+    "都道府県別の詳細な集計結果は別冊の参考資料に収録しており、主要な指標については時系列の推移も併せて示しています。",
+    "季節調整済み数値の算出方法や改定の履歴については、公表資料の末尾に付した解説および注記を参照してください。",
+    "産業別の新規求人数では、医療・福祉や宿泊業・飲食サービス業で増加が見られる一方、卸売業・小売業では減少しました。",
+    "地域ブロック別の動向については、各地方の経済情勢と併せて、四半期ごとに取りまとめる参考資料で詳しく報告しています。",
+  ].join("");
+
+  const mhlwSources: OriginResearchSource[] = [
+    {
+      title: "一般職業紹介状況（令和8年9月分）",
+      url: "https://www.mhlw.go.jp/stf/newpage_20261030.html",
+      excerpt: "令和8年9月の有効求人倍率は1.19倍で、前月と比べて0.01ポイント上昇しました。",
+      sourceType: "web-search",
+      domain: "www.mhlw.go.jp",
+      rank: 1,
+      evidenceLevel: "page-verified",
+      retrievedAt: "2026-10-30T01:00:00.000Z",
+      freshness: "recent",
+      sourceAuthority: "official-domain-match",
+    },
+    {
+      title: "雇用情勢の解説ページ",
+      url: "https://example.net/employment-commentary",
+      excerpt: "求人倍率の推移と雇用情勢の見方を解説するページです。",
+      sourceType: "web-search",
+      domain: "example.net",
+      rank: 2,
+      evidenceLevel: "snippet",
+      retrievedAt: "2026-10-30T01:00:00.000Z",
+      freshness: "unknown",
+      sourceAuthority: "secondary-reference",
+    },
+  ];
+
+  it("keeps 1.19倍 intact in the evidence card's claim sentences and compacted excerpt (measure 1-1)", () => {
+    const cardSet = buildGroundedResearchEvidenceCards(
+      "令和8年9月の有効求人倍率を教えてください",
+      [{ ...mhlwSources[0], excerpt: mhlwLongExcerpt }],
+    );
+    const card = cardSet.cards[0];
+    expect(card.claimSentences.some((sentence) => sentence.includes("1.19倍"))).toBe(true);
+    expect(card.claimSentences.join(" ")).not.toContain("1. 19");
+    expect(card.excerpt).toContain("1.19倍");
+    expect(card.excerpt).not.toContain("1. 19");
+
+    const compacted = compactExcerpt(mhlwLongExcerpt);
+    expect(compacted).toContain("1.19倍");
+    expect(compacted).not.toContain("1. 19");
+  });
+
+  it("judges an answer-side 19 unsupported against evidence that only holds 1.19 (measure 1-2)", () => {
+    const truncated = "有効求人倍率は19倍でした。[S1](https://www.mhlw.go.jp/stf/newpage_20261030.html) [S2](https://example.net/employment-commentary)";
+    expect(validateGroundedResearchSynthesis(truncated, mhlwSources)).toEqual(
+      expect.objectContaining({ ok: false, code: "UNSUPPORTED_NUMERIC_TOKEN" }),
+    );
+
+    const intact = "有効求人倍率は1.19倍でした。[S1](https://www.mhlw.go.jp/stf/newpage_20261030.html) [S2](https://example.net/employment-commentary)";
+    expect(validateGroundedResearchSynthesis(intact, mhlwSources)).toEqual({
+      ok: true,
+      usedSourceIds: ["S1", "S2"],
+    });
+  });
+
+  it("pins the decimal-aware support predicate directly", () => {
+    // Normalized forms (NFKC, separators stripped), as the gate sees them.
+    expect(numericTokenSupported("19", "有効求人倍率は1.19倍で")).toBe(false);
+    expect(numericTokenSupported("1.19", "有効求人倍率は1.19倍で")).toBe(true);
+    expect(numericTokenSupported("1.1", "有効求人倍率は1.19倍で")).toBe(false);
+    expect(numericTokenSupported("19", "求職者数は119万人でした")).toBe(false);
+    expect(numericTokenSupported("19", "応募は19件でした")).toBe(true);
+    // Date sub-tokens and unit-suffixed decimals keep working.
+    expect(numericTokenSupported("11月", "2026年11月26日")).toBe(true);
+    expect(numericTokenSupported("0.0", "前期比-0.0%でした")).toBe(true);
+    expect(numericTokenSupported("26日", "2026年11月26日")).toBe(true);
   });
 });

@@ -268,3 +268,54 @@ describe("extractPacketQuestionKeys", () => {
     expect(keys).toEqual([{ text: zeros, weight: 2 }]);
   });
 });
+
+describe("regional sub-ranking (remeasure measure 3-1)", () => {
+  // The F-06 re-measurement shape: the pool holds the Statistics
+  // Bureau's national release and a prefectural labour bureau's
+  // page whose fragment quotes the prefecture's own figure with
+  // the question's exact key phrase. Before the wiring, the
+  // regional page received the same official bonus and its value
+  // sentence tied or beat the national one.
+  const national = source({
+    title: "労働力調査（基本集計）令和8年9月分",
+    url: "https://www.stat.go.jp/data/roudou/sokuhou/tsuki/index.html",
+    domain: "www.stat.go.jp",
+    authorityTier: "official",
+    excerpt: "完全失業率は2.4%でした。就業者数は6,700万人でした。",
+  });
+  const regional = source({
+    title: "京都労働局 雇用情勢",
+    url: "https://jsite.mhlw.go.jp/kyoto-roudoukyoku/jirei_toukei.html",
+    domain: "jsite.mhlw.go.jp",
+    authorityTier: "official",
+    excerpt: "完全失業率は1.2%でした。就業者数は130万人でした。",
+  });
+  const question = "最新の完全失業率を教えてください";
+
+  it("scores the national value sentence above the regional one when both are in the pool", () => {
+    const packet = buildGroundedResearchEvidencePacket([regional, national], question);
+    const byText = new Map(packet.sentences.map((sentence) => [sentence.text, sentence]));
+    const nationalSentence = byText.get("完全失業率は2.4%でした。");
+    const regionalSentence = byText.get("完全失業率は1.2%でした。");
+    expect(nationalSentence).toBeDefined();
+    expect(regionalSentence).toBeDefined();
+    expect(nationalSentence!.score).toBeGreaterThan(regionalSentence!.score);
+  });
+
+  it("keeps the regional official's bonus when no national official source is in the pool", () => {
+    const news = source({
+      title: "雇用情勢を伝える報道",
+      url: "https://example.com/news/employment",
+      domain: "example.com",
+      authorityTier: "major-news",
+      excerpt: "完全失業率は2.4%でした。就業者数は6,700万人でした。",
+    });
+    const packet = buildGroundedResearchEvidencePacket([regional, news], question);
+    const byText = new Map(packet.sentences.map((sentence) => [sentence.text, sentence]));
+    // Same base signals as the news sentence; only the official
+    // bonus separates them, and it must still be there.
+    expect(byText.get("完全失業率は1.2%でした。")!.score).toBeGreaterThan(
+      byText.get("完全失業率は2.4%でした。")!.score,
+    );
+  });
+});

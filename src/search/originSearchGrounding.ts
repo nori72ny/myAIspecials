@@ -64,6 +64,7 @@ import {
   type OriginOfficialSourcePlan,
 } from "./originOfficialSourceRouting.js";
 import { parseOriginOfficialEdition } from "./originOfficialEdition.js";
+import { isRegionalOfficialSource } from "./originRegionalOfficialSource.js";
 
 /** §2.5: gate-failure answers must say what happened, not a bare refusal. */
 export const ORIGIN_GROUNDING_UNAVAILABLE_MESSAGE_JA =
@@ -717,10 +718,32 @@ export function selectOriginSearchSources<T extends OriginSearchSource>(
   return selectOriginSearchSourcesWithObservation(candidates, limit).selected;
 }
 
+/**
+ * Deterministic signals of a data-table page (remeasure diagnosis
+ * 2026-11-26, measure 2-1): an official release exists as a summary
+ * page, where the value is stated in prose, and as table pages,
+ * where it sits inside a grid. The extract stage reads a bounded
+ * head of the page and the downstream stages need the value as a
+ * sentence, so a table page can never serve a statistics question
+ * the way its summary page can — yet nothing in the tier / provider
+ * score / recency order knew the difference, and the GDP pool
+ * adopted the time-series table over the release summary. The
+ * signal is the publisher's own page vocabulary (time-series table
+ * / time series / data list), read from the title, then the URL.
+ */
+const DATA_TABLE_PAGE_SIGNALS: readonly string[] = ["時系列表", "時系列", "データ一覧"];
+
+export function isDataTablePage(source: Pick<OriginSearchSource, "title" | "url">): boolean {
+  const title = (source.title ?? "").normalize("NFKC");
+  if (DATA_TABLE_PAGE_SIGNALS.some((signal) => title.includes(signal))) return true;
+  const url = (source.url ?? "").toLowerCase();
+  return DATA_TABLE_PAGE_SIGNALS.some((signal) => url.includes(signal));
+}
+
 export function selectOriginSearchSourcesWithObservation<T extends OriginSearchSource>(
   candidates: readonly T[],
   limit = MAX_SELECTED_SOURCES,
-  options?: { editionDateFallback?: boolean },
+  options?: { editionDateFallback?: boolean; officialSubRanking?: boolean },
 ): { selected: T[]; observation: OriginSearchSelectionObservation } {
   const seenUrls = new Set<string>();
   const unique: T[] = [];
@@ -758,9 +781,37 @@ export function selectOriginSearchSourcesWithObservation<T extends OriginSearchS
     }
     return 0;
   };
+  // Official sub-ranking (remeasure diagnosis 2026-11-26, measures
+  // 2-1 and 3-1; only under the official routing switch, like the
+  // edition fallback above): WITHIN the official tier — the tier
+  // itself never changes — two distinctions the old order was blind
+  // to. A regional (prefectural) publication ranks below the
+  // national one whenever a national official source is in the
+  // pool at all: a prefectural bureau's figure is not the national
+  // value, however fresh or well-scored its page is. And a
+  // data-table page ranks below the release's summary page: the
+  // value sits in a grid there, unreachable as a sentence. The
+  // regional key outweighs the table key (a regional summary still
+  // ranks below a national table page — authority first, page
+  // kind second). Because extract targets are the head of this
+  // order, the sub-ranking also decides what gets extracted.
+  const hasNationalOfficial = options?.officialSubRanking
+    ? unique.some(
+      (source) => source.authorityTier === "official" && !isRegionalOfficialSource(source),
+    )
+    : false;
+  const officialSubRank = (source: T): number => {
+    if (!options?.officialSubRanking || source.authorityTier !== "official") return 0;
+    let rank = 0;
+    if (hasNationalOfficial && isRegionalOfficialSource(source)) rank += 2;
+    if (isDataTablePage(source)) rank += 1;
+    return rank;
+  };
   const sorted = [...unique].sort((a, b) => {
     const tierDiff = ORIGIN_TIER_WEIGHT[b.authorityTier] - ORIGIN_TIER_WEIGHT[a.authorityTier];
     if (tierDiff !== 0) return tierDiff;
+    const subRankDiff = officialSubRank(a) - officialSubRank(b);
+    if (subRankDiff !== 0) return subRankDiff;
     const scoreDiff = (b.providerScore ?? 0) - (a.providerScore ?? 0);
     if (scoreDiff !== 0) return scoreDiff;
     return recencyMs(b) - recencyMs(a);
@@ -1236,7 +1287,7 @@ export async function executeOriginSearchGrounding(
   let selection = selectOriginSearchSourcesWithObservation(
     kept,
     MAX_SELECTED_SOURCES,
-    { editionDateFallback: officialRoutingEnabled },
+    { editionDateFallback: officialRoutingEnabled, officialSubRanking: officialRoutingEnabled },
   );
   let selected = selection.selected;
 
@@ -1319,7 +1370,7 @@ export async function executeOriginSearchGrounding(
               selection = selectOriginSearchSourcesWithObservation(
                 kept,
                 MAX_SELECTED_SOURCES,
-                { editionDateFallback: officialRoutingEnabled },
+                { editionDateFallback: officialRoutingEnabled, officialSubRanking: officialRoutingEnabled },
               );
               selected = selection.selected;
               const selectedUrls = new Set(selected.map((source) => source.url.split("#")[0]));

@@ -252,12 +252,16 @@ describe("buildGroundedResearchPartialAnswer", () => {
     // itself — the card headings legitimately use "###".)
     // N-2b note: the quote is now the excerpt span covering the card's
     // selected claim sentences (N2_N5_IMPLEMENTATION_DESIGN_2026-11-17
-    // §1.4), not the excerpt head. The shared sentence splitter cuts
-    // this excerpt at the periods inside its URLs, and the trailing
-    // fragment ("…の内容です。") is outside the top-2 selection, so it
-    // no longer rides the quote; every neutralization property above
-    // is unchanged.
-    expect(text).toContain("『重要 見出し 案内ラベル』");
+    // §1.4), not the excerpt head. Since the remeasure measure 1-1
+    // (ANSWER_STATISTICS_REMEASURE_DIAGNOSIS_2026-11-26) the shared
+    // sentence splitter is the packet's protected one, so the periods
+    // inside this excerpt's URLs no longer cut it into fragments:
+    // the excerpt is a single sentence and rides the quote whole,
+    // trailing clause included. (This expectation previously pinned
+    // the unprotected splitter's cut — the same defect that split
+    // "1.19倍" into "1." + "19倍…" in production.) Every
+    // neutralization property above is unchanged.
+    expect(text).toContain("『重要 見出し 案内ラベル の内容です。』");
     expect(text).not.toContain("example.org/page");
     expect(text).not.toContain("example.org/other");
     const quote = text.match(/『([^』]*)』/)?.[1] ?? "";
