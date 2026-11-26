@@ -316,6 +316,38 @@ function productionAssembledInstruction(): string {
   return `${base}\n\n${padding}`;
 }
 
+describe("executeOriginGroqProvider analyzer reasoning bound (Basel diagnosis 2026-11-26, 案B)", () => {
+  const bodyOf = async (marked: OriginProviderExecutionRequest) => {
+    const fetchMock = vi.fn(async () => groqJson(successBody())) as unknown as OriginFetch;
+    await executeOriginGroqProvider(marked, groqEnv, fetchMock, { nowMs: NOW_MS });
+    const calls = (fetchMock as unknown as ReturnType<typeof vi.fn>).mock.calls;
+    expect(calls).toHaveLength(1);
+    return JSON.parse(String((calls[0] as [string, RequestInit])[1].body)) as { model: string; reasoning_effort?: string };
+  };
+
+  it("sends reasoning_effort low to gpt-oss for an analyzer-marked request", async () => {
+    // The Basel failure shape: an analyzer chunk call whose
+    // unbounded gpt-oss reasoning ate the completion budget and
+    // returned an empty body. The mark is the capacity-allocation
+    // hint only agent chunk calls carry.
+    const body = await bodyOf({ ...request, groqCapacityAllocation: "agent-analyzer-chunk" });
+    expect(body.model).toBe(ORIGIN_GROQ_FREE_MODEL_ID);
+    expect(body.reasoning_effort).toBe("low");
+  });
+
+  it("sends reasoning_effort low for the primary-first analyzer mark too", async () => {
+    const body = await bodyOf({ ...request, groqCapacityAllocation: "agent-analyzer-chunk-primary" });
+    expect(body.model).toBe(ORIGIN_GROQ_FREE_MODEL_ID);
+    expect(body.reasoning_effort).toBe("low");
+  });
+
+  it("sends no reasoning_effort to gpt-oss for an unmarked request", async () => {
+    const body = await bodyOf(request);
+    expect(body.model).toBe(ORIGIN_GROQ_FREE_MODEL_ID);
+    expect(body.reasoning_effort).toBeUndefined();
+  });
+});
+
 describe("executeOriginGroqProvider route activation (compact instruction)", () => {
   it("regression: the production-assembled standard instruction alone still skips before sending", async () => {
     const fetchMock = vi.fn() as unknown as OriginFetch;

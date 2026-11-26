@@ -393,6 +393,24 @@ export type AgentRunStepProviderAttempt = {
 };
 
 /**
+ * The final provider failure's own diagnostic detail for an
+ * attachment_analyzer step (Basel failure diagnosis 2026-11-26,
+ * 案C): how the last route's completion ended and how many of
+ * its completion tokens went to reasoning — the two facts whose
+ * absence left the Basel failure's subtype unrecoverable from
+ * the record. Either field is present only when the failed
+ * dispatch's diagnostic carried it. The finish reason belongs
+ * to the provider layer's closed completion vocabulary and the
+ * count to its usage bound; both are re-validated by the
+ * normalizer below, so this module keeps no dependency on the
+ * provider layer, exactly like the attempt evidence above.
+ */
+export type AgentRunStepProviderFailureDetail = {
+  finishReason?: string;
+  reasoningTokens?: number;
+};
+
+/**
  * The recorded outcome of an attachment_reconciler step (design
  * AGENT_MA_MISREADING_COUNTERMEASURE_2026-11-23 §2 layer 2): how
  * many deterministic value-mismatch candidates the step judged,
@@ -504,6 +522,7 @@ export type AgentRunStepLiveDetail = {
   coverageFailure?: AgentRunStepCoverageFailure;
   analyzerExecution?: AgentRunStepAnalyzerExecution;
   providerAttempts?: AgentRunStepProviderAttempt[];
+  providerFailureDetail?: AgentRunStepProviderFailureDetail;
   modelCalls?: AgentRunStepModelCall[];
   reconciliation?: AgentRunStepReconciliation;
   rowsOutput?: AgentRunStepRowsOutput;
@@ -1271,6 +1290,42 @@ function normalizeAgentRunStepProviderAttempts(value: unknown): AgentRunStepProv
   return attempts.length > 0 ? attempts : undefined;
 }
 
+/** Final-failure detail shapes (Basel 案C): the provider layer's
+ * closed completion vocabulary and its usage-token bound,
+ * duplicated here so this module keeps no dependency on the
+ * provider layer, exactly like the attempt vocabularies above.
+ * A field that is present but outside its shape drops the whole
+ * detail, in the same fail-soft style as the provider attempt
+ * above; a detail with neither field is no detail at all. */
+const LIVE_PROVIDER_FAILURE_FINISH_REASONS: ReadonlySet<string> = new Set([
+  'stop',
+  'length',
+  'tool_calls',
+  'content_filter',
+  'function_call',
+]);
+const LIVE_PROVIDER_FAILURE_REASONING_TOKENS_MAX = 10_000_000;
+
+function normalizeAgentRunStepProviderFailureDetail(
+  value: unknown,
+): AgentRunStepProviderFailureDetail | undefined {
+  if (!isPlainObject(value)) return undefined;
+  const { finishReason, reasoningTokens } = value;
+  const detail: AgentRunStepProviderFailureDetail = {};
+  if (finishReason !== undefined) {
+    if (typeof finishReason !== 'string' || !LIVE_PROVIDER_FAILURE_FINISH_REASONS.has(finishReason)) return undefined;
+    detail.finishReason = finishReason;
+  }
+  if (reasoningTokens !== undefined) {
+    if (!Number.isInteger(reasoningTokens) || Number(reasoningTokens) < 0
+      || Number(reasoningTokens) > LIVE_PROVIDER_FAILURE_REASONING_TOKENS_MAX) {
+      return undefined;
+    }
+    detail.reasoningTokens = Number(reasoningTokens);
+  }
+  return Object.keys(detail).length > 0 ? detail : undefined;
+}
+
 /** Model-call timing vocabularies (D7 countermeasure A): the same
  * identifier shapes as the provider attempts, a two-value outcome
  * set (a dispatch either produced its response or it did not), and
@@ -1445,6 +1500,8 @@ function normalizeAgentRunStepLiveDetail(value: unknown): AgentRunStepLiveDetail
   if (analyzerExecution !== undefined) detail.analyzerExecution = analyzerExecution;
   const providerAttempts = normalizeAgentRunStepProviderAttempts(value.providerAttempts);
   if (providerAttempts !== undefined) detail.providerAttempts = providerAttempts;
+  const providerFailureDetail = normalizeAgentRunStepProviderFailureDetail(value.providerFailureDetail);
+  if (providerFailureDetail !== undefined) detail.providerFailureDetail = providerFailureDetail;
   const modelCalls = normalizeAgentRunStepModelCalls(value.modelCalls);
   if (modelCalls !== undefined) detail.modelCalls = modelCalls;
   const reconciliation = normalizeAgentRunStepReconciliation(value.reconciliation);

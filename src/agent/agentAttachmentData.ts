@@ -16,10 +16,58 @@
  * boundaries on row / paragraph breaks only. A single row or paragraph
  * longer than the cap forms its own chunk whole — a line is never cut
  * in the middle to satisfy the cap, because a cut row is a lost row
- * for coverage purposes.
+ * for coverage purposes. The primary table's chunks additionally
+ * pack rows only up to an estimated-output budget
+ * (AGENT_ATTACHMENT_PRIMARY_TABLE_CHUNK_MAX_ESTIMATED_OUTPUT_TOKENS —
+ * Basel failure diagnosis 2026-11-26, 案A revised; see the constant).
  */
 
 export const AGENT_ATTACHMENT_CHUNK_MAX_CHARS = 3_500;
+/** Primary-table chunk estimated-output budget, in tokens (Basel
+ * failure diagnosis 2026-11-26, 案A as revised the same day): the
+ * primary table's chunks pack rows only while the summed
+ * ESTIMATED analyzer output for the chunk stays within this
+ * budget (see estimatePrimaryTableRowOutputTokens for the
+ * estimator). The constraint this serves is the completion
+ * budget the execution plan allows each analyzer call: the
+ * smallest budget across task types is 2,400 tokens
+ * (originCompletionTokenBudget's default), and the gpt-oss
+ * models spend reasoning out of the same budget (案B lowers the
+ * reasoning effort, it does not separate the budgets). The
+ * Basel main table's rows are short, so the character cap alone
+ * packed 42 rows into chunk 0 — and that chunk's minimal correct
+ * output alone needs ~2,043 tokens of the 2,400, leaving ~350
+ * for reasoning; the body came back empty and the run died on
+ * its first analyzer call. Packing to half the minimum budget
+ * (1,200 estimated tokens) leaves the other half for reasoning
+ * and for model verbosity the estimator cannot foresee.
+ *
+ * The flat 20-row cap this replaces sized every primary table
+ * by the Basel row shape: on a narrow-row table (~41 chars per
+ * row, ~32 estimated output tokens per row) it packed 20 rows
+ * where the character rule packs ~85, so a 1,200-row set needed
+ * 60 chunks and a 2,100-row set 105 — both over the 48-chunk
+ * run ceiling and refused at plan time, a capability regression
+ * on mid-size tables the character rule had always accepted.
+ * The estimated-output rule tracks the actual constraint: the
+ * Basel shape (short rows whose output is dominated by the
+ * schema's field names, ~49 actual tokens per row, ~54
+ * estimated) packs 22 rows per chunk, while the narrow shape
+ * packs ~37 — close to its per-row output size, not to the
+ * Basel row count. Only the primary table — the first
+ * key-bearing table, the one the coverage yardstick anchors
+ * on — is budgeted: reference tables keep the character rule
+ * exactly, and the yardstick (expected keys, aggregates) is
+ * computed from the full parse either way, so coverage meaning
+ * is unchanged; only the packing changes. */
+export const AGENT_ATTACHMENT_PRIMARY_TABLE_CHUNK_MAX_ESTIMATED_OUTPUT_TOKENS = 1_200;
+/** Estimated value length, in chars, charged for an output
+ * column the input table does not carry (a derived column the
+ * output schema demands, e.g. a classification code): the
+ * values such columns take are short codes or labels, and 12
+ * chars covers the observed shapes (EL/BL codes are 3) with
+ * margin that also absorbs JSON spacing the model may add. */
+const AGENT_ATTACHMENT_DERIVED_OUTPUT_VALUE_CHARS = 12;
 /** Analyzer segment size: one step processes at most this many chunks,
  * one sequential model call per chunk. Lowered from 4 to 2 after the
  * AGORA timeout (2026-11-23, run-4aaf8df2): a 4-chunk segment ran
@@ -298,10 +346,75 @@ function detectNumericColumns(table: ParsedTable): string[] {
   return numeric;
 }
 
+/** Splits a text into its ASCII and non-ASCII char counts for
+ * the token estimator below. Iterating UTF-16 code units counts
+ * an astral character twice — the conservative direction, and
+ * immaterial at these sizes. */
+function splitCharKinds(text: string): { ascii: number; nonAscii: number } {
+  let ascii = 0;
+  let nonAscii = 0;
+  for (let index = 0; index < text.length; index += 1) {
+    if (text.charCodeAt(index) <= 0x7f) ascii += 1;
+    else nonAscii += 1;
+  }
+  return { ascii, nonAscii };
+}
+
+/**
+ * The deterministic per-row output estimate behind the primary
+ * table's chunk budget (see
+ * AGENT_ATTACHMENT_PRIMARY_TABLE_CHUNK_MAX_ESTIMATED_OUTPUT_TOKENS):
+ * the analyzer answers one chunk with one JSON object per row,
+ * whose fields are the output columns — the set's output-schema
+ * columns when a schema file declares them, otherwise the
+ * table's own header. The estimate rebuilds that object's size
+ * from the parse: each field charges its name, the row's own
+ * cell text when the input carries the column (values are
+ * copied verbatim by contract), a fixed allowance for a derived
+ * column the input does not carry, and 4 chars of JSON syntax
+ * (two quotes, the colon, the comma); 2 more chars close the
+ * object. Chars convert to tokens at the codebase's established
+ * rates (estimateOriginGroqInputTokens): ASCII at chars / 2 —
+ * the conservative estimator for English text — and non-ASCII
+ * at 1 token per char, above the documented 1.3–2 chars per
+ * token for Japanese, because copied Japanese values are the
+ * case an underestimate would hurt. Calibration against the
+ * measured Basel failure: the schema-shaped row estimates to
+ * ~54 tokens against ~49 actual (2,043 tokens for 42 rows).
+ * Goal-derived columns beyond the schema/header (a classify
+ * goal's category column) are not foreseeable here and are
+ * knowingly uncounted; the budget's 50% headroom under the
+ * minimum completion budget absorbs them.
+ */
+function estimatePrimaryTableRowOutputTokens(
+  table: ParsedTable,
+  rowIndex: number,
+  outputColumns: readonly string[],
+): number {
+  let asciiChars = 2;
+  let nonAsciiChars = 0;
+  const row = table.rows[rowIndex];
+  for (const column of outputColumns) {
+    const name = splitCharKinds(column);
+    asciiChars += name.ascii + 4;
+    nonAsciiChars += name.nonAscii;
+    const inputIndex = table.header.indexOf(column);
+    if (inputIndex >= 0) {
+      const value = splitCharKinds(row[inputIndex] ?? '');
+      asciiChars += value.ascii;
+      nonAsciiChars += value.nonAscii;
+    } else {
+      asciiChars += AGENT_ATTACHMENT_DERIVED_OUTPUT_VALUE_CHARS;
+    }
+  }
+  return Math.ceil(asciiChars / 2) + nonAsciiChars;
+}
+
 function chunkTable(
   name: string,
   table: ParsedTable,
   startIndex: number,
+  rowOutputTokenEstimates?: readonly number[],
 ): { chunks: AgentDataChunk[]; rowIndexesPerChunk: number[][] } {
   const headerLine = table.rowLines.length > 0
     ? tableHeaderLine(table)
@@ -311,6 +424,7 @@ function chunkTable(
   let current: string[] = [];
   let currentRowIndexes: number[] = [];
   let currentChars = 0;
+  let currentEstimatedOutputTokens = 0;
   const flush = () => {
     if (current.length === 0) return;
     chunks.push({ index: startIndex + chunks.length, fileName: name, text: [headerLine, ...current].join('\n') });
@@ -318,22 +432,38 @@ function chunkTable(
     current = [];
     currentRowIndexes = [];
     currentChars = 0;
+    currentEstimatedOutputTokens = 0;
   };
   // rowLines[i] and rows[i] are the same kept row (both were filtered
   // by the same column-consistency predicate), so the index packed
   // here identifies the parsed row a chunk line came from.
   for (let rowIndex = 0; rowIndex < table.rowLines.length; rowIndex += 1) {
     const line = table.rowLines[rowIndex];
+    const rowEstimatedOutputTokens = rowOutputTokenEstimates?.[rowIndex] ?? 0;
     let projected = currentChars + (current.length > 0 ? 1 : 0) + line.length;
+    let projectedEstimatedOutputTokens = currentEstimatedOutputTokens + rowEstimatedOutputTokens;
+    if (
+      current.length > 0
+      && rowOutputTokenEstimates !== undefined
+      && projectedEstimatedOutputTokens > AGENT_ATTACHMENT_PRIMARY_TABLE_CHUNK_MAX_ESTIMATED_OUTPUT_TOKENS
+    ) {
+      flush();
+      // The projections were computed against the flushed chunk;
+      // the fresh chunk starts from this line alone.
+      projected = line.length;
+      projectedEstimatedOutputTokens = rowEstimatedOutputTokens;
+    }
     if (current.length > 0 && headerLine.length + 1 + projected > AGENT_ATTACHMENT_CHUNK_MAX_CHARS) {
       flush();
-      // The projection was computed against the flushed chunk; the
-      // fresh chunk starts from this line alone.
+      // The projections were computed against the flushed chunk;
+      // the fresh chunk starts from this line alone.
       projected = line.length;
+      projectedEstimatedOutputTokens = rowEstimatedOutputTokens;
     }
     current.push(line);
     currentRowIndexes.push(rowIndex);
     currentChars = projected;
+    currentEstimatedOutputTokens = projectedEstimatedOutputTokens;
   }
   flush();
   return { chunks, rowIndexesPerChunk };
@@ -380,6 +510,31 @@ export function buildAgentAttachmentDataView(files: readonly AgentAttachmentData
   const chunks: AgentDataChunk[] = [];
   const tables = new Map<string, { table: ParsedTable; key: { index: number; name: string } | null; numeric: string[] }>();
   const tableChunkRowIndexes = new Map<string, Map<number, number[]>>();
+  /** Whether the primary table — the first key-bearing table in
+   * file order, the same selection the yardstick below applies —
+   * has been seen yet. Its chunks alone carry the estimated-
+   * output budget (案A). */
+  let primaryBudgetClaimed = false;
+
+  // Required output columns from the set's output-schema file
+  // (対策4): the first file, in set order, named as a schema
+  // (`*.schema.csv` / `*.schema.tsv`) that parses as a table with
+  // a fully named header. The schema's own sample rows play no
+  // part — only its header is the contract. Computed ahead of
+  // the chunking loop because the primary table's estimated-
+  // output packing prices its rows against these columns; the
+  // parse is the same one the loop below performs, so the value
+  // is identical to the post-loop computation it replaces.
+  let requiredOutputColumns: string[] | undefined;
+  for (const file of files) {
+    if (!OUTPUT_SCHEMA_FILE_PATTERN.test(file.name)) continue;
+    const schemaTable = parseTable(file.text);
+    if (!schemaTable) continue;
+    if (schemaTable.header.length === 0) continue;
+    if (schemaTable.header.some((cell) => cell.length === 0)) continue;
+    requiredOutputColumns = [...schemaTable.header];
+    break;
+  }
 
   for (const file of files) {
     const table = parseTable(file.text);
@@ -396,7 +551,20 @@ export function buildAgentAttachmentDataView(files: readonly AgentAttachmentData
         ...(key ? { keyColumn: key.name } : {}),
         ...(numeric.length > 0 ? { numericColumns: numeric } : {}),
       });
-      const packed = chunkTable(file.name, table, chunks.length);
+      const isPrimaryTable = key !== null && !primaryBudgetClaimed;
+      if (isPrimaryTable) primaryBudgetClaimed = true;
+      const packed = chunkTable(
+        file.name,
+        table,
+        chunks.length,
+        isPrimaryTable
+          ? table.rows.map((_, rowIndex) => estimatePrimaryTableRowOutputTokens(
+            table,
+            rowIndex,
+            requiredOutputColumns ?? table.header,
+          ))
+          : undefined,
+      );
       chunks.push(...packed.chunks);
       const perChunk = new Map<number, number[]>();
       packed.chunks.forEach((chunk, position) => perChunk.set(chunk.index, packed.rowIndexesPerChunk[position]));
@@ -496,22 +664,6 @@ export function buildAgentAttachmentDataView(files: readonly AgentAttachmentData
       }
       if (byKey.size > 0) primaryNumericCellsByKey = Object.fromEntries(byKey);
     }
-  }
-
-  // Required output columns from the set's output-schema file
-  // (対策4): the first file, in set order, named as a schema
-  // (`*.schema.csv` / `*.schema.tsv`) that parses as a table with
-  // a fully named header. The schema's own sample rows play no
-  // part — only its header is the contract.
-  let requiredOutputColumns: string[] | undefined;
-  for (const file of files) {
-    if (!OUTPUT_SCHEMA_FILE_PATTERN.test(file.name)) continue;
-    const entry = tables.get(file.name);
-    if (!entry) continue;
-    if (entry.table.header.length === 0) continue;
-    if (entry.table.header.some((cell) => cell.length === 0)) continue;
-    requiredOutputColumns = [...entry.table.header];
-    break;
   }
 
   return {

@@ -1643,6 +1643,44 @@ const ANALYZER_ATTEMPT_OUTCOMES: ReadonlySet<string> = new Set([
   'skipped',
 ]);
 const ANALYZER_ATTEMPT_MAX_CARRIED = 6;
+/** Message-carried final-failure detail (Basel failure diagnosis
+ * 2026-11-26, 案C), appended after the attempts parenthetical in
+ * the same fixed-shape style: `(finish: <reason>; reasoningTokens:
+ * <count>)`, each field present only when the failed dispatch's
+ * diagnostic carried it. The finish reason is re-validated against
+ * the provider layer's closed completion vocabulary and the token
+ * count against its usage bound (the values arrive pre-whitelisted
+ * from the provider layer; this is defense in depth, exactly like
+ * the attempts above), so a malformed value contributes nothing
+ * and a failure carrying no detail keeps the message it had
+ * before. The advancer reads the parenthetical back into the
+ * step's live detail; behavior is unchanged — observability only. */
+const ANALYZER_FAILURE_FINISH_REASONS: ReadonlySet<string> = new Set([
+  'stop',
+  'length',
+  'tool_calls',
+  'content_filter',
+  'function_call',
+]);
+const ANALYZER_FAILURE_REASONING_TOKENS_MAX = 10_000_000;
+
+function analyzerProviderFailureDetailParenthetical(
+  result: Extract<AgentModelCallResult, { ok: false }>,
+): string {
+  const detail = result.providerFailureDetail;
+  if (!detail || typeof detail !== 'object') return '';
+  const parts: string[] = [];
+  if (typeof detail.finishReason === 'string' && ANALYZER_FAILURE_FINISH_REASONS.has(detail.finishReason)) {
+    parts.push(`finish: ${detail.finishReason}`);
+  }
+  if (typeof detail.usageReasoningTokens === 'number'
+    && Number.isInteger(detail.usageReasoningTokens)
+    && detail.usageReasoningTokens >= 0
+    && detail.usageReasoningTokens <= ANALYZER_FAILURE_REASONING_TOKENS_MAX) {
+    parts.push(`reasoningTokens: ${detail.usageReasoningTokens}`);
+  }
+  return parts.length > 0 ? ` (${parts.join('; ')})` : '';
+}
 /** Distinct servings one step's execution trace carries at most
  * (coverage observability follow-on): a step's chunk calls
  * realistically touch one route per allocation bucket, so four is
@@ -1675,7 +1713,8 @@ export function analyzerProviderFailureMessage(
       : '-';
     encoded.push([attempt.providerId, modelId, attempt.outcome, errorCode, durationMs, transport].join('|'));
   }
-  return encoded.length > 0 ? `${result.code} (attempts: ${encoded.join('; ')})` : result.code;
+  const attemptsParenthetical = encoded.length > 0 ? ` (attempts: ${encoded.join('; ')})` : '';
+  return `${result.code}${attemptsParenthetical}${analyzerProviderFailureDetailParenthetical(result)}`;
 }
 
 /**
