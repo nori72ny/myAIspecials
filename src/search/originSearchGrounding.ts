@@ -63,7 +63,10 @@ import {
   resolveOriginOfficialSourceRoutingEnabled,
   type OriginOfficialSourcePlan,
 } from "./originOfficialSourceRouting.js";
-import { parseOriginOfficialEdition } from "./originOfficialEdition.js";
+import {
+  parseOriginOfficialEdition,
+  type OriginOfficialEdition,
+} from "./originOfficialEdition.js";
 import { isRegionalOfficialSource } from "./originRegionalOfficialSource.js";
 
 /** §2.5: gate-failure answers must say what happened, not a bare refusal. */
@@ -743,7 +746,17 @@ export function isDataTablePage(source: Pick<OriginSearchSource, "title" | "url"
 export function selectOriginSearchSourcesWithObservation<T extends OriginSearchSource>(
   candidates: readonly T[],
   limit = MAX_SELECTED_SOURCES,
-  options?: { editionDateFallback?: boolean; officialSubRanking?: boolean },
+  options?: {
+    editionDateFallback?: boolean;
+    officialSubRanking?: boolean;
+    /**
+     * The edition the matched topic's publication schedule says
+     * must already exist (round-4 measures 3-6 + 4-2). Read only
+     * under officialSubRanking; absent outside the official
+     * routing case, where the order is unchanged.
+     */
+    expectedEdition?: OriginOfficialEdition | null;
+  },
 ): { selected: T[]; observation: OriginSearchSelectionObservation } {
   const seenUrls = new Set<string>();
   const unique: T[] = [];
@@ -784,7 +797,7 @@ export function selectOriginSearchSourcesWithObservation<T extends OriginSearchS
   // Official sub-ranking (remeasure diagnosis 2026-11-26, measures
   // 2-1 and 3-1; only under the official routing switch, like the
   // edition fallback above): WITHIN the official tier — the tier
-  // itself never changes — two distinctions the old order was blind
+  // itself never changes — distinctions the old order was blind
   // to. A regional (prefectural) publication ranks below the
   // national one whenever a national official source is in the
   // pool at all: a prefectural bureau's figure is not the national
@@ -795,6 +808,36 @@ export function selectOriginSearchSourcesWithObservation<T extends OriginSearchS
   // ranks below a national table page — authority first, page
   // kind second). Because extract targets are the head of this
   // order, the sub-ranking also decides what gets extracted.
+  //
+  // Edition key (round-4 diagnosis 2026-11-27, measures 3-6 +
+  // 4-2): the old order had NO key for the edition (the reference
+  // period) at all — the freshness gate judges the PUBLICATION
+  // date and never looks at the period a release reports, and
+  // providerScore outranked recency, so a superseded edition of
+  // the same release could take its domain's single slot and the
+  // pool's head (the GDP pool led with the previous quarter's
+  // page; the unemployment pool's annual summary outscored the
+  // monthly release page). When the caller names the expected
+  // edition — the lower bound the topic's publication schedule
+  // guarantees exists — the sub-ranking reads each official
+  // source's own edition (title, then URL, the assessment's
+  // reading) against it:
+  //  - an edition AT or past the expected one (the expected
+  //    edition is a schedule lower bound, so a newer one is the
+  //    actual latest) takes a −4 bonus: the top of the
+  //    sub-ranking, above providerScore — a confirmed current
+  //    release is never beaten for its slot by an annual or index
+  //    page, however the provider scored it (measure 3-6);
+  //  - an edition READABLY OLDER than expected takes +1: a real
+  //    demotion, kept at the data-table key's weight and below
+  //    the regional key's, exactly as measure 4-2 bounds it — the
+  //    stale page is demoted, not buried, and the freshness gate
+  //    (publication-date based, other question classes' premise)
+  //    is untouched;
+  //  - an UNREADABLE edition is neutral (0): an unknown vintage
+  //    is not a stale one, the same discipline as the packet's
+  //    edition rule — the annual summary still loses to a
+  //    confirmed current release through the −4 bonus alone.
   const hasNationalOfficial = options?.officialSubRanking
     ? unique.some(
       (source) => source.authorityTier === "official" && !isRegionalOfficialSource(source),
@@ -803,6 +846,13 @@ export function selectOriginSearchSourcesWithObservation<T extends OriginSearchS
   const officialSubRank = (source: T): number => {
     if (!options?.officialSubRanking || source.authorityTier !== "official") return 0;
     let rank = 0;
+    const expectedEdition = options?.expectedEdition ?? null;
+    if (expectedEdition) {
+      const edition = parseOriginOfficialEdition(source.title)
+        ?? parseOriginOfficialEdition(source.url);
+      if (edition && edition.sortKey >= expectedEdition.sortKey) rank -= 4;
+      else if (edition) rank += 1;
+    }
     if (hasNationalOfficial && isRegionalOfficialSource(source)) rank += 2;
     if (isDataTablePage(source)) rank += 1;
     return rank;
@@ -1337,7 +1387,13 @@ export async function executeOriginSearchGrounding(
   let selection = selectOriginSearchSourcesWithObservation(
     kept,
     MAX_SELECTED_SOURCES,
-    { editionDateFallback: officialRoutingEnabled, officialSubRanking: officialRoutingEnabled },
+    {
+      editionDateFallback: officialRoutingEnabled,
+      officialSubRanking: officialRoutingEnabled,
+      // Round-4 measures 3-6 + 4-2: the primary planned topic's
+      // expected edition keys the selection's edition sub-rank.
+      expectedEdition: officialPlan?.queries[0]?.expectedEdition ?? null,
+    },
   );
   let selected = selection.selected;
 
@@ -1368,9 +1424,20 @@ export async function executeOriginSearchGrounding(
         const retryAccess = providerAccess("tavily", deps, 1);
         if (retryAccess.enabled) {
           fired = true;
-          const retryQueryText = assessment.reason === "stale-edition"
-            ? buildOfficialRetryQueryText(retryTopic.releaseTerms, retryTopic.editionTerms)
-            : buildOfficialRetryQueryText(retryTopic.releaseTerms);
+          // Round-4 measure 3-5 (ANSWER_STATISTICS_ROUND4_
+          // DIAGNOSIS_2026-11-27 §2.5): the edition terms ride
+          // EVERY retry when the topic's schedule names an
+          // expected edition, not only the stale-edition one.
+          // The regional-only retry asked for the release name
+          // alone, and the provider ranked the bureau's annual
+          // summary and index pages above the current monthly
+          // release — the September page never entered the
+          // candidate pool at all. Topics without a schedule
+          // carry no edition terms and keep the bare query.
+          const retryQueryText = buildOfficialRetryQueryText(
+            retryTopic.releaseTerms,
+            retryTopic.editionTerms,
+          );
           const retryResult = await runTavilyRoute(
             deps,
             retryQueryText,
@@ -1420,7 +1487,11 @@ export async function executeOriginSearchGrounding(
               selection = selectOriginSearchSourcesWithObservation(
                 kept,
                 MAX_SELECTED_SOURCES,
-                { editionDateFallback: officialRoutingEnabled, officialSubRanking: officialRoutingEnabled },
+                {
+                  editionDateFallback: officialRoutingEnabled,
+                  officialSubRanking: officialRoutingEnabled,
+                  expectedEdition: officialPlan?.queries[0]?.expectedEdition ?? null,
+                },
               );
               selected = selection.selected;
               const selectedUrls = new Set(selected.map((source) => source.url.split("#")[0]));

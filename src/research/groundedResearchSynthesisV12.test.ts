@@ -507,3 +507,147 @@ describe("statistics remeasure fixes (diagnosis 2026-11-26, measures 1-1 / 1-2)"
     expect(numericTokenSupported("26日", "2026年11月26日")).toBe(true);
   });
 });
+
+describe("statistics round-4 fix (diagnosis 2026-11-27, measure 4-1: percent unit-core symmetry)", () => {
+  // The production GDP shape (diagnosis §1.2, experiment E-C4):
+  // the adopted evidence is the ESRI table PDF, whose cells carry
+  // the values as BARE numbers — the percent unit lives only in
+  // the table's heading. A synthesis in the normal style, values
+  // written with "%", failed UNSUPPORTED_NUMERIC_TOKEN on the
+  // token "0.0%", and the retry re-attached the unit and failed
+  // the same way (E-C5: the same draft without "%" passed).
+  const gdpTableSources: OriginResearchSource[] = [
+    {
+      title: "四半期別GDP速報 主要系列表（2026年7-9月期）",
+      url: "https://www.esri.cao.go.jp/jp/sna/data/data_list/sokuhou/hyou/main_1.pdf",
+      excerpt: "実質GDP成長率の前期比（単位：％）を示す表です。前期比は -0.0、年率換算は -0.1 でした。",
+      sourceType: "web-search",
+      domain: "www.esri.cao.go.jp",
+      rank: 1,
+      evidenceLevel: "page-verified",
+      retrievedAt: "2026-11-16T01:00:00.000Z",
+      freshness: "recent",
+      sourceAuthority: "official-domain-match",
+    },
+    {
+      title: "GDP速報を伝える報道",
+      url: "https://example.net/gdp-news",
+      excerpt: "四半期別GDP速報の1次速報が公表されました。",
+      sourceType: "web-search",
+      domain: "example.net",
+      rank: 2,
+      evidenceLevel: "snippet",
+      retrievedAt: "2026-11-16T01:00:00.000Z",
+      freshness: "recent",
+      sourceAuthority: "secondary-reference",
+    },
+  ];
+  const GDP_CITATIONS =
+    "[S1](https://www.esri.cao.go.jp/jp/sna/data/data_list/sokuhou/hyou/main_1.pdf) [S2](https://example.net/gdp-news)";
+
+  it("accepts a %-suffixed draft against table evidence that states the values bare (E-C4 shape)", () => {
+    const answer = `実質GDP成長率は前期比-0.0%（年率換算-0.1%）でした。${GDP_CITATIONS}`;
+    expect(validateGroundedResearchSynthesis(answer, gdpTableSources)).toEqual({
+      ok: true,
+      usedSourceIds: ["S1", "S2"],
+    });
+  });
+
+  it("still rejects a %-suffixed value the table does not hold at all", () => {
+    const answer = `実質GDP成長率は前期比-0.5%でした。${GDP_CITATIONS}`;
+    expect(validateGroundedResearchSynthesis(answer, gdpTableSources)).toEqual(
+      expect.objectContaining({ ok: false, code: "UNSUPPORTED_NUMERIC_TOKEN" }),
+    );
+  });
+
+  it("does not symmetrize when the evidence never deals in percents (the unit must be in play)", () => {
+    // The same table with its percent heading removed: the bare
+    // values alone give a "%" claim nothing to symmetrize against.
+    const headingless: OriginResearchSource[] = [
+      {
+        ...gdpTableSources[0],
+        excerpt: "実質GDP成長率の前期比を示す表です。前期比は -0.0、年率換算は -0.1 でした。",
+      },
+      gdpTableSources[1],
+    ];
+    const answer = `実質GDP成長率は前期比-0.0%でした。${GDP_CITATIONS}`;
+    expect(validateGroundedResearchSynthesis(answer, headingless)).toEqual(
+      expect.objectContaining({ ok: false, code: "UNSUPPORTED_NUMERIC_TOKEN" }),
+    );
+  });
+
+  it("does not let a % claim ride a value the evidence states in a different unit (円)", () => {
+    const yenSources: OriginResearchSource[] = [
+      {
+        title: "対象品目の価格調査結果",
+        url: "https://example.go.jp/price",
+        excerpt: "対象品目の価格は0.0円でした。達成率は50%の水準です。",
+        sourceType: "web-search",
+        domain: "example.go.jp",
+        rank: 1,
+        evidenceLevel: "page-verified",
+        retrievedAt: "2026-11-16T01:00:00.000Z",
+        freshness: "recent",
+        sourceAuthority: "official-domain-match",
+      },
+      {
+        title: "価格調査の解説",
+        url: "https://example.net/price-commentary",
+        excerpt: "価格調査の見方を解説するページです。",
+        sourceType: "web-search",
+        domain: "example.net",
+        rank: 2,
+        evidenceLevel: "snippet",
+        retrievedAt: "2026-11-16T01:00:00.000Z",
+        freshness: "unknown",
+        sourceAuthority: "secondary-reference",
+      },
+    ];
+    const answer = "対象品目の価格は0.0%でした。[S1](https://example.go.jp/price) [S2](https://example.net/price-commentary)";
+    expect(validateGroundedResearchSynthesis(answer, yenSources)).toEqual(
+      expect.objectContaining({ ok: false, code: "UNSUPPORTED_NUMERIC_TOKEN" }),
+    );
+  });
+
+  it("does not let a % claim ride a ratio the evidence states in 倍, while the verbatim shapes still pass", () => {
+    const ratioSources: OriginResearchSource[] = [
+      {
+        title: "一般職業紹介状況（令和8年9月分）",
+        url: "https://www.mhlw.go.jp/stf/newpage_20261030.html",
+        excerpt: "令和8年9月の有効求人倍率は1.19倍で、完全失業率は2.4%でした。",
+        sourceType: "web-search",
+        domain: "www.mhlw.go.jp",
+        rank: 1,
+        evidenceLevel: "page-verified",
+        retrievedAt: "2026-10-30T01:00:00.000Z",
+        freshness: "recent",
+        sourceAuthority: "official-domain-match",
+      },
+      {
+        title: "雇用情勢の解説ページ",
+        url: "https://example.net/employment-commentary",
+        excerpt: "求人倍率の推移と雇用情勢の見方を解説するページです。",
+        sourceType: "web-search",
+        domain: "example.net",
+        rank: 2,
+        evidenceLevel: "snippet",
+        retrievedAt: "2026-10-30T01:00:00.000Z",
+        freshness: "unknown",
+        sourceAuthority: "secondary-reference",
+      },
+    ];
+    const citations =
+      "[S1](https://www.mhlw.go.jp/stf/newpage_20261030.html) [S2](https://example.net/employment-commentary)";
+    // The ratio re-united as a percent: the evidence's only 1.19
+    // is stated in 倍, so the core arm must not support it — even
+    // though the same evidence deals in percents elsewhere (2.4%).
+    expect(validateGroundedResearchSynthesis(`有効求人倍率は1.19%でした。${citations}`, ratioSources)).toEqual(
+      expect.objectContaining({ ok: false, code: "UNSUPPORTED_NUMERIC_TOKEN" }),
+    );
+    // The values as the evidence states them pass exactly as before.
+    expect(validateGroundedResearchSynthesis(`有効求人倍率は1.19倍で、完全失業率は2.4%でした。${citations}`, ratioSources)).toEqual({
+      ok: true,
+      usedSourceIds: ["S1", "S2"],
+    });
+  });
+});

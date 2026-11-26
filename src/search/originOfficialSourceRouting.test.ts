@@ -22,6 +22,7 @@ import {
   planOriginOfficialSourceQueries,
   resolveOriginOfficialSourceRoutingEnabled,
 } from "./originOfficialSourceRouting";
+import type { OriginOfficialEdition } from "./originOfficialEdition";
 import {
   searchTavilySources,
   type OriginSearchFetch,
@@ -679,8 +680,9 @@ function labourRetryFetch() {
       const body = JSON.parse(init?.body ?? "{}") as { query?: string; include_domains?: string[] };
       if (body.include_domains?.includes("stat.go.jp")) {
         // First-pass official search misses; the retry — the release
-        // name alone — finds the publication page.
-        return jsonResponse({ results: body.query === "労働力調査 基本集計" ? [LABOUR_RELEASE_RESULT] : [] });
+        // name plus the expected edition (round-4 measure 3-5) —
+        // finds the publication page.
+        return jsonResponse({ results: body.query === "労働力調査 基本集計 令和8年9月分 2026年9月分" ? [LABOUR_RELEASE_RESULT] : [] });
       }
       return jsonResponse({ results: [JILPT_NAV_RESULT] });
     }
@@ -711,7 +713,7 @@ describe("executeOriginSearchGrounding — round-8 measures A + B + D", () => {
     expect(outcome.queriesIssued?.map((issued) => issued.kind)).toEqual(["ordinary", "ordinary", "official"]);
   });
 
-  it("F-06 shape: a value-less pool fires exactly ONE retry (the release name alone), which brings the publication page", async () => {
+  it("F-06 shape: a value-less pool fires exactly ONE retry (release name + expected edition), which brings the publication page", async () => {
     const { fetchImpl, calls } = labourRetryFetch();
     const deps = makeDeps({
       fetchImpl,
@@ -722,7 +724,10 @@ describe("executeOriginSearchGrounding — round-8 measures A + B + D", () => {
     // ordinary + official + exactly one retry — never two.
     expect(searchCalls).toHaveLength(3);
     const bodies = searchCalls.map((call) => JSON.parse(call.init?.body ?? "{}") as { query?: string; include_domains?: string[] });
-    expect(bodies[2]?.query).toBe("労働力調査 基本集計");
+    // Round-4 measure 3-5: the reason here is no-numeric-span, yet
+    // the retry still names the edition that must exist — the
+    // edition terms are no longer a stale-edition-only attachment.
+    expect(bodies[2]?.query).toBe("労働力調査 基本集計 令和8年9月分 2026年9月分");
     expect(bodies[2]?.include_domains).toEqual(["stat.go.jp", "e-stat.go.jp"]);
     expect(deps.counter?.usage("tavily", NOW)).toBe(3);
     // The publication page was adopted, judged fresh on its stated date.
@@ -738,7 +743,7 @@ describe("executeOriginSearchGrounding — round-8 measures A + B + D", () => {
       "ordinary", "ordinary", "official", "official-retry",
     ]);
     expect(outcome.queriesIssued?.[3]).toEqual({
-      provider: "tavily", kind: "official-retry", query: "労働力調査 基本集計",
+      provider: "tavily", kind: "official-retry", query: "労働力調査 基本集計 令和8年9月分 2026年9月分",
       includeDomains: ["stat.go.jp", "e-stat.go.jp"],
     });
     const releaseDecision = outcome.candidateStats?.freshnessDecisions
@@ -775,7 +780,9 @@ describe("executeOriginSearchGrounding — round-8 measures A + B + D", () => {
       if (url.includes("api.tavily.com/search")) {
         const body = JSON.parse(init?.body ?? "{}") as { query?: string; include_domains?: string[] };
         if (body.include_domains?.includes("mhlw.go.jp")) {
-          return jsonResponse({ results: body.query === "一般職業紹介状況" ? [mhlwRelease] : [] });
+          // Round-4 measure 3-5: the regional-only retry also names
+          // the expected edition, in both notations.
+          return jsonResponse({ results: body.query === "一般職業紹介状況 令和8年9月分 2026年9月分" ? [mhlwRelease] : [] });
         }
         return jsonResponse({ results: [miyagi] });
       }
@@ -799,6 +806,12 @@ describe("executeOriginSearchGrounding — round-8 measures A + B + D", () => {
     expect(national?.excerpt).toContain("1.19倍");
     const searchCalls = calls.filter((call) => call.url.includes("api.tavily.com/search"));
     expect(searchCalls).toHaveLength(3);
+    // The reason was regional-only, and the retry query still
+    // names the expected edition (round-4 measure 3-5).
+    const bodies = searchCalls.map(
+      (call) => JSON.parse(call.init?.body ?? "{}") as { query?: string },
+    );
+    expect(bodies[2]?.query).toBe("一般職業紹介状況 令和8年9月分 2026年9月分");
   });
 });
 
@@ -1211,6 +1224,129 @@ describe("selectOriginSearchSourcesWithObservation — official sub-ranking (mea
     expect(isDataTablePage({ title: "完全失業率の時系列データ", url: "https://example.com/a" })).toBe(true);
     expect(isDataTablePage({ title: "統計データ一覧", url: "https://example.com/a" })).toBe(true);
     expect(isDataTablePage({ title: "四半期別GDP速報（1次速報値）", url: "https://example.com/a" })).toBe(false);
+  });
+});
+
+/* ------------------------------------------------------------------ */
+/* Round-4 measures 3-6 + 4-2 (ANSWER_STATISTICS_ROUND4_DIAGNOSIS_   */
+/* 2026-11-27): the selection gains an edition key. A source whose   */
+/* stated edition is at/past the expected edition tops the official  */
+/* sub-ranking (above providerScore); a readably older edition is    */
+/* demoted by the data-table key's weight; an unreadable edition is  */
+/* neutral. Without an expected edition the order is unchanged.      */
+/* ------------------------------------------------------------------ */
+
+describe("selectOriginSearchSourcesWithObservation — edition key (round-4 measures 3-6 + 4-2)", () => {
+  const official = (
+    title: string, url: string, domain: string, providerScore: number,
+  ): OriginSearchSource => ({
+    title,
+    url,
+    excerpt: "抜粋",
+    providerId: "tavily",
+    domain,
+    authorityTier: "official",
+    evidenceLevel: "snippet",
+    providerScore,
+  });
+  const expectedSeptember: OriginOfficialEdition = {
+    year: 2026, month: 9, label: "令和8年9月分", sortKey: 202609,
+  };
+  const expectedQ3: OriginOfficialEdition = {
+    year: 2026, month: 9, quarter: 3, label: "2026年7-9月期", sortKey: 202609,
+  };
+
+  it("B3 shape: the edition-matching monthly release wins its domain slot over a higher-scored edition-less page", () => {
+    const monthly = official(
+      "労働力調査（基本集計）2026年（令和8年）9月分結果",
+      "https://www.stat.go.jp/data/roudou/sokuhou/tsuki.html", "stat.go.jp", 0.6,
+    );
+    const editionless = official(
+      "労働力調査（基本集計）結果公表ページ",
+      "https://www.stat.go.jp/data/roudou/sokuhou/gaiyou.html", "stat.go.jp", 0.95,
+    );
+    const { selected } = selectOriginSearchSourcesWithObservation(
+      [editionless, monthly], 5,
+      { officialSubRanking: true, expectedEdition: expectedSeptember },
+    );
+    // Same domain: only the first in the order survives, and the
+    // edition key — not the provider score — decides it.
+    expect(selected).toHaveLength(1);
+    expect(selected[0]?.url).toBe(monthly.url);
+  });
+
+  it("a newer-than-expected edition also counts as current (the expected edition is a lower bound)", () => {
+    const october = official(
+      "労働力調査（基本集計）2026年（令和8年）10月分結果",
+      "https://www.stat.go.jp/data/roudou/sokuhou/tsuki.html", "stat.go.jp", 0.6,
+    );
+    const editionless = official(
+      "労働力調査（基本集計）結果公表ページ",
+      "https://www.stat.go.jp/data/roudou/sokuhou/gaiyou.html", "stat.go.jp", 0.95,
+    );
+    const { selected } = selectOriginSearchSourcesWithObservation(
+      [editionless, october], 5,
+      { officialSubRanking: true, expectedEdition: expectedSeptember },
+    );
+    expect(selected).toHaveLength(1);
+    expect(selected[0]?.url).toBe(october.url);
+  });
+
+  it("B2 shape: the current quarter's summary leads, an edition-less page follows, and the stale quarter is demoted below both", () => {
+    const current = official(
+      "四半期別GDP速報（2026年7-9月期）1次速報 結果の概要",
+      "https://www.esri.cao.go.jp/jp/sna/gaiyou.html", "www.esri.cao.go.jp", 0.6,
+    );
+    const portal = official(
+      "四半期別GDP速報 e-Stat 政府統計の総合窓口",
+      "https://www.e-stat.go.jp/stat-search", "www.e-stat.go.jp", 0.9,
+    );
+    const stale = official(
+      "四半期別GDP速報（2025年10-12月期）1次速報 結果の概要",
+      "https://www5.cao.go.jp/keizai3/getsurei/gaiyou.html", "www5.cao.go.jp", 0.95,
+    );
+    const { selected } = selectOriginSearchSourcesWithObservation(
+      [stale, portal, current], 5,
+      { officialSubRanking: true, expectedEdition: expectedQ3 },
+    );
+    expect(selected.map((source) => source.url)).toEqual([current.url, portal.url, stale.url]);
+  });
+
+  it("without an expected edition, the pre-round-4 order is preserved (provider score decides)", () => {
+    const monthly = official(
+      "労働力調査（基本集計）2026年（令和8年）9月分結果",
+      "https://www.stat.go.jp/data/roudou/sokuhou/tsuki.html", "stat.go.jp", 0.6,
+    );
+    const editionless = official(
+      "労働力調査（基本集計）結果公表ページ",
+      "https://www.stat.go.jp/data/roudou/sokuhou/gaiyou.html", "stat.go.jp", 0.95,
+    );
+    const { selected } = selectOriginSearchSourcesWithObservation(
+      [monthly, editionless], 5, { officialSubRanking: true },
+    );
+    expect(selected).toHaveLength(1);
+    expect(selected[0]?.url).toBe(editionless.url);
+  });
+
+  it("the edition key stays inside the official tier: an unofficial page's title edition changes nothing", () => {
+    const news = {
+      ...official(
+        "完全失業率は2.4%（2026年9月分）",
+        "https://www.nikkei.com/article/1", "www.nikkei.com", 0.99,
+      ),
+      authorityTier: "major-news" as const,
+    };
+    const monthly = official(
+      "労働力調査（基本集計）2026年（令和8年）9月分結果",
+      "https://www.stat.go.jp/data/roudou/sokuhou/tsuki.html", "stat.go.jp", 0.6,
+    );
+    const { selected } = selectOriginSearchSourcesWithObservation(
+      [monthly, news], 5,
+      { officialSubRanking: true, expectedEdition: expectedSeptember },
+    );
+    // Tier still dominates: the official release leads, the news
+    // page follows on its own tier's order.
+    expect(selected.map((source) => source.domain)).toEqual(["stat.go.jp", "www.nikkei.com"]);
   });
 });
 
