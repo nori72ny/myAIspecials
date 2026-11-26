@@ -61,7 +61,7 @@ const readRawRecord = async (key: string): Promise<unknown> => {
     const transaction = database.transaction(ORIGIN_LOCAL_STORE, 'readonly');
     return await requestResult(transaction.objectStore(ORIGIN_LOCAL_STORE).get(key));
   } finally {
-    database?.close();
+    database?.close?.();
   }
 };
 
@@ -72,7 +72,7 @@ const writeRawRecord = async (value: unknown, key: string): Promise<void> => {
     const transaction = database.transaction(ORIGIN_LOCAL_STORE, 'readwrite');
     await requestResult(transaction.objectStore(ORIGIN_LOCAL_STORE).put(value, key));
   } finally {
-    database?.close();
+    database?.close?.();
   }
 };
 
@@ -83,7 +83,7 @@ const deleteRawRecord = async (key: string): Promise<void> => {
     const transaction = database.transaction(ORIGIN_LOCAL_STORE, 'readwrite');
     await requestResult(transaction.objectStore(ORIGIN_LOCAL_STORE).delete(key));
   } finally {
-    database?.close();
+    database?.close?.();
   }
 };
 
@@ -253,7 +253,7 @@ const saveSnapshot = async (snapshot: OriginPersistedSnapshot): Promise<OriginSt
     // Encryption or storage failure never falls back to a plaintext write.
     return isQuotaExceeded(error) ? 'quota' : typeof indexedDB === 'undefined' ? 'unavailable' : 'failed';
   } finally {
-    database?.close();
+    database?.close?.();
   }
 };
 
