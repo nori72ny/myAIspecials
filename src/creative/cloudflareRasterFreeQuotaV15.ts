@@ -450,7 +450,13 @@ export type CloudflareUsageReconciliationMethodV15 = 'aggregate-delta' | 'per-re
 export type CloudflareUsageReconciliationDecisionV15 = {
   deliver: boolean;
   method: CloudflareUsageReconciliationMethodV15 | null;
-  /** Sum of the per-request usage reports, or null when any call did not report a usable number. */
+  /**
+   * Sum of the accounted per-request values, or null when any call that
+   * must report for itself did not report a usable number. The caller's
+   * projection counts a non-winning candidate's verdict-less
+   * semantic-critic call at its reserved cap; every other value is the
+   * call's own report (see the caller's Stage 5 accounting).
+   */
   totalReportedNeurons: number | null;
   reason:
     | 'aggregate-reconciled'
@@ -491,6 +497,16 @@ export type CloudflareUsageReconciliationDecisionV15 = {
  *     'per-request-reported'. The aggregate's state — not yet landed,
  *     landed over-bound with backlog, moved backwards, never observed —
  *     does not block this: none of it is this request's consumption.
+ *     One caller-side accounting exception feeds this path (案2,
+ *     2026-11-26): a semantic-critic call that returned no verdict for
+ *     a candidate that did not win is projected at the critic reserve
+ *     it was budgeted under, because a discarded candidate's critic
+ *     cannot affect the delivered image and its consumption is bounded
+ *     by the up-front reserve this decision still enforces. The
+ *     winner's calls, every generation call, and any verdict-carrying
+ *     critic call reach this function only as their own reports — a
+ *     null in any of those keeps the primary evidence incomplete here,
+ *     unchanged.
  *   - Secondary: only when the primary evidence is incomplete (a call
  *     reported nothing) or itself out of bounds may the aggregate carry
  *     the delivery, exactly as before: a measured delta that is positive

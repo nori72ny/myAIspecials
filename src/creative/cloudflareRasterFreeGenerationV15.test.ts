@@ -543,54 +543,82 @@ describe('cloudflareRasterFreeGenerationV15', () => {
     expect(delivery.semantic.reportedCallsNeurons).toEqual([30, 35]);
   });
 
-  it('preserves a failed candidate generation report when its critic call throws, and still withholds', async () => {
-    const infoSpy = vi.spyOn(console, 'info').mockImplementation(() => {});
-    try {
-      // Best-of-2: both generations report 140 Neurons for themselves.
-      // One candidate's semantic-critic call fails at the provider (HTTP
-      // 500); the other candidate passes with a 35-Neuron critic report
-      // and wins. The aggregate lags past the polling window.
-      const state = baseState({
-        lagUsage: true,
-        generationReportedNeurons: 140,
-        criticReportedNeurons: 35,
-        criticFailFirstCalls: 1,
-      });
-      const fetchMock = dispatchFetch(state);
-      const error = await generateCloudflareRasterImageFreeProofV15(
-        INPUT, ENV, fetchMock as unknown as typeof fetch,
-        { now: NOW_IN_WINDOW, usageVerification: RECONCILE_FAST, maxCandidates: 2 },
-      ).catch((caught: unknown) => caught);
-      expect(state.imageRuns).toBe(2);
-      expect(state.criticRuns).toBe(2);
-      // The failed candidate's generation report is preserved, but its
-      // critic call reported nothing, so the evidence set is still
-      // incomplete and the image is still withheld: preservation never
-      // fills a missing report.
-      expect(error).toBeInstanceOf(CloudflareRasterUsageReconciliationErrorV15);
-      const failure = error as CloudflareRasterUsageReconciliationErrorV15;
-      expect(failure.usage.reconciliationReason).toBe('per-request-usage-incomplete');
-      expect(failure.usage.unreportedCalls).toHaveLength(1);
-      expect(failure.usage.unreportedCalls[0]?.call).toBe('semantic-critic');
-      const records = infoSpy.mock.calls
-        .filter(call => call[0] === '[raster-free-generation] usage reconciliation failed')
-        .map(call => call[1] as { reportedCalls: { call: string; reportedNeurons: number | null }[] });
-      expect(records).toHaveLength(1);
-      const reportedCalls = records[0]!.reportedCalls;
-      // Both generation calls are present with their own reports — the
-      // failed candidate's 140 was not discarded with its attempt.
-      expect(reportedCalls.filter(call => call.call === 'generation')).toEqual([
-        { candidateIndex: 0, retried: false, call: 'generation', reportedNeurons: 140 },
-        { candidateIndex: 1, retried: false, call: 'generation', reportedNeurons: 140 },
-      ]);
-      const criticReports = reportedCalls
-        .filter(call => call.call === 'semantic-critic')
-        .map(call => call.reportedNeurons)
-        .sort((a, b) => Number(a) - Number(b));
-      expect(criticReports).toEqual([null, 35]);
-    } finally {
-      infoSpy.mockRestore();
-    }
+  it('counts a verdict-less losing candidate critic at its reserved cap and delivers', async () => {
+    // Diagnosis scenario C under 案2 (2026-11-26): best-of-2, both
+    // generations report 140 Neurons for themselves. One candidate's
+    // semantic-critic chain fails at the provider (HTTP 500) — no
+    // verdict, no report — while the other candidate passes with a
+    // 35-Neuron critic report and wins. The aggregate lags past the
+    // polling window. This exact shape was withheld as
+    // per-request-usage-incomplete in batches 3-4 (ten production
+    // failures); the losing candidate is discarded, so its verdict-less
+    // critic is now counted at the 256-Neuron critic reserve it was
+    // budgeted under and the delivery proceeds on the primary path.
+    const state = baseState({
+      lagUsage: true,
+      generationReportedNeurons: 140,
+      criticReportedNeurons: 35,
+      criticFailFirstCalls: 1,
+    });
+    const fetchMock = dispatchFetch(state);
+    const delivery = await generateCloudflareRasterImageFreeProofV15(
+      INPUT, ENV, fetchMock as unknown as typeof fetch,
+      { now: NOW_IN_WINDOW, usageVerification: RECONCILE_FAST, maxCandidates: 2 },
+    );
+    expect(state.imageRuns).toBe(2);
+    expect(state.criticRuns).toBe(2);
+    expect(delivery.result.costEvidence).toBe('per-request-usage-reported; aggregate-reconciliation-deferred');
+    expect(delivery.usage).toMatchObject({
+      reservedNeurons: 864,
+      observedDeltaNeurons: null,
+      usedAfterNeurons: null,
+      reconciliationMethod: 'per-request-reported',
+      // Winner: 140 generation + 35 critic, each by its own report.
+      // Loser: 140 generation by its own preserved report + its
+      // verdict-less critic at the 256 reserve cap.
+      reportedNeurons: 571,
+    });
+    // The accounted evidence is complete, so the polling window is
+    // skipped: the only GraphQL call is the pre-generation baseline.
+    const graphqlCalls = fetchMock.mock.calls.filter(
+      ([url]) => String(url).includes('/graphql'),
+    );
+    expect(graphqlCalls).toHaveLength(1);
+  });
+
+  it('does not cap-account a losing candidate critic that returned a verdict without reporting usage', async () => {
+    // The 案2 exception covers only verdict-less critics. Here the
+    // losing candidate's critic DID return a (failing) verdict, but its
+    // call reported no usage anywhere (flat envelope, no usage block):
+    // a completed chain with a genuine reporting gap. The entry stays
+    // null, the primary evidence stays incomplete, and the lagging
+    // aggregate cannot carry the delivery either.
+    const state = baseState({
+      lagUsage: true,
+      generationReportedNeurons: 140,
+      criticSequence: [
+        { answer: FAILING_CRITIC_ANSWER },
+        { answer: PASSING_CRITIC_ANSWER, neurons: 35 },
+      ],
+    });
+    const fetchMock = dispatchFetch(state);
+    const error = await generateCloudflareRasterImageFreeProofV15(
+      INPUT, ENV, fetchMock as unknown as typeof fetch,
+      { now: NOW_IN_WINDOW, usageVerification: RECONCILE_FAST, maxCandidates: 2 },
+    ).catch((caught: unknown) => caught);
+    expect(state.imageRuns).toBe(2);
+    expect(state.criticRuns).toBe(2);
+    expect(error).toBeInstanceOf(CloudflareRasterUsageReconciliationErrorV15);
+    const failure = error as CloudflareRasterUsageReconciliationErrorV15;
+    expect(failure.usage.reconciliationReason).toBe('per-request-usage-incomplete');
+    // The only unreported call is a semantic-critic call, and no thrown
+    // error explains the gap (its chain completed), so the
+    // classification stays null and no candidate error is recorded.
+    expect(failure.usage.unreportedCalls).toHaveLength(1);
+    expect(failure.usage.unreportedCalls[0]).toMatchObject({
+      call: 'semantic-critic', errorCode: null, errorDetail: null,
+    });
+    expect(failure.usage.candidateErrors).toEqual([]);
   });
 
   it('records the critic failure classification behind an unreported critic call (scenario C)', async () => {
@@ -601,14 +629,19 @@ describe('cloudflareRasterFreeGenerationV15', () => {
       // production reconciliation failure in batches 3-4: one
       // candidate's semantic-critic call fails with an HTTP 500 while
       // the other candidate passes with complete reports, and the
-      // aggregate lags past the polling window. The delivery is still
-      // withheld — the evidence set is incomplete exactly as before,
-      // and no decision condition changes — but the failure record now
-      // names the classification the exception path captured, so the
-      // trigger kind is recoverable from the record and the log alone.
+      // aggregate lags past the polling window. Under 案2 the missing
+      // loser critic is counted at its reserve cap, so that shape on
+      // its own now delivers (see the cap-accounting test above); this
+      // variant raises the generation reports so the accounted total
+      // (300 + 256 + 300 + 35 = 891) exceeds the 864 reserve and the
+      // delivery still fails closed — on the over-reserve total. The
+      // 案1 record is unchanged: the failure record and the server log
+      // still name the classification the exception path captured
+      // behind the raw unreported critic call, so the trigger kind is
+      // recoverable from the record and the log alone.
       const state = baseState({
         lagUsage: true,
-        generationReportedNeurons: 140,
+        generationReportedNeurons: 300,
         criticReportedNeurons: 35,
         criticFailFirstCalls: 1,
       });
@@ -619,7 +652,8 @@ describe('cloudflareRasterFreeGenerationV15', () => {
       ).catch((caught: unknown) => caught);
       expect(error).toBeInstanceOf(CloudflareRasterUsageReconciliationErrorV15);
       const failure = error as CloudflareRasterUsageReconciliationErrorV15;
-      expect(failure.usage.reconciliationReason).toBe('per-request-usage-incomplete');
+      expect(failure.usage.reconciliationReason).toBe('per-request-usage-over-reserve');
+      expect(failure.usage.reportedNeurons).toBe(891);
       expect(failure.usage.unreportedCalls).toHaveLength(1);
       const unreported = failure.usage.unreportedCalls[0]!;
       expect(unreported.call).toBe('semantic-critic');

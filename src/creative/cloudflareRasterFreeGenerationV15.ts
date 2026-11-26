@@ -115,10 +115,14 @@ export type CloudflareRasterFreeProofUsageV15 = {
   /** Which evidence carried the delivery decision at Stage 5. */
   reconciliationMethod: CloudflareUsageReconciliationMethodV15;
   /**
-   * Total Neurons the request's own inference calls reported for
-   * themselves, or null when at least one call reported no usable number.
-   * The delivery basis on the per-request path; informational on the
-   * aggregate path.
+   * Total accounted Neurons for the request's own inference calls: each
+   * call's own report, with a non-winning candidate's verdict-less
+   * semantic-critic call counted at the semantic-critic reserve it was
+   * budgeted under (Stage 5 accounting, 案2 2026-11-26). Null when at
+   * least one call that must report for itself — the winner's calls,
+   * every generation call, any verdict-carrying critic call — reported
+   * no usable number. The delivery basis on the per-request path;
+   * informational on the aggregate path.
    */
   reportedNeurons: number | null;
 };
@@ -162,8 +166,11 @@ export type CloudflareRasterReconciliationFailureUsageV15 = {
   reportedNeurons: number | null;
   reconciliationReason: CloudflareUsageReconciliationDecisionV15['reason'];
   /**
-   * The calls whose usage report was missing — the gap that kept the
-   * primary evidence from carrying the delivery. One entry per missing
+   * The calls whose usage report was missing, named from the raw
+   * reports before any Stage 5 accounting: a non-winning candidate's
+   * verdict-less critic stays listed here even though the accounted
+   * projection counts it at its reserve, so this list names reporting
+   * gaps, not necessarily the operative blocker. One entry per missing
    * report, in call order: which candidate the call belonged to and
    * whether it was the generation or the semantic-critic call.
    */
@@ -543,7 +550,27 @@ export async function generateCloudflareRasterImageFreeProofV15(
   // failure record below can name the missing reports exactly; the flat
   // value list the decision consumes is projected from the same entries,
   // in the same order.
+  //
+  // One accounting exception applies to that projection (案2, diagnosis
+  // 2026-11-26): a semantic-critic call that returned no verdict at all
+  // (its chain threw, or its verdict never arrived) for a candidate that
+  // did not win is counted at the semantic-critic reserve it was
+  // budgeted under, instead of keeping the primary evidence incomplete.
+  // The discarded candidate's critic cannot affect the delivered image,
+  // and its consumption is bounded by the up-front reserve, whose total
+  // the decision still enforces unchanged. Every other call — the
+  // winner's generation and critic calls, and every generation call —
+  // still counts only by its own report: a null there keeps the
+  // per-request path closed exactly as before, as does a critic call
+  // that returned a verdict but reported no usage. The raw entries
+  // above stay null either way, so the failure record keeps naming
+  // every missing report.
   const reportedCalls: CloudflareRasterReportedCallV15[] = [];
+  // Indexes into reportedCalls of the verdict-less critic entries the
+  // accounted projection below counts at the critic reserve (see the
+  // Stage 5 header): non-winning candidates only, recorded as their
+  // entries are pushed so the raw list and the projection cannot drift.
+  const capAccountedCallIndexes = new Set<number>();
   for (const candidate of attempts) {
     reportedCalls.push({
       candidateIndex: candidate.index,
@@ -572,9 +599,13 @@ export async function generateCloudflareRasterImageFreeProofV15(
       }
     } else if (candidate.preservedReports?.criticAttempted) {
       // The chain threw inside the semantic-critic call: the call was
-      // made but reported nothing, so it is entered as unreported and
-      // the request's evidence stays incomplete — preserving the
-      // generation report above never fills this gap.
+      // made but reported nothing, so it is entered as unreported in
+      // the raw record. When this candidate did not win, the accounted
+      // projection counts the entry at the critic reserve instead of
+      // letting a discarded candidate's failed critic veto the
+      // delivery; the winner's own such entry would keep the evidence
+      // incomplete exactly as before.
+      if (candidate !== winner) capAccountedCallIndexes.add(reportedCalls.length);
       reportedCalls.push({
         candidateIndex: candidate.index,
         retried: candidate.retried,
@@ -584,7 +615,10 @@ export async function generateCloudflareRasterImageFreeProofV15(
     } else if (candidate.result && candidate.errorCode !== 'RASTER_STRUCTURAL_CRITIC_REJECTED') {
       // Generation produced an image but the semantic verdict (and its
       // usage report) is missing without a structural rejection to explain
-      // the absence: count the critic call as unreported.
+      // the absence: count the critic call as unreported. As above, a
+      // non-winning candidate's verdict-less entry is cap-accounted in
+      // the projection; the raw entry stays null.
+      if (candidate !== winner) capAccountedCallIndexes.add(reportedCalls.length);
       reportedCalls.push({
         candidateIndex: candidate.index,
         retried: candidate.retried,
@@ -593,8 +627,20 @@ export async function generateCloudflareRasterImageFreeProofV15(
       });
     }
   }
-  const reportedCallsNeurons = reportedCalls.map((call) => call.reportedNeurons);
-  // When every call already reported its own usage, the aggregate poll
+  // The accounted projection the decision consumes: each call's own
+  // report, except the verdict-less critic entries of non-winning
+  // candidates recorded above, which count at the semantic-critic
+  // reserve they were budgeted under. The reserve total the decision
+  // enforces already includes that amount per candidate, so the
+  // substitution can never raise the request's accounted consumption
+  // past its up-front bound.
+  const accountedCallsNeurons = reportedCalls.map((call, index) => (
+    call.reportedNeurons
+    ?? (capAccountedCallIndexes.has(index)
+      ? RASTER_SEMANTIC_CRITIC_RESERVED_NEURONS_V15
+      : null)
+  ));
+  // When every call is accounted for, the aggregate poll
   // can add no evidence: decide judges the complete reports on its
   // primary path, and the polling window (up to 40s) would be pure wait.
   // Skip it and record the aggregate as unobserved (nulls), exactly as
@@ -603,8 +649,8 @@ export async function generateCloudflareRasterImageFreeProofV15(
   // The completeness predicate mirrors decide's own (non-empty, every
   // entry a finite number >= 0); totals that are zero or over the
   // reserve still fail closed inside decide, unchanged.
-  const reportsComplete = reportedCallsNeurons.length > 0
-    && reportedCallsNeurons.every(
+  const reportsComplete = accountedCallsNeurons.length > 0
+    && accountedCallsNeurons.every(
       (value) => typeof value === 'number' && Number.isFinite(value) && value >= 0,
     );
   const reconciliation: CloudflareUsageReconciliationV15 = reportsComplete
@@ -619,7 +665,7 @@ export async function generateCloudflareRasterImageFreeProofV15(
   const decision = decideCloudflareUsageReconciliationV15(
     reconciliation,
     reservedNeurons,
-    reportedCallsNeurons,
+    accountedCallsNeurons,
   );
   if (
     !decision.deliver
