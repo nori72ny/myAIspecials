@@ -533,6 +533,13 @@ type AgentDataFinding = {
   /** One of critical/high/medium/low; optional — invalid or absent
    * values default at assembly. */
   severity?: string;
+  /** How this finding entered the list when no model wrote it:
+   * 'deterministic-candidate' marks a finding the deterministic
+   * candidate pickup (gate diagnosis 2026-11-26, 案B) synthesized
+   * from a layer-1 value-mismatch candidate after the pair gate,
+   * so the record can always tell machine-assembled findings
+   * from model-written ones. Absent for model-derived findings. */
+  origin?: 'deterministic-candidate';
 };
 type AgentDataResource = { kind: string; name: string; namespace: string };
 type AgentDataRemediation = { action: string; priority?: string };
@@ -1769,6 +1776,12 @@ function parsePriorBundle(content: string, outputKind: AgentDataOutputKind, view
         ...(typeof finding.locationB === 'string' && finding.locationB ? { locationB: finding.locationB } : {}),
         ...(type ? { type } : {}),
         ...(severity ? { severity } : {}),
+        // The deterministic-pickup mark (案B) survives the chain
+        // like type/severity do, so a re-read bundle never loses
+        // which findings were machine-assembled.
+        ...(finding.origin === 'deterministic-candidate'
+          ? { origin: 'deterministic-candidate' as const }
+          : {}),
       });
     }
     // Structured sections survive the chain the same way findings do;
@@ -2771,14 +2784,29 @@ function citationAnchorKeys(citation: string, group: AgentDataPairAnchorGroup): 
   return matched;
 }
 
+/**
+ * Whether a finding's two citations anchor to one group (案A,
+ * gate diagnosis 2026-11-26): each citation must pull at least
+ * one of the group's values, and together they must pull at
+ * least two distinct values. The pre-fix predicate additionally
+ * required the second citation to pull a value the first did
+ * not — a difference-set test that structurally rejected the
+ * production R1 finding, whose first citation quotes BOTH
+ * amounts of the pair (a faithful, complete citation), leaving
+ * no key the second citation could add. The requirement that
+ * both cited values actually stand in the group is unchanged:
+ * a citation pulling no group value (first empty) still never
+ * anchors, and a pair is still two distinct values of one
+ * group — only which citation carries which value is no longer
+ * prescribed.
+ */
 function findingAnchoredToGroup(finding: AgentDataFinding, group: AgentDataPairAnchorGroup): boolean {
   const first = citationAnchorKeys(finding.evidence, group);
   if (first.size === 0) return false;
   const second = citationAnchorKeys(finding.evidenceB ?? '', group);
-  for (const key of second) {
-    if (!first.has(key)) return true;
-  }
-  return false;
+  if (second.size === 0) return false;
+  const union = new Set([...first, ...second]);
+  return union.size >= 2;
 }
 
 export type AgentDataPairGateResult = {
@@ -2851,6 +2879,124 @@ export function applyAgentDataPairGate(
   return { findings, keptIndexes, dropped, pickedUpCount, gatedOutKeptIndexes };
 }
 
+export type AgentDataCandidatePickupResult = {
+  findings: AgentDataFinding[];
+  pickedUpCount: number;
+};
+
+/**
+ * Whether a surviving finding already states a candidate's
+ * inconsistency: its two citations anchor to the candidate's
+ * own group (案A's predicate) and the values they pull from
+ * that group are exactly the candidate's normalized value set
+ * — the same group and the same pair of values, nothing
+ * looser. Anchoring alone does not suffice: a finding that
+ * anchors to a wider group while pulling only some of its
+ * values states a different (narrower) pair than the
+ * candidate names.
+ */
+function findingCoversCandidateGroup(finding: AgentDataFinding, group: AgentDataPairAnchorGroup): boolean {
+  if (!findingAnchoredToGroup(finding, group)) return false;
+  const pulled = new Set([
+    ...citationAnchorKeys(finding.evidence, group),
+    ...citationAnchorKeys(finding.evidenceB ?? '', group),
+  ]);
+  if (pulled.size !== group.values.length) return false;
+  return group.values.every((value) => pulled.has(value.key));
+}
+
+/**
+ * The deterministic candidate pickup (案B, gate diagnosis
+ * 2026-11-26): the layer behind the pair gate that ends the
+ * pickup's single dependence on the reconciliation model's
+ * output. A candidate the model was the only path to a finding
+ * for — when the model built no finding from it, a perfectly
+ * formed candidate died with the run under enforce. For every
+ * candidate no surviving finding covers — coverage meaning a
+ * surviving candidate-built finding descended from it, or a
+ * surviving finding of any origin anchoring to its group with
+ * exactly its value pair — this
+ * synthesizes a finding from the candidate alone: its entity,
+ * its attribute and its own two conflicting values with their
+ * recorded sources — no new value, citation or claim of fact is
+ * created. The synthesized finding must pass the same anchor
+ * check against its own candidate's group that a candidate-
+ * built model finding faces (案A's predicate), and it carries
+ * the `origin: 'deterministic-candidate'` mark so the record
+ * never confuses it with a model-written finding. The model's
+ * own kept/dropped judgment is untouched, and fail-closed is
+ * unchanged: when synthesis still leaves the judged list empty,
+ * the caller fails exactly as before.
+ */
+export function synthesizeDeterministicCandidatePickups(
+  parsed: Extract<AgentReconciliationParseResult, { ok: true }>,
+  gated: AgentDataPairGateResult,
+  bundle: {
+    values: readonly AgentDataValue[];
+    structure: AgentDataStructure;
+    candidates: readonly AgentDataValueMismatch[];
+  },
+  japanese: boolean,
+): AgentDataCandidatePickupResult {
+  const { candidateGroups } = buildPairAnchorGroups(bundle);
+  const covered = new Set<number>();
+  parsed.findings.forEach((finding, position) => {
+    const source = parsed.sources[position];
+    if (source?.kind === 'candidate' && gated.findings.includes(finding)) {
+      covered.add(source.index);
+    }
+  });
+  // Coverage is not limited to candidate-built findings: a
+  // surviving finding of ANY origin that anchors to the
+  // candidate's own group with exactly the candidate's value
+  // pair already states the inconsistency the candidate names,
+  // so synthesizing a second finding for it would publish the
+  // same pair twice (the production 8c49293c replay before this
+  // adjustment: R1 survived as the model's kept original AND
+  // was synthesized). The pair match stays exact — see
+  // findingCoversCandidateGroup.
+  bundle.candidates.forEach((candidate, index) => {
+    if (covered.has(index)) return;
+    const group = candidateGroups[index];
+    if (!group) return;
+    if (gated.findings.some((finding) => findingCoversCandidateGroup(finding, group))) {
+      covered.add(index);
+    }
+  });
+  const findings: AgentDataFinding[] = [];
+  let pickedUpCount = 0;
+  bundle.candidates.forEach((candidate, index) => {
+    if (covered.has(index)) return;
+    const group = candidateGroups[index];
+    if (!group || group.values.length < 2) return;
+    const firstValue = group.values[0];
+    const secondValue = group.values[1];
+    if (!firstValue || !secondValue) return;
+    const firstEntry = candidate.values.find((entry) => entry.value === firstValue.raw) ?? candidate.values[0];
+    const secondEntry = candidate.values.find((entry) => entry.value === secondValue.raw) ?? candidate.values[1] ?? firstEntry;
+    if (!firstEntry || !secondEntry) return;
+    const finding: AgentDataFinding = {
+      claim: japanese
+        ? `${candidate.entity}の${candidate.attribute}について、${firstValue.raw}と${secondValue.raw}という異なる値が示されています`
+        : `Inconsistent ${candidate.attribute} values for ${candidate.entity}: ${firstValue.raw} versus ${secondValue.raw}`,
+      explanation: japanese
+        ? `値の照合で検出された食い違いです。${firstEntry.file}（${firstEntry.location}）では${firstValue.raw}、${secondEntry.file}（${secondEntry.location}）では${secondValue.raw}とされています。`
+        : `Detected by the deterministic value cross-check: ${firstEntry.file} (${firstEntry.location}) states ${firstValue.raw}, while ${secondEntry.file} (${secondEntry.location}) states ${secondValue.raw}.`,
+      evidence: firstValue.raw,
+      file: firstEntry.file,
+      location: firstEntry.location,
+      evidenceB: secondValue.raw,
+      fileB: secondEntry.file,
+      locationB: secondEntry.location,
+      origin: 'deterministic-candidate',
+    };
+    if (!findingAnchoredToGroup(finding, group)) return;
+    findings.push(finding);
+    pickedUpCount += 1;
+  });
+  return { findings, pickedUpCount };
+}
+
 /**
  * attachment_reconciler (misreading countermeasure design §2,
  * layer 2 — the single most effective move): the step the planner
@@ -2874,9 +3020,13 @@ export function applyAgentDataPairGate(
  * whose cited pair does not stand in the value table does not
  * publish, in either mode's judgment — shadow records the gated
  * list and the 'no-pair' drops exactly as enforce publishes
- * them, and still ships the original bundle untouched. Enforce
- * fails closed when candidates exist but the vetted list is
- * empty — or the gate emptied it (AGENT_RECONCILIATION_NO_FINDINGS):
+ * them, and still ships the original bundle untouched. Behind
+ * the gate, the deterministic candidate pickup (案B, gate
+ * diagnosis 2026-11-26) synthesizes findings for candidates the
+ * model's output left uncovered, so a candidate's survival no
+ * longer depends on the model alone. Enforce fails closed when
+ * candidates exist but the judged list — vetted, gated and
+ * picked up — is still empty (AGENT_RECONCILIATION_NO_FINDINGS):
  * an audit that could not judge its candidates must not silently
  * report nothing. Shadow never fails the step and never changes
  * the deliverable — an unjudgeable reconciliation is recorded
@@ -3010,20 +3160,35 @@ export async function executeAttachmentReconciler(
         pickedUpCount: parsed.pickedUpCount,
         gatedOutKeptIndexes: [] as number[],
       };
+  // The deterministic candidate pickup (案B, gate diagnosis
+  // 2026-11-26): candidates the model's output left uncovered
+  // are synthesized into findings from the candidate alone, so
+  // a candidate's survival no longer depends on the model alone.
+  // Audit bundles only, like the gate — the pickup anchors
+  // against the same layer-1 material.
+  const pickup = bundle.hasAuditSections
+    ? synthesizeDeterministicCandidatePickups(
+        parsed,
+        gated,
+        bundle,
+        agentGoalRendersJapaneseLabels(goalInstruction),
+      )
+    : { findings: [] as AgentDataFinding[], pickedUpCount: 0 };
+  const judgedFindings = [...gated.findings, ...pickup.findings];
   const summary: AgentDataReconciliationSummary = {
     mode,
     candidateCount: bundle.candidates.length,
     keptCount: gated.keptIndexes.length,
     droppedCount: gated.dropped.length,
     droppedReasons: countReconciliationDropReasons(gated.dropped),
-    pickedUpCount: gated.pickedUpCount,
+    pickedUpCount: gated.pickedUpCount + pickup.pickedUpCount,
     // Which findings were kept/dropped (対策1(a)): the judged case
     // only — the shadow-failure summaries built earlier carry
     // neither list, because nothing was judged there.
     keptIndexes: gated.keptIndexes,
     droppedIndexes: gated.dropped.map((dropped) => ({ index: dropped.index, reason: dropped.reason })),
   };
-  if (gated.findings.length === 0 && (bundle.candidates.length > 0 || parsed.findings.length > 0)) {
+  if (judgedFindings.length === 0 && (bundle.candidates.length > 0 || parsed.findings.length > 0)) {
     // Fail closed (enforce): candidates the run could not judge —
     // or vetted findings the pair gate could not anchor — must
     // not become a silently empty report. Shadow records the
@@ -3040,6 +3205,14 @@ export async function executeAttachmentReconciler(
         kind: 'attachment-reconciliation-failure',
         reconciliation: summary,
         parsedFindingsCount: parsed.findings.length,
+        // 案C (gate diagnosis 2026-11-26): the parse stage's own
+        // pickup count and the gate's added drops ride alongside,
+        // so the record separates what the model declared (its
+        // dropped list, its candidate findings) from what the
+        // gate removed — the decomposition the C0 record alone
+        // could not make.
+        parsedPickedUpCount: parsed.pickedUpCount,
+        gatedOutKeptIndexes: gated.gatedOutKeptIndexes,
       }));
     }
     return passThrough({ ...summary, failed: true, failureCode: 'AGENT_RECONCILIATION_NO_FINDINGS' });
@@ -3052,7 +3225,7 @@ export async function executeAttachmentReconciler(
         findings: bundle.findings,
         content: renderFindings(bundle.findings, goalInstruction),
         summary,
-        reconciledFindings: gated.findings,
+        reconciledFindings: judgedFindings,
       }),
       message: `Attachment findings reconciliation recorded in shadow (candidates ${summary.candidateCount}, kept ${summary.keptCount}, dropped ${summary.droppedCount}, picked up ${summary.pickedUpCount}).`,
       ...(modelCallTimings.length > 0 ? { modelCallTimings: [...modelCallTimings] } : {}),
@@ -3062,8 +3235,8 @@ export async function executeAttachmentReconciler(
     ok: true,
     tool,
     artifact: buildArtifact({
-      findings: gated.findings,
-      content: renderFindings(gated.findings, goalInstruction),
+      findings: judgedFindings,
+      content: renderFindings(judgedFindings, goalInstruction),
       summary,
     }),
     message: `Attachment findings reconciled (candidates ${summary.candidateCount}, kept ${summary.keptCount}, dropped ${summary.droppedCount}, picked up ${summary.pickedUpCount}).`,
