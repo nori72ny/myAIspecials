@@ -214,4 +214,31 @@ describe("tryGroundedResearchReconstruction", () => {
     });
     expect(attempt.established).toBe(false);
   });
+
+  it("annotates each quoted sentence and source-list line with its source's date (round-8 measure E)", () => {
+    // The F-03 shape: a quoted value whose vintage matters. The
+    // dated source's lines carry the date; the undated source's
+    // lines carry nothing — an unknown vintage stays visibly
+    // unknown, and the quote itself is untouched (annotation sits
+    // outside it).
+    const dated = vegaSources();
+    dated[0] = { ...dated[0]!, revisionTimestamp: "2026-06-15T00:00:00.000Z" };
+    const attempt = tryGroundedResearchReconstruction({
+      question: VEGA_QUESTION,
+      sources: dated,
+      language: "ja",
+      nowMs: NOW,
+    });
+    expect(attempt.established).toBe(true);
+    expect(attempt.via).toBe("packet-sentences");
+    expect(attempt.text).toContain(
+      "「価格は税込89,800円です。」 [S1](https://example.com/vega-x1) （出典の日付：2026年6月15日）",
+    );
+    expect(attempt.text).toContain(
+      "- S1: 新型スマートフォン Vega X1 発表（example.com） （出典の日付：2026年6月15日）",
+    );
+    expect(attempt.text).toContain("「Vega X1の価格は89,800円と発表されています。」 [S2](https://example.net/vega)");
+    expect(attempt.text).toContain("- S2: Vega X1 価格まとめ（example.net）");
+    expect(attempt.text).not.toContain("（出典の日付：2026年6月15日） （出典の日付");
+  });
 });

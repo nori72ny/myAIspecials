@@ -81,6 +81,31 @@ function sourceDomain(source: OriginResearchSource): string {
   }
 }
 
+/**
+ * The source's publication/revision date as a reader-facing
+ * annotation (round-8 measure E: F_GROUP_ROUND8_PROBE_2026-11-26 /
+ * ROUND8_AGGREGATION_2026-11-26, the F-03 shape). The packet-
+ * sentences landing quotes sources of different vintages side by
+ * side; without a date, a stale value ("現在 1.00%") reads as
+ * current simply because it is quoted prominently. The annotation
+ * sits OUTSIDE the quote, so the quoted sentence stays verbatim —
+ * it labels the source's date, it does not edit its statement. A
+ * source with no parseable date gets no annotation: an unknown
+ * vintage is shown as unknown, never dressed up with a guessed
+ * date. The vote line needs none — the template already states its
+ * value with its as-of date.
+ */
+function sourceDateAnnotation(source: OriginResearchSource, language: "ja" | "en"): string {
+  const raw = source.revisionTimestamp;
+  if (!raw) return "";
+  const match = raw.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (!match) return "";
+  const [, year, month, day] = match;
+  return language === "en"
+    ? `(source date: ${year}-${month}-${day})`
+    : `（出典の日付：${year}年${Number(month)}月${Number(day)}日）`;
+}
+
 /** The unified source list (all retrieved sources, grounded numbering). */
 function buildReconstructionSourceList(
   sources: readonly OriginResearchSource[],
@@ -92,7 +117,8 @@ function buildReconstructionSourceList(
     const head = language === "en"
       ? (domain ? `- ${id}: ${source.title} (${domain})` : `- ${id}: ${source.title}`)
       : (domain ? `- ${id}: ${source.title}（${domain}）` : `- ${id}: ${source.title}`);
-    return `${head}\n  ${source.url}`;
+    const annotation = sourceDateAnnotation(source, language);
+    return `${annotation ? `${head} ${annotation}` : head}\n  ${source.url}`;
   });
   return `${language === "en" ? "## Sources" : "## 出典"}\n${lines.join("\n")}`;
 }
@@ -174,9 +200,14 @@ export function tryGroundedResearchReconstruction(input: {
   const sentenceLines = selected.map((sentence) => {
     const source = sources[sentence.sourceIndex];
     const citation = `[S${sentence.sourceIndex + 1}](${source.url})`;
-    return language === "en"
+    // Measure E: the carrying source's date rides after the
+    // citation, so a quoted value's vintage is visible at the
+    // point where the value is read (see sourceDateAnnotation).
+    const annotation = sourceDateAnnotation(source, language);
+    const line = language === "en"
       ? `"${sentence.prepared}" ${citation}`
       : `「${sentence.prepared}」 ${citation}`;
+    return annotation ? `${line} ${annotation}` : line;
   });
 
   // The vote's answer line carries no S-numbers (it names its

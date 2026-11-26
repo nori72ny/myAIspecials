@@ -56,8 +56,12 @@ import {
   type OriginWeatherForecast,
 } from "./originSearchProviders.js";
 import {
+  assessOfficialMaterialInsufficiency,
+  buildOfficialRetryQueryText,
+  buildOfficialSourceQueryText,
   planOriginOfficialSourceQueries,
   resolveOriginOfficialSourceRoutingEnabled,
+  type OriginOfficialSourcePlan,
 } from "./originOfficialSourceRouting.js";
 
 /** §2.5: gate-failure answers must say what happened, not a bare refusal. */
@@ -107,6 +111,62 @@ export interface OriginSearchGroundingFreshnessStats {
   unknownDateCount: number;
   droppedStaleCount: number;
   droppedUndatedCount: number;
+}
+
+/**
+ * One search the grounding pipeline issued (observation, round-8
+ * measure D: F_GROUP_ROUND8_PROBE_2026-11-26 §対策案4). The round-8
+ * collection recorded NOTHING about which queries ran on which
+ * route, so "the official query never fired" and "it fired but its
+ * results were dropped" were indistinguishable after the fact. The
+ * query text recorded here is the minimized query (extracted
+ * keywords only — the raw user text never leaves the process, so
+ * there is nothing personal to record), plus the domain restriction
+ * for official-route searches.
+ */
+export interface OriginSearchIssuedQuery {
+  provider: OriginSearchProviderId;
+  kind: "ordinary" | "official" | "official-retry" | "stable-fallback";
+  query: string;
+  includeDomains?: readonly string[];
+}
+
+/**
+ * The freshness gate's per-candidate decision (observation, round-8
+ * measure D). The aggregate stats say how many candidates fell as
+ * stale vs undated; this record says, for each candidate that
+ * reached the gate, WHAT was decided and on WHICH date the decision
+ * rested — the provider-reported date, or (measure C) the
+ * publication date the source's own text states. Domain and tier
+ * only, plus the basis date — no titles, excerpts, or URLs, in the
+ * same discipline as the drop tallies.
+ */
+export interface OriginSourceFreshnessDecision {
+  domain: string;
+  tier: OriginSourceAuthorityTier;
+  outcome: "kept-verified" | "kept-undated" | "dropped-stale" | "dropped-undated";
+  basis: "provider-date" | "text-date" | "none";
+  /** ISO date (YYYY-MM-DD) the decision rested on; null when dateless. */
+  basisDate: string | null;
+}
+
+/**
+ * The material-insufficiency retry's observation (round-8 measure
+ * B). Present only when the adopted pool of a statistical question
+ * was judged insufficient; `fired` is false when the retry could
+ * not run (no release name for the topic, the monthly cap, or the
+ * latency budget), so a detected-but-unretried gap is itself
+ * attributable instead of silent.
+ */
+export interface OriginSearchOfficialRetryObservation {
+  reason: "no-numeric-span" | "regional-only";
+  fired: boolean;
+  /** Candidates the retry search returned (post relevance screen). */
+  candidateCount: number;
+  /** Retry candidates that passed the freshness gate. */
+  keptCount: number;
+  /** Retry-kept sources present in the final adopted selection. */
+  adoptedCount: number;
 }
 
 /**
@@ -188,6 +248,17 @@ export interface OriginSearchCandidateStats {
    */
   screenDropDomainCounts: Readonly<Record<string, number>>;
   screenDropTierCounts: Readonly<Record<OriginSourceAuthorityTier, number>>;
+  /**
+   * The freshness gate's per-candidate decisions, with the basis
+   * date each decision rested on (round-8 measure D). One entry per
+   * candidate that reached the gate, in candidate order.
+   */
+  freshnessDecisions: readonly OriginSourceFreshnessDecision[];
+  /**
+   * The material-insufficiency retry (round-8 measure B), present
+   * only when the adopted pool was judged insufficient.
+   */
+  officialRetry?: OriginSearchOfficialRetryObservation;
 }
 
 interface CandidateStatsInputs {
@@ -198,6 +269,8 @@ interface CandidateStatsInputs {
   screenDropTierCounts: Readonly<Record<OriginSourceAuthorityTier, number>>;
   freshness: OriginSearchGroundingFreshnessStats;
   freshnessDropTallies: OriginSearchFreshnessDropTallies;
+  /** The gate's per-candidate decisions (round-8 measure D). */
+  freshnessDecisions: readonly OriginSourceFreshnessDecision[];
   /** Candidates that passed the freshness gate. */
   keptCount: number;
   /**
@@ -206,6 +279,48 @@ interface CandidateStatsInputs {
    * fields then report zeroes rather than a fabricated disposition.
    */
   selection: OriginSearchSelectionObservation | null;
+  /** The measure-B retry observation, when insufficiency was detected. */
+  officialRetry?: OriginSearchOfficialRetryObservation;
+}
+
+/** Sum two freshness-gate results (the measure-B retry gates its own
+ * candidates separately, then merges into the request's record). */
+function mergeFreshnessStats(
+  a: OriginSearchGroundingFreshnessStats,
+  b: OriginSearchGroundingFreshnessStats,
+): OriginSearchGroundingFreshnessStats {
+  return {
+    verifiedFreshCount: a.verifiedFreshCount + b.verifiedFreshCount,
+    unknownDateCount: a.unknownDateCount + b.unknownDateCount,
+    droppedStaleCount: a.droppedStaleCount + b.droppedStaleCount,
+    droppedUndatedCount: a.droppedUndatedCount + b.droppedUndatedCount,
+  };
+}
+
+function mergeFreshnessDropTallies(
+  a: OriginSearchFreshnessDropTallies,
+  b: OriginSearchFreshnessDropTallies,
+): OriginSearchFreshnessDropTallies {
+  const mergeCounts = (x: Readonly<Record<string, number>>, y: Readonly<Record<string, number>>) => {
+    const out: Record<string, number> = { ...x };
+    for (const [key, count] of Object.entries(y)) out[key] = (out[key] ?? 0) + count;
+    return out;
+  };
+  const mergeTiers = (
+    x: Readonly<Record<OriginSourceAuthorityTier, number>>,
+    y: Readonly<Record<OriginSourceAuthorityTier, number>>,
+  ): Record<OriginSourceAuthorityTier, number> => ({
+    official: x.official + y.official,
+    "major-news": x["major-news"] + y["major-news"],
+    specialist: x.specialist + y.specialist,
+    general: x.general + y.general,
+  });
+  return {
+    staleDomainCounts: mergeCounts(a.staleDomainCounts, b.staleDomainCounts),
+    staleTierCounts: mergeTiers(a.staleTierCounts, b.staleTierCounts),
+    undatedDomainCounts: mergeCounts(a.undatedDomainCounts, b.undatedDomainCounts),
+    undatedTierCounts: mergeTiers(a.undatedTierCounts, b.undatedTierCounts),
+  };
 }
 
 function summarizeCandidateStats(inputs: CandidateStatsInputs): OriginSearchCandidateStats {
@@ -244,6 +359,8 @@ function summarizeCandidateStats(inputs: CandidateStatsInputs): OriginSearchCand
     freshnessDropTallies: inputs.freshnessDropTallies,
     screenDropDomainCounts: inputs.screenDropDomainCounts,
     screenDropTierCounts: inputs.screenDropTierCounts,
+    freshnessDecisions: inputs.freshnessDecisions,
+    ...(inputs.officialRetry ? { officialRetry: inputs.officialRetry } : {}),
   };
 }
 
@@ -257,6 +374,8 @@ export type OriginSearchGroundingOutcome =
       freshness: OriginSearchGroundingFreshnessStats;
       freshnessVerified: boolean;
       candidateStats?: OriginSearchCandidateStats;
+      /** Searches this request issued, in order (round-8 measure D). */
+      queriesIssued?: readonly OriginSearchIssuedQuery[];
     }
   | {
       kind: "unavailable";
@@ -264,6 +383,8 @@ export type OriginSearchGroundingOutcome =
       reason: "no-sources" | "no-fresh-sources" | "provider-error" | "monthly-cap-reached";
       freshness: OriginSearchGroundingFreshnessStats;
       candidateStats?: OriginSearchCandidateStats;
+      /** Searches this request issued, in order (round-8 measure D). */
+      queriesIssued?: readonly OriginSearchIssuedQuery[];
       /**
        * Recovery build Stage 1, PR-4: when the freshness gate dropped
        * every candidate (reason "no-fresh-sources"), up to five of the
@@ -329,6 +450,49 @@ function tavilyApiKey(deps: ResolvedDeps): string {
 /* Freshness gate (§2.5 item 3)                                        */
 /* ------------------------------------------------------------------ */
 
+const STATED_DATE_FUTURE_TOLERANCE_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * The newest full calendar date a source's own text states
+ * (measure C's basis date): Gregorian `YYYY年M月D日` / ISO
+ * `YYYY-MM-DD`, or a Reiwa era date (令和N年 = 2018 + N, 令和元年 =
+ * 2019). Official release pages state their publication date in the
+ * text ("令和7年11月18日公表") even when the provider reports no
+ * date — or reports the page's first-seen date, which for a
+ * periodically updated release page is years older than the current
+ * release. Only FULL dates count: a bare "2026年9月分" is the
+ * statistic's reference period, not its publication date, and
+ * judging by it would misdate the release by its publication lag.
+ * Dates after the retrieval moment (plus a day of clock tolerance)
+ * are not publication dates of anything already published and are
+ * ignored. Returns the newest qualifying date as epoch ms, or null.
+ */
+export function extractStatedPublicationMs(text: string, retrievedAtMs: number): number | null {
+  const normalized = (text ?? "").normalize("NFKC");
+  let newest: number | null = null;
+  const consider = (year: number, month: number, day: number) => {
+    if (month < 1 || month > 12 || day < 1 || day > 31) return;
+    const ms = Date.UTC(year, month - 1, day);
+    if (!Number.isFinite(ms)) return;
+    if (ms > retrievedAtMs + STATED_DATE_FUTURE_TOLERANCE_MS) return;
+    if (newest === null || ms > newest) newest = ms;
+  };
+  for (const match of normalized.matchAll(/(\d{4})年(\d{1,2})月(\d{1,2})日/g)) {
+    consider(Number(match[1]), Number(match[2]), Number(match[3]));
+  }
+  for (const match of normalized.matchAll(/令和(元|\d{1,2})年(\d{1,2})月(\d{1,2})日/g)) {
+    consider(2018 + (match[1] === "元" ? 1 : Number(match[1])), Number(match[2]), Number(match[3]));
+  }
+  for (const match of normalized.matchAll(/(\d{4})-(\d{2})-(\d{2})/g)) {
+    consider(Number(match[1]), Number(match[2]), Number(match[3]));
+  }
+  return newest;
+}
+
+function isoDatePartOfMs(ms: number): string {
+  return new Date(ms).toISOString().slice(0, 10);
+}
+
 export function evaluateOriginSourceFreshness(
   sources: readonly OriginSearchSource[],
   requirement: OriginSearchFreshnessRequirement,
@@ -352,8 +516,27 @@ export function evaluateOriginSourceFreshness(
      * switch is on; unset, the gate is byte-for-byte the old one.
      */
     officialUndatedExempt?: boolean;
+    /**
+     * F-group measure C, round-8 form (F_GROUP_ROUND8_PROBE_
+     * 2026-11-26, measure 3): an official-tier source is judged by
+     * the publication date its own text states when the provider's
+     * date cannot serve — missing entirely, or stale while the text
+     * states a newer release date. Official statistics are current
+     * by publication schedule, and the release page's stated date IS
+     * the event/publication date; the provider's date for such a
+     * page is a page-level timestamp (first seen / last revised),
+     * which is exactly the "page update date" the probe indicted
+     * for F-04 (the weekly gasoline survey, whose key value was one
+     * week old while every found source fell to the page-age
+     * window). The rule is official-tier only and switch-bound like
+     * the undated exemption: unofficial sources are judged by the
+     * provider date exactly as before, and an official source whose
+     * stated date is ALSO outside the window is dropped as stale —
+     * the basis changes, the window does not widen.
+     */
+    officialStatedDate?: boolean;
   },
-): { kept: OriginGroundedSource[]; stats: OriginSearchGroundingFreshnessStats; dropTallies: OriginSearchFreshnessDropTallies } {
+): { kept: OriginGroundedSource[]; stats: OriginSearchGroundingFreshnessStats; dropTallies: OriginSearchFreshnessDropTallies; decisions: OriginSourceFreshnessDecision[] } {
   const stats: OriginSearchGroundingFreshnessStats = {
     verifiedFreshCount: 0,
     unknownDateCount: 0,
@@ -377,19 +560,73 @@ export function evaluateOriginSourceFreshness(
     undatedDomainCounts,
     undatedTierCounts,
   };
+  // Per-candidate decisions (round-8 measure D), indexed by the
+  // candidate's position so the fresh_general wipe below can rewrite
+  // the entries of the sources it drops after all (the kept array
+  // holds spreads of the candidates, not the candidates themselves).
+  const decisionRecords: Array<OriginSourceFreshnessDecision | undefined> = sources.map(() => undefined);
+  const recordDecision = (
+    index: number,
+    source: OriginSearchSource,
+    outcome: OriginSourceFreshnessDecision["outcome"],
+    basis: OriginSourceFreshnessDecision["basis"],
+    basisMs: number | null,
+  ) => {
+    if (index < 0) return;
+    decisionRecords[index] = {
+      domain: source.domain,
+      tier: source.authorityTier,
+      outcome,
+      basis,
+      basisDate: basisMs !== null && Number.isFinite(basisMs) ? isoDatePartOfMs(basisMs) : null,
+    };
+  };
   const kept: OriginGroundedSource[] = [];
-  for (const source of sources) {
+  const keptCandidateIndexes: number[] = [];
+  for (const [candidateIndex, source] of sources.entries()) {
     const publishedMs = source.publishedAt ? Date.parse(source.publishedAt) : Number.NaN;
-    if (Number.isFinite(publishedMs)) {
-      const ageMs = retrievedAtMs - publishedMs;
-      if (requirement.maxSourceAgeMs !== null && (ageMs > requirement.maxSourceAgeMs || ageMs < 0)) {
+    // Exactly the pre-measure-C test, factored out: with no age
+    // window (stable) every dated source is fresh; with a window,
+    // the age must lie inside it (a future date is outside).
+    const providerFresh = Number.isFinite(publishedMs)
+      && (requirement.maxSourceAgeMs === null
+        || (retrievedAtMs - publishedMs <= requirement.maxSourceAgeMs && retrievedAtMs - publishedMs >= 0));
+    if (providerFresh) {
+      stats.verifiedFreshCount += 1;
+      kept.push({ ...source, dateVerified: true });
+      keptCandidateIndexes.push(candidateIndex);
+      recordDecision(candidateIndex, source, "kept-verified", "provider-date", publishedMs);
+      continue;
+    }
+    // Measure C (round-8 form): the provider date is missing or
+    // stale. For an official-tier source, the publication date its
+    // own text states is the basis instead — a release page's
+    // stated date is the release's date, whatever the page-level
+    // timestamp says. Official tier only; the window is unchanged.
+    if (options?.officialStatedDate && source.authorityTier === "official") {
+      const statedMs = extractStatedPublicationMs(`${source.title} ${source.excerpt}`, retrievedAtMs);
+      if (statedMs !== null) {
+        const statedAgeMs = retrievedAtMs - statedMs;
+        if (requirement.maxSourceAgeMs === null || statedAgeMs <= requirement.maxSourceAgeMs) {
+          stats.verifiedFreshCount += 1;
+          kept.push({ ...source, dateVerified: true });
+          keptCandidateIndexes.push(candidateIndex);
+          recordDecision(candidateIndex, source, "kept-verified", "text-date", statedMs);
+          continue;
+        }
         stats.droppedStaleCount += 1;
         if (source.domain) staleDomainCounts[source.domain] = (staleDomainCounts[source.domain] ?? 0) + 1;
         staleTierCounts[source.authorityTier] += 1;
+        recordDecision(candidateIndex, source, "dropped-stale", "text-date", statedMs);
         continue;
       }
-      stats.verifiedFreshCount += 1;
-      kept.push({ ...source, dateVerified: true });
+    }
+    if (Number.isFinite(publishedMs)) {
+      // Dated, and outside the window (or ahead of the clock).
+      stats.droppedStaleCount += 1;
+      if (source.domain) staleDomainCounts[source.domain] = (staleDomainCounts[source.domain] ?? 0) + 1;
+      staleTierCounts[source.authorityTier] += 1;
+      recordDecision(candidateIndex, source, "dropped-stale", "provider-date", publishedMs);
       continue;
     }
     // No parseable publication date.
@@ -397,15 +634,24 @@ export function evaluateOriginSourceFreshness(
       if (options?.officialUndatedExempt && source.authorityTier === "official") {
         stats.unknownDateCount += 1;
         kept.push({ ...source, dateVerified: false });
+        keptCandidateIndexes.push(candidateIndex);
+        recordDecision(candidateIndex, source, "kept-undated", "none", null);
         continue;
       }
       stats.droppedUndatedCount += 1;
       tallyUndatedDrop(source);
+      recordDecision(candidateIndex, source, "dropped-undated", "none", null);
       continue;
     }
     stats.unknownDateCount += 1;
     kept.push({ ...source, dateVerified: false });
+    keptCandidateIndexes.push(candidateIndex);
+    recordDecision(candidateIndex, source, "kept-undated", "none", null);
   }
+  // Assembled at each return, after any wipe rewrites below.
+  const buildDecisions = () => decisionRecords.filter(
+    (decision): decision is OriginSourceFreshnessDecision => Boolean(decision),
+  );
   // fresh_general asserts currency, so an answer may not rest on undated
   // sources alone; price/policy pages (official product/policy pages are
   // commonly undated) may, and are flagged via freshnessVerified instead.
@@ -420,17 +666,23 @@ export function evaluateOriginSourceFreshness(
       if (droppedHere > 0) {
         stats.droppedUndatedCount += droppedHere;
         stats.unknownDateCount -= droppedHere;
-        for (const source of kept) {
-          if (source.authorityTier !== "official") tallyUndatedDrop(source);
+        for (const [keptIndex, source] of kept.entries()) {
+          if (source.authorityTier !== "official") {
+            tallyUndatedDrop(source);
+            recordDecision(keptCandidateIndexes[keptIndex] ?? -1, source, "dropped-undated", "none", null);
+          }
         }
       }
-      return { kept: officialKept, stats, dropTallies };
+      return { kept: officialKept, stats, dropTallies, decisions: buildDecisions() };
     }
     stats.droppedUndatedCount += stats.unknownDateCount;
-    for (const source of kept) tallyUndatedDrop(source);
-    return { kept: [], stats, dropTallies };
+    for (const [keptIndex, source] of kept.entries()) {
+      tallyUndatedDrop(source);
+      recordDecision(keptCandidateIndexes[keptIndex] ?? -1, source, "dropped-undated", "none", null);
+    }
+    return { kept: [], stats, dropTallies, decisions: buildDecisions() };
   }
-  return { kept, stats, dropTallies };
+  return { kept, stats, dropTallies, decisions: buildDecisions() };
 }
 
 /* ------------------------------------------------------------------ */
@@ -782,22 +1034,32 @@ export async function executeOriginSearchGrounding(
 
   const routes: Array<Promise<RouteResult>> = [];
   const routeProviders: OriginSearchProviderId[] = [];
-  const addRoute = (providerId: OriginSearchProviderId, run: Promise<RouteResult>) => {
+  // Round-8 measure D: every search this request issues is recorded
+  // (minimized query text only), in issue order, so a thin outcome
+  // can be attributed to the queries that actually ran.
+  const queriesIssued: OriginSearchIssuedQuery[] = [];
+  const addRoute = (providerId: OriginSearchProviderId, run: Promise<RouteResult>, issued?: OriginSearchIssuedQuery) => {
     routeProviders.push(providerId);
     routes.push(run);
+    if (issued) queriesIssued.push(issued);
   };
+  const ordinaryIssued = (provider: OriginSearchProviderId): OriginSearchIssuedQuery => ({
+    provider,
+    kind: "ordinary",
+    query,
+  });
 
   switch (questionType) {
     case "news":
-      if (gdeltAccess.enabled) addRoute("gdelt", runGdeltRoute(deps, query, searchTimeoutMs()));
-      if (tavilyEnabled) addRoute("tavily", runTavilyRoute(deps, query, requirement.tavilyTopic, requirement.tavilyTimeRange, searchTimeoutMs()));
+      if (gdeltAccess.enabled) addRoute("gdelt", runGdeltRoute(deps, query, searchTimeoutMs()), ordinaryIssued("gdelt"));
+      if (tavilyEnabled) addRoute("tavily", runTavilyRoute(deps, query, requirement.tavilyTopic, requirement.tavilyTimeRange, searchTimeoutMs()), ordinaryIssued("tavily"));
       break;
     case "market":
     case "price_spec":
-      if (tavilyEnabled) addRoute("tavily", runTavilyRoute(deps, query, requirement.tavilyTopic, requirement.tavilyTimeRange, searchTimeoutMs()));
+      if (tavilyEnabled) addRoute("tavily", runTavilyRoute(deps, query, requirement.tavilyTopic, requirement.tavilyTimeRange, searchTimeoutMs()), ordinaryIssued("tavily"));
       break;
     case "policy":
-      if (tavilyEnabled) addRoute("tavily", runTavilyRoute(deps, query, requirement.tavilyTopic, requirement.tavilyTimeRange, searchTimeoutMs()));
+      if (tavilyEnabled) addRoute("tavily", runTavilyRoute(deps, query, requirement.tavilyTopic, requirement.tavilyTimeRange, searchTimeoutMs()), ordinaryIssued("tavily"));
       // Policy questions pair the encyclopedia route with Tavily, like
       // fresh_general (routing calibration, 2026-11-16 measurement
       // B-02): the type covers standing institutional facts — statutory
@@ -809,36 +1071,39 @@ export async function executeOriginSearchGrounding(
       // The pooled candidates still pass the policy freshness
       // requirement below (undated sources kept, stale-dated dropped),
       // so the freshness discipline is unchanged.
-      if (wikipediaAccess.enabled) addRoute("wikipedia", runWikipediaRoute(deps, query, searchTimeoutMs()));
+      if (wikipediaAccess.enabled) addRoute("wikipedia", runWikipediaRoute(deps, query, searchTimeoutMs()), ordinaryIssued("wikipedia"));
       break;
     case "fresh_general":
-      if (tavilyEnabled) addRoute("tavily", runTavilyRoute(deps, query, requirement.tavilyTopic, requirement.tavilyTimeRange, searchTimeoutMs()));
-      if (wikipediaAccess.enabled) addRoute("wikipedia", runWikipediaRoute(deps, query, searchTimeoutMs()));
+      if (tavilyEnabled) addRoute("tavily", runTavilyRoute(deps, query, requirement.tavilyTopic, requirement.tavilyTimeRange, searchTimeoutMs()), ordinaryIssued("tavily"));
+      if (wikipediaAccess.enabled) addRoute("wikipedia", runWikipediaRoute(deps, query, searchTimeoutMs()), ordinaryIssued("wikipedia"));
       break;
     case "stable":
-      if (wikipediaAccess.enabled) addRoute("wikipedia", runWikipediaRoute(deps, query, searchTimeoutMs()));
+      if (wikipediaAccess.enabled) addRoute("wikipedia", runWikipediaRoute(deps, query, searchTimeoutMs()), ordinaryIssued("wikipedia"));
       break;
     default:
       break;
   }
 
   // Measure B: the additional official-domain queries run alongside
-  // the ordinary routes, over the same minimized query (extracted
-  // keywords only — the raw message never leaves the process). Their
-  // candidates join the same pool and face the same relevance screen
-  // and freshness gate as every other candidate; the routing only
-  // steers retrieval toward the primary source, it does not privilege
-  // the results beyond the tier they already carry.
+  // the ordinary routes. Round-8 measure A aims them at the
+  // publication page: the query text pairs the minimized query
+  // (extracted keywords only — the raw message never leaves the
+  // process) with the topic's release name. Their candidates join
+  // the same pool and face the same relevance screen and freshness
+  // gate as every other candidate; the routing only steers
+  // retrieval toward the primary source, it does not privilege the
+  // results beyond the tier they already carry.
   if (officialPlan && tavilyEnabled) {
     for (const officialQuery of officialPlan.queries) {
+      const officialQueryText = buildOfficialSourceQueryText(query, officialQuery.releaseTerms);
       addRoute("tavily", runTavilyRoute(
         deps,
-        query,
+        officialQueryText,
         requirement.tavilyTopic,
         requirement.tavilyTimeRange,
         searchTimeoutMs(),
         officialQuery.domains,
-      ));
+      ), { provider: "tavily", kind: "official", query: officialQueryText, includeDomains: officialQuery.domains });
     }
   }
 
@@ -859,11 +1124,12 @@ export async function executeOriginSearchGrounding(
   if (questionType === "stable" && candidates.length === 0 && tavilyEnabled) {
     const fallback = await runTavilyRoute(deps, query, "general", null, searchTimeoutMs());
     results = [...results, fallback];
+    queriesIssued.push({ provider: "tavily", kind: "stable-fallback", query });
     if (fallback.sources.length > 0) providersUsed.push("tavily");
     candidates = fallback.sources;
   }
 
-  const droppedByScreenCount = results.reduce((sum, result) => sum + (result.screenedOutCount ?? 0), 0);
+  let droppedByScreenCount = results.reduce((sum, result) => sum + (result.screenedOutCount ?? 0), 0);
   // Screen-drop tallies across routes (案1): summed over whichever
   // routes reported them; a cache-hit route reports nothing new, in
   // step with the count above.
@@ -896,21 +1162,33 @@ export async function executeOriginSearchGrounding(
         screenDropTierCounts,
         freshness: emptyStats,
         freshnessDropTallies: emptyOriginSearchFreshnessDropTallies(),
+        freshnessDecisions: [],
         keptCount: 0,
         selection: null,
       }),
+      queriesIssued,
     };
   }
 
-  const { kept, stats, dropTallies } = evaluateOriginSourceFreshness(
+  // Measure C: with the routing switch on, official-tier sources
+  // are exempt from the undated drop and are judged by the
+  // publication date their own text states when the provider date
+  // cannot serve (see the gate's own notes).
+  const gateOptions = {
+    officialUndatedExempt: officialRoutingEnabled,
+    officialStatedDate: officialRoutingEnabled,
+  };
+  const initialGate = evaluateOriginSourceFreshness(
     candidates,
     requirement,
     questionType,
     startedAtMs,
-    // Measure C: with the routing switch on, official-tier sources
-    // are exempt from the undated drop (see the gate's own note).
-    { officialUndatedExempt: officialRoutingEnabled },
+    gateOptions,
   );
+  let kept = initialGate.kept;
+  let stats = initialGate.stats;
+  let dropTallies = initialGate.dropTallies;
+  let freshnessDecisions = initialGate.decisions;
   if (kept.length === 0) {
     return {
       kind: "unavailable",
@@ -924,17 +1202,109 @@ export async function executeOriginSearchGrounding(
         screenDropTierCounts,
         freshness: stats,
         freshnessDropTallies: dropTallies,
+        freshnessDecisions,
         keptCount: 0,
         selection: null,
       }),
+      queriesIssued,
       // PR-4: every candidate here reached the freshness gate and was
       // dropped by it; carry the first five for the template fallback.
       droppedSources: candidates.slice(0, 5),
     };
   }
 
-  const selection = selectOriginSearchSourcesWithObservation(kept);
+  let selection = selectOriginSearchSourcesWithObservation(kept);
   let selected = selection.selected;
+
+  // Material-insufficiency retry (round-8 measure B): the adopted
+  // pool of a statistical question can be non-empty yet carry no
+  // usable value — navigation-only spans (F-06) or regional figures
+  // standing in for the national one (F-05). That is the stop rule's
+  // "required fact missing" case, so exactly ONE more search is
+  // fired: the first planned topic's release name alone, restricted
+  // to its official domains. Its candidates face the same relevance
+  // screen and freshness gate, merge into the same pool, and the
+  // selection is re-run over the union; the first selection's
+  // disposition is superseded by the final one. The retry never
+  // fires twice, never fires for a sufficient pool, and never fires
+  // when the gate emptied the pool (that is measure C's territory).
+  let officialRetry: OriginSearchOfficialRetryObservation | undefined;
+  if (officialPlan && tavilyEnabled) {
+    const assessment = assessOfficialMaterialInsufficiency(selected);
+    if (!assessment.sufficient && assessment.reason) {
+      const retryTopic = officialPlan.queries[0];
+      let fired = false;
+      let retryCandidateCount = 0;
+      let retryKeptCount = 0;
+      let retryAdoptedCount = 0;
+      if (retryTopic?.releaseTerms && remainingMs() >= 1_000) {
+        const retryAccess = providerAccess("tavily", deps, 1);
+        if (retryAccess.enabled) {
+          fired = true;
+          const retryQueryText = buildOfficialRetryQueryText(retryTopic.releaseTerms);
+          const retryResult = await runTavilyRoute(
+            deps,
+            retryQueryText,
+            requirement.tavilyTopic,
+            requirement.tavilyTimeRange,
+            searchTimeoutMs(),
+            retryTopic.domains,
+          );
+          queriesIssued.push({
+            provider: "tavily",
+            kind: "official-retry",
+            query: retryQueryText,
+            includeDomains: retryTopic.domains,
+          });
+          if (retryResult.sources.length > 0 && !providersUsed.includes("tavily")) {
+            providersUsed.push("tavily");
+          }
+          droppedByScreenCount += retryResult.screenedOutCount ?? 0;
+          if (retryResult.screenedOutDomainCounts) {
+            for (const [domain, count] of Object.entries(retryResult.screenedOutDomainCounts)) {
+              screenDropDomainCounts[domain] = (screenDropDomainCounts[domain] ?? 0) + count;
+            }
+          }
+          if (retryResult.screenedOutTierCounts) {
+            for (const tier of Object.keys(retryResult.screenedOutTierCounts) as OriginSourceAuthorityTier[]) {
+              screenDropTierCounts[tier] += retryResult.screenedOutTierCounts[tier];
+            }
+          }
+          retryCandidateCount = retryResult.sources.length;
+          if (retryCandidateCount > 0) {
+            candidates = [...candidates, ...retryResult.sources];
+            const retryGate = evaluateOriginSourceFreshness(
+              retryResult.sources,
+              requirement,
+              questionType,
+              startedAtMs,
+              gateOptions,
+            );
+            stats = mergeFreshnessStats(stats, retryGate.stats);
+            dropTallies = mergeFreshnessDropTallies(dropTallies, retryGate.dropTallies);
+            freshnessDecisions = [...freshnessDecisions, ...retryGate.decisions];
+            const keptUrls = new Set(kept.map((source) => source.url.split("#")[0]));
+            const newKept = retryGate.kept.filter((source) => !keptUrls.has(source.url.split("#")[0]));
+            retryKeptCount = newKept.length;
+            if (newKept.length > 0) {
+              kept = [...kept, ...newKept];
+              selection = selectOriginSearchSourcesWithObservation(kept);
+              selected = selection.selected;
+              const selectedUrls = new Set(selected.map((source) => source.url.split("#")[0]));
+              retryAdoptedCount = newKept.filter((source) => selectedUrls.has(source.url.split("#")[0])).length;
+            }
+          }
+        }
+      }
+      officialRetry = {
+        reason: assessment.reason,
+        fired,
+        candidateCount: retryCandidateCount,
+        keptCount: retryKeptCount,
+        adoptedCount: retryAdoptedCount,
+      };
+    }
+  }
 
   // Extract (§2.3): only when snippets are thin or the type is number-critical
   // (price_spec / policy), only the top 2, and only inside the total budget.
@@ -979,9 +1349,12 @@ export async function executeOriginSearchGrounding(
       screenDropTierCounts,
       freshness: stats,
       freshnessDropTallies: dropTallies,
+      freshnessDecisions,
       keptCount: kept.length,
       selection: selection.observation,
+      ...(officialRetry ? { officialRetry } : {}),
     }),
+    queriesIssued,
   };
 }
 
@@ -1096,6 +1469,7 @@ function groundingMetadataFromOutcome(
   freshnessVerified: boolean,
   freshness: OriginSearchGroundingFreshnessStats,
   candidateStats: OriginSearchCandidateStats | undefined,
+  queriesIssued?: readonly OriginSearchIssuedQuery[],
 ): OriginResearchGroundingMetadata {
   return {
     questionType,
@@ -1105,6 +1479,19 @@ function groundingMetadataFromOutcome(
     unknownDateSourceCount: freshness.unknownDateCount,
     droppedStaleSourceCount: freshness.droppedStaleCount,
     droppedUndatedSourceCount: freshness.droppedUndatedCount,
+    // Round-8 measure D: the searches this request issued (routes
+    // and minimized query texts), so the research record can tell
+    // "the official query never fired" from "it fired and lost".
+    ...(queriesIssued && queriesIssued.length > 0
+      ? {
+          queriesIssued: queriesIssued.map((issued) => ({
+            provider: issued.provider,
+            kind: issued.kind,
+            query: issued.query,
+            ...(issued.includeDomains ? { includeDomains: issued.includeDomains } : {}),
+          })),
+        }
+      : {}),
     ...(candidateStats
       ? {
           candidateStats: {
@@ -1123,6 +1510,12 @@ function groundingMetadataFromOutcome(
             freshnessDropTallies: candidateStats.freshnessDropTallies,
             screenDropDomainCounts: candidateStats.screenDropDomainCounts,
             screenDropTierCounts: candidateStats.screenDropTierCounts,
+            // Round-8 measure D: per-candidate gate decisions with
+            // their basis dates, and the measure-B retry record.
+            freshnessDecisions: candidateStats.freshnessDecisions,
+            ...(candidateStats.officialRetry
+              ? { officialRetry: candidateStats.officialRetry }
+              : {}),
           },
         }
       : {}),
@@ -1163,6 +1556,7 @@ export function originSearchGroundingToResearchResult(
       outcome.freshnessVerified,
       outcome.freshness,
       outcome.candidateStats,
+      outcome.queriesIssued,
     ),
   };
 }
@@ -1201,6 +1595,7 @@ export function createDefaultOriginResearchExecutor(
           outcome.freshness.verifiedFreshCount > 0,
           outcome.freshness,
           outcome.candidateStats,
+          outcome.queriesIssued,
         ),
         // PR-4: the freshness-dropped candidates travel in their own
         // field (never in `sources`, which is the citable set), in
