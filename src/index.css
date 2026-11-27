@@ -704,6 +704,23 @@
   line-height: 1.45;
 }
 
+/* The notice text stays click-through; only the explicit apply
+   button takes pointer events (it is the owner's way out when the
+   automatic safe-apply stays deferred). */
+.origin-pwa-update-notice__apply {
+  pointer-events: auto;
+  display: inline-block;
+  margin-left: 0.5rem;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--accent-primary);
+  font: inherit;
+  font-weight: 600;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
 body:has([data-testid="artifact-live-steering"]) .origin-pwa-update-notice {
   bottom: calc(max(1rem, env(safe-area-inset-bottom)) + 7.5rem);
 }

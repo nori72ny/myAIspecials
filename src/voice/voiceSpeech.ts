@@ -66,8 +66,66 @@ export interface SpeechSynthesisLike {
   speak(utterance: SpeechUtteranceLike): void;
   cancel(): void;
   getVoices(): SpeechVoiceLike[];
+  /** Live playback flags (the real SpeechSynthesis exposes both).
+   * Optional in the shape: the settle assurance below reads them
+   * only when the platform actually reports booleans. */
+  speaking?: boolean;
+  pending?: boolean;
   addEventListener?(type: 'voiceschanged', listener: () => void): void;
   removeEventListener?(type: 'voiceschanged', listener: () => void): void;
+}
+
+/**
+ * Timer surface for the settle assurance, injected so tests can
+ * drive it deterministically. Defaults to the platform timers.
+ */
+export interface VoiceSpeechTimers {
+  setTimeout: (fn: () => void, ms: number) => unknown;
+  clearTimeout: (handle: unknown) => void;
+  setInterval: (fn: () => void, ms: number) => unknown;
+  clearInterval: (handle: unknown) => void;
+}
+
+const defaultTimers: VoiceSpeechTimers = {
+  setTimeout: (fn, ms) => setTimeout(fn, ms),
+  clearTimeout: (handle) => clearTimeout(handle as ReturnType<typeof setTimeout>),
+  setInterval: (fn, ms) => setInterval(fn, ms),
+  clearInterval: (handle) => clearInterval(handle as ReturnType<typeof setInterval>),
+};
+
+function unrefTimer(handle: unknown): void {
+  // Node-style handles (tests, SSR) must not hold the process open
+  // for a backstop that may legitimately be tens of seconds out.
+  if (handle && typeof (handle as { unref?: unknown }).unref === 'function') {
+    (handle as { unref: () => void }).unref();
+  }
+}
+
+/** How often the settle assurance samples the synthesis flags. */
+export const VOICE_SPEECH_SETTLE_POLL_MS = 300;
+/** Two consecutive idle samples, and at least this many samples
+ * overall, before the poll path settles a playback: a queued
+ * utterance that has not started yet must never read as finished. */
+const SETTLE_POLL_MIN_SAMPLES = 2;
+const SETTLE_POLL_IDLE_STREAK = 2;
+/** Conservative floor for Japanese TTS speed (characters per
+ * second at rate 1.0) used only by the watchdog estimate. */
+const SETTLE_MIN_CHARS_PER_SECOND = 4.5;
+const SETTLE_WATCHDOG_SAFETY = 1.8;
+const SETTLE_WATCHDOG_SLACK_MS = 2500;
+const SETTLE_WATCHDOG_MIN_MS = 4000;
+
+/**
+ * The last-resort bound for one playback: how long the settle
+ * assurance waits for utterance events / idle flags before it
+ * concludes the platform dropped the end of the playback and
+ * settles it itself. Deliberately generous — it exists to turn a
+ * permanent stall into a bounded pause, never to cut real speech.
+ */
+export function speechSettleWatchdogMs(totalChars: number, rate: number): number {
+  const safeRate = Number.isFinite(rate) && rate > 0 ? rate : DEFAULT_SPEECH_RATE;
+  const estimate = (totalChars / (safeRate * SETTLE_MIN_CHARS_PER_SECOND)) * 1000;
+  return Math.max(SETTLE_WATCHDOG_MIN_MS, Math.ceil(estimate * SETTLE_WATCHDOG_SAFETY) + SETTLE_WATCHDOG_SLACK_MS);
 }
 
 export interface VoiceStorageLike {
@@ -286,6 +344,7 @@ export interface VoiceSpeechDeps {
   synthesis?: () => SpeechSynthesisLike | null;
   createUtterance?: (text: string) => SpeechUtteranceLike;
   storage?: () => VoiceStorageLike | null;
+  timers?: VoiceSpeechTimers;
 }
 
 export class VoiceSpeechController {
@@ -297,9 +356,15 @@ export class VoiceSpeechController {
   private pendingUtterances = 0;
   private voicesChangedHandler: (() => void) | null = null;
   private voicesChangedTarget: SpeechSynthesisLike | null = null;
+  private settlePollHandle: unknown = null;
+  private settleWatchdogHandle: unknown = null;
 
   constructor(deps: VoiceSpeechDeps = {}) {
     this.deps = deps;
+  }
+
+  private timers(): VoiceSpeechTimers {
+    return this.deps.timers ?? defaultTimers;
   }
 
   private synthesis(): SpeechSynthesisLike | null {
@@ -505,6 +570,7 @@ export class VoiceSpeechController {
         this.pendingUtterances -= 1;
         if (this.pendingUtterances <= 0) {
           this.pendingUtterances = 0;
+          this.clearSettleAssurance();
           this.setActiveId(null);
         }
       };
@@ -512,6 +578,7 @@ export class VoiceSpeechController {
       utterance.onerror = settle;
       synthesis.speak(utterance);
     }
+    this.startSettleAssurance(session, sentences, rate);
     return true;
   }
 
@@ -533,11 +600,13 @@ export class VoiceSpeechController {
     const settle = () => {
       if (session !== this.session) return;
       this.pendingUtterances = 0;
+      this.clearSettleAssurance();
       this.setActiveId(null);
     };
     utterance.onend = settle;
     utterance.onerror = settle;
     synthesis.speak(utterance);
+    this.startSettleAssurance(session, [ORIN_VOICE_PREVIEW_TEXT], this.getRate());
     return true;
   }
 
@@ -545,10 +614,94 @@ export class VoiceSpeechController {
   stop(): void {
     this.session += 1;
     this.pendingUtterances = 0;
+    this.clearSettleAssurance();
     this.setActiveId(null);
     try {
       this.synthesis()?.cancel();
     } catch { /* a failing cancel must not break the caller */ }
+  }
+
+  // -- Settle assurance -------------------------------------------------
+  //
+  // Playback completion used to be known only through utterance
+  // onend/onerror. On Android Chrome those events are not reliable:
+  // they can be dropped entirely (most often with network voices),
+  // and a queued utterance can fail to start without any event at
+  // all. When that happened the active id never cleared and every
+  // consumer waiting for "playback finished" — above all the voice
+  // conversation's floor handover — stalled forever. Completion is
+  // therefore assured on three independent paths:
+  //
+  //  1. utterance onend/onerror (the primary path, unchanged);
+  //  2. a poll of the synthesis speaking/pending flags: when the
+  //     platform itself reports nothing is playing or queued, the
+  //     playback is over even if its events were lost;
+  //  3. a duration watchdog (speechSettleWatchdogMs): if the flags
+  //     also lie — synthesis wedged "speaking" forever — the
+  //     playback is cancelled and settled once it has had far
+  //     longer than the text could possibly take.
+  //
+  // Settling through path 2 or 3 invalidates the session first, so
+  // a late real onend can never decrement a later playback.
+
+  private startSettleAssurance(session: number, sentences: string[], rate: number): void {
+    this.clearSettleAssurance();
+    const timers = this.timers();
+    let samples = 0;
+    let idleStreak = 0;
+    const pollHandle = timers.setInterval(() => {
+      if (session !== this.session) return;
+      samples += 1;
+      const synthesis = this.synthesis();
+      if (!synthesis || typeof synthesis.speaking !== 'boolean' || typeof synthesis.pending !== 'boolean') {
+        idleStreak = 0;
+        return;
+      }
+      if (synthesis.speaking || synthesis.pending) {
+        idleStreak = 0;
+        return;
+      }
+      idleStreak += 1;
+      if (samples >= SETTLE_POLL_MIN_SAMPLES && idleStreak >= SETTLE_POLL_IDLE_STREAK) {
+        this.forceSettle(session, false);
+      }
+    }, VOICE_SPEECH_SETTLE_POLL_MS);
+    unrefTimer(pollHandle);
+    this.settlePollHandle = pollHandle;
+    const totalChars = sentences.reduce((sum, sentence) => sum + sentence.length, 0);
+    const watchdogHandle = timers.setTimeout(() => {
+      if (session !== this.session) return;
+      this.forceSettle(session, true);
+    }, speechSettleWatchdogMs(totalChars, rate));
+    unrefTimer(watchdogHandle);
+    this.settleWatchdogHandle = watchdogHandle;
+  }
+
+  private forceSettle(session: number, cancelSynthesis: boolean): void {
+    if (session !== this.session) return;
+    // Invalidate first: any utterance event that still arrives for
+    // this playback is stale from here on.
+    this.session += 1;
+    this.pendingUtterances = 0;
+    this.clearSettleAssurance();
+    if (cancelSynthesis) {
+      try {
+        this.synthesis()?.cancel();
+      } catch { /* a failing cancel must not break the settle */ }
+    }
+    this.setActiveId(null);
+  }
+
+  private clearSettleAssurance(): void {
+    const timers = this.timers();
+    if (this.settlePollHandle !== null) {
+      timers.clearInterval(this.settlePollHandle);
+      this.settlePollHandle = null;
+    }
+    if (this.settleWatchdogHandle !== null) {
+      timers.clearTimeout(this.settleWatchdogHandle);
+      this.settleWatchdogHandle = null;
+    }
   }
 }
 

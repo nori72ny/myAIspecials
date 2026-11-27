@@ -274,6 +274,42 @@ describe('PWA controller changes preserve user work', () => {
     assert.equal(app.updateChecks(), 2);
   });
 
+  it('applies a waiting update on explicit request even while a draft blocks the safe path', async () => {
+    const app = await launch(true);
+    app.draft.value = '編集中';
+    app.installWaiting();
+    assert.equal(app.announcements(), 1);
+    app.flushTimers();
+    // The safe path stays deferred while the draft exists…
+    assert.equal(app.activations(), 0);
+    // …but the owner's explicit tap on the notice's button
+    // activates at once, and the following controller change
+    // reloads without re-checking the draft.
+    app.window.emit('origin:pwa-apply-update');
+    assert.equal(app.activations(), 1);
+    app.changeController();
+    assert.equal(app.reloads(), 1);
+    assert.equal(app.draft.value, '編集中');
+  });
+
+  it('reloads a deferred update on explicit request when activation already happened elsewhere', async () => {
+    const app = await launch(true);
+    app.draft.value = '下書き';
+    app.changeController();
+    assert.equal(app.reloads(), 0);
+    app.window.emit('origin:pwa-apply-update');
+    assert.equal(app.reloads(), 1);
+  });
+
+  it('only checks for an update on explicit request when nothing is waiting or pending', async () => {
+    const app = await launch(true);
+    const checksBefore = app.updateChecks();
+    app.window.emit('origin:pwa-apply-update');
+    assert.equal(app.updateChecks(), checksBefore + 1);
+    assert.equal(app.activations(), 0);
+    assert.equal(app.reloads(), 0);
+  });
+
   it('activates a waiting update after unsaved work is cleared', async () => {
     const app = await launch(true);
     let activations = 0;
