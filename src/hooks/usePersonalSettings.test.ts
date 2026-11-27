@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import {
   DEFAULT_PERSONAL_SETTINGS,
   PERSONAL_SETTINGS_STORAGE_KEY,
+  readAlterEgoEnabled,
   readPersonalizationEnabled,
   usePersonalSettings,
 } from './usePersonalSettings';
@@ -69,6 +70,7 @@ describe('usePersonalSettings', () => {
       selectedTheme: 'light',
       designTheme: 'luxury',
       personalizationEnabled: true,
+      alterEgoEnabled: false,
     });
   });
 
@@ -87,6 +89,7 @@ describe('usePersonalSettings', () => {
       selectedTheme: 'light',
       designTheme: 'minimal',
       personalizationEnabled: false,
+      alterEgoEnabled: false,
     });
   });
 
@@ -136,5 +139,37 @@ describe('usePersonalSettings', () => {
     const { result } = renderHook(() => usePersonalSettings());
 
     expect(result.current.settings).toEqual(DEFAULT_PERSONAL_SETTINGS);
+  });
+
+  it('defaults the alter-ego toggle to OFF — the opposite of the personalization toggle — and persists changes', () => {
+    const { result } = renderHook(() => usePersonalSettings());
+
+    // Nothing stored: personalization is on, the alter ego is off, and
+    // the non-React reader agrees (the owner turns the alter ego on
+    // deliberately).
+    expect(result.current.settings.personalizationEnabled).toBe(true);
+    expect(result.current.settings.alterEgoEnabled).toBe(false);
+    expect(readAlterEgoEnabled()).toBe(false);
+
+    act(() => {
+      result.current.updateSettings({ ...result.current.settings, alterEgoEnabled: true });
+    });
+
+    expect(result.current.settings.alterEgoEnabled).toBe(true);
+    expect(JSON.parse(localStorage.getItem(PERSONAL_SETTINGS_STORAGE_KEY) ?? '{}')).toEqual({
+      language: 'ja',
+      selectedTheme: 'light',
+      designTheme: 'minimal',
+      personalizationEnabled: true,
+      alterEgoEnabled: true,
+    });
+    expect(readAlterEgoEnabled()).toBe(true);
+
+    // A stored shape written before the toggle existed reads as OFF,
+    // and only the literal boolean true turns the reader on.
+    localStorage.setItem(PERSONAL_SETTINGS_STORAGE_KEY, JSON.stringify({ language: 'ja', selectedTheme: 'light', personalizationEnabled: true }));
+    expect(readAlterEgoEnabled()).toBe(false);
+    localStorage.setItem(PERSONAL_SETTINGS_STORAGE_KEY, JSON.stringify({ language: 'ja', selectedTheme: 'light', alterEgoEnabled: 'yes' }));
+    expect(readAlterEgoEnabled()).toBe(false);
   });
 });

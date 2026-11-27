@@ -1,5 +1,5 @@
 import { generateProposalsForPrompt, resolveActiveContextUserId, retrieveRelevantContext } from "./activeContextGraph.js";
-import { readPersonalizationEnabled, readPersonalLanguage } from "../hooks/usePersonalSettings";
+import { readAlterEgoEnabled, readPersonalizationEnabled, readPersonalLanguage } from "../hooks/usePersonalSettings";
 
 const installedKey = "__originActiveContextChatBridgeInstalled";
 
@@ -64,9 +64,17 @@ export function installActiveContextChatBridge(): void {
       ? (lastUserMessage as { content: string }).content
       : "";
 
+    // Alter-ego mode (2026-11-27): a layer on top of personalization —
+    // while the master toggle is off this whole block is skipped above,
+    // so the alter ego can never attach anything either. When on, the
+    // assembled context gains the alter-ego profile section and the
+    // request gains a boolean marker (no personal data) that lets the
+    // server append the persona instruction held in code.
+    const alterEgo = readAlterEgoEnabled();
+
     let activeContext = "";
     try {
-      activeContext = await retrieveRelevantContext(prompt, { language: readPersonalLanguage() });
+      activeContext = await retrieveRelevantContext(prompt, { language: readPersonalLanguage(), alterEgo });
     } catch {
       // Fail closed: a local-memory failure must never block or alter the chat request.
       activeContext = "";
@@ -85,12 +93,14 @@ export function installActiveContextChatBridge(): void {
 
     // The assembled block already respects the client-side 2,000-char cap
     // (design §6.2); the server's 6,000-char acceptance limit is unchanged
-    // and stays as the outer guard.
+    // and stays as the outer guard. With alter-ego mode off the body is
+    // exactly what it was before the mode existed — no marker key at all.
     const nextInit: RequestInit = {
       ...init,
       body: JSON.stringify({
         ...body,
         activeContext,
+        ...(alterEgo ? { alterEgoMode: true } : {}),
       }),
     };
     return originalFetch(input, nextInit);

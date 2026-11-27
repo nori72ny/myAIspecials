@@ -26,6 +26,7 @@ export interface Settings {
   selectedTheme?: "dark" | "light" | "system" | "oled" | "retro"; // Theme settings (Dark, Light, System, OLED, Retro)
   designTheme?: "minimal" | "luxury" | "glass";
   personalizationEnabled?: boolean; // Personalization Stage 1 master toggle (§7.4): when false, memory extraction and reflection both stop
+  alterEgoEnabled?: boolean; // Alter-ego mode 【ノリ】 (2026-11-27): when true, the chat persona switches to the owner's alter ego. Defaults OFF — the opposite default of personalization, because the owner turns this on deliberately.
   maxCostCap?: number; // Cost settings (Max cost cap per mission in USD)
   retryCount?: number; // Error Recovery: Retry count
   timeoutSeconds?: number; // Error Recovery: Timeout in seconds

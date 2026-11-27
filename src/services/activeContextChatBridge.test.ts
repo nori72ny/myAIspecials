@@ -134,11 +134,12 @@ async function loadBridge(): Promise<{ graph: GraphModule; bridge: BridgeModule 
   return { graph, bridge };
 }
 
-function setSettings(settings: { language?: 'ja' | 'en'; personalizationEnabled: boolean }): void {
+function setSettings(settings: { language?: 'ja' | 'en'; personalizationEnabled: boolean; alterEgoEnabled?: boolean }): void {
   window.localStorage.setItem(SETTINGS_KEY, JSON.stringify({
     language: settings.language ?? 'ja',
     selectedTheme: 'light',
     personalizationEnabled: settings.personalizationEnabled,
+    ...(settings.alterEgoEnabled !== undefined ? { alterEgoEnabled: settings.alterEgoEnabled } : {}),
   }));
 }
 
@@ -317,5 +318,65 @@ describe('active context chat bridge proposals (design §6.4, PR P1-6)', () => {
 
     expect(forwarded).toHaveLength(1);
     await expect(graph.listProposals(userId)).resolves.toEqual([]);
+  });
+});
+
+describe('active context chat bridge alter-ego mode (2026-11-27)', () => {
+  async function seedAlterEgoProfile(graph: GraphModule, userId: string): Promise<void> {
+    const profile = graph.emptyAlterEgoProfile();
+    profile.fields.values = { text: '自分らしさを大切にする', sendToModel: true };
+    profile.fields.memoryMemo = { text: '青い鳥が合言葉', sendToModel: false };
+    profile.updatedAt = NOV16;
+    await graph.setAlterEgoProfile(userId, profile);
+  }
+
+  it('adds the boolean marker and the alter-ego section while the mode is on', async () => {
+    const { graph, bridge } = await loadBridge();
+    bridge.installActiveContextChatBridge();
+    const userId = storedUserId();
+    await seedAlterEgoProfile(graph, userId);
+    setSettings({ personalizationEnabled: true, alterEgoEnabled: true });
+
+    await window.fetch('/api/chat', { method: 'POST', body: chatBody('今日の予定を教えて') });
+
+    expect(forwarded).toHaveLength(1);
+    const body = JSON.parse(String(forwarded[0].init?.body)) as { activeContext?: string; alterEgoMode?: unknown };
+    // The marker is a boolean only — the persona lives in server code,
+    // and the profile reaches the request only as context data.
+    expect(body.alterEgoMode).toBe(true);
+    expect(body.activeContext).toContain('分身プロフィール（本人が設定した分身用の情報）:');
+    expect(body.activeContext).toContain('自分らしさを大切にする');
+    // Device-only fields never leave the device, marker or not.
+    expect(String(forwarded[0].init?.body)).not.toContain('青い鳥');
+  });
+
+  it('sends no marker key and no alter-ego section while the mode is off', async () => {
+    const { graph, bridge } = await loadBridge();
+    bridge.installActiveContextChatBridge();
+    const userId = storedUserId();
+    await seedAlterEgoProfile(graph, userId);
+    setSettings({ personalizationEnabled: true });
+
+    await window.fetch('/api/chat', { method: 'POST', body: chatBody('今日の予定を教えて') });
+
+    expect(forwarded).toHaveLength(1);
+    const body = JSON.parse(String(forwarded[0].init?.body)) as Record<string, unknown>;
+    expect(body).not.toHaveProperty('alterEgoMode');
+    expect(String(forwarded[0].init?.body)).not.toContain('分身プロフィール');
+    expect(String(forwarded[0].init?.body)).not.toContain('自分らしさ');
+  });
+
+  it('never attaches the marker while the personalization master toggle is off', async () => {
+    const { graph, bridge } = await loadBridge();
+    bridge.installActiveContextChatBridge();
+    const userId = storedUserId();
+    await seedAlterEgoProfile(graph, userId);
+    setSettings({ personalizationEnabled: false, alterEgoEnabled: true });
+
+    const original = chatBody('今日の予定を教えて');
+    await window.fetch('/api/chat', { method: 'POST', body: original });
+
+    expect(forwarded).toHaveLength(1);
+    expect(forwarded[0].init?.body).toBe(original);
   });
 });

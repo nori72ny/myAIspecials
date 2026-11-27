@@ -214,6 +214,14 @@ type Translation = {
     styleEstablished: string;
     styleEvidence: (turns: number) => string;
     styleOwnerSet: string;
+    alterEgoHeading: string;
+    alterEgoDescription: string;
+    alterEgoToggleLabel: string;
+    alterEgoOffNote: string;
+    alterEgoNeedsPersonalization: string;
+    alterEgoFieldsIntro: string;
+    alterEgoSave: string;
+    alterEgoSaved: string;
     clearAll: string;
     clearAllConfirmTitle: string;
     clearAllConfirmBody: string;
@@ -454,6 +462,14 @@ export const TRANSLATIONS: Record<OriginLanguage, Translation> = {
       styleEstablished: '特徴として記録',
       styleEvidence: (turns) => `${turns} 回の会話から`,
       styleOwnerSet: 'あなたが書いた内容',
+      alterEgoHeading: '分身モード（オリンの性格）',
+      alterEgoDescription: 'オンにすると、オリンそのままの姿で、性格だけがあなたの分身【ノリ】に切り替わります。一人称は「僕」、あなたにはタメ口で、結論から率直に話す相棒になります。答えられる内容の範囲は変わりません。',
+      alterEgoToggleLabel: 'オリンの性格を分身【ノリ】に切り替える',
+      alterEgoOffNote: 'オフの間は、いつものオリンのままです。',
+      alterEgoNeedsPersonalization: '分身モードは「覚えている内容を、回答に活かす」がオンのときに働きます。',
+      alterEgoFieldsIntro: '分身があなたのことを語るときの根拠になる情報です。端末の中にだけ保存され、項目ごとに「回答に使う」を切れます。カード番号や暗証番号などは保存できません。',
+      alterEgoSave: '分身の情報を保存',
+      alterEgoSaved: '分身の情報を保存しました。',
       clearAll: '覚えていることを全て消す',
       clearAllConfirmTitle: '覚えていることを全て消しますか',
       clearAllConfirmBody: '会話の履歴は消えません。覚えていることだけが消えます。',
@@ -692,6 +708,14 @@ export const TRANSLATIONS: Record<OriginLanguage, Translation> = {
       styleEstablished: 'Recorded as a trait',
       styleEvidence: (turns) => `From ${turns} conversations`,
       styleOwnerSet: 'Written by you',
+      alterEgoHeading: "Alter-ego mode (Orin's personality)",
+      alterEgoDescription: 'When on, Orin stays Orin — only the personality switches to your alter ego. It speaks as "boku", casually with you, conclusion first and frank: a companion version of Orin. What it can answer does not change.',
+      alterEgoToggleLabel: "Switch Orin's personality to my alter ego",
+      alterEgoOffNote: 'While off, Orin is exactly as always.',
+      alterEgoNeedsPersonalization: 'Alter-ego mode works while "use what ORIGIN remembers in answers" is on.',
+      alterEgoFieldsIntro: 'The information your alter ego grounds itself in when speaking about you. It is stored only on this device, and each field can be excluded from answers. Card numbers, PINs and the like cannot be saved.',
+      alterEgoSave: 'Save alter-ego information',
+      alterEgoSaved: 'Alter-ego information saved.',
       clearAll: 'Delete everything ORIGIN remembers',
       clearAllConfirmTitle: 'Delete everything ORIGIN remembers?',
       clearAllConfirmBody: 'Your conversation history is not deleted. Only what ORIGIN remembers is removed.',

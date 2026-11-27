@@ -8,11 +8,19 @@ import {
 } from "../lib/orchestration/SensitiveInputDetector.js";
 import type { OriginChatMessage } from "./originProviderClient.js";
 import { enterActiveContext } from "../lib/orchestration/activeContextRequestStore.js";
+import { enterAlterEgoMode } from "../lib/orchestration/alterEgoRequestStore.js";
 
 export interface OriginChatBody {
   messages?: unknown;
   userLocation?: unknown;
   activeContext?: unknown;
+  /**
+   * Alter-ego mode marker (2026-11-27): a boolean only, sent by the
+   * chat bridge when the owner has the alter-ego toggle on. It carries
+   * no personal data — the persona instruction itself lives in code
+   * server-side and is appended by the answer quality policy.
+   */
+  alterEgoMode?: unknown;
   executionPolicy?: { maxEstimatedCostUsd?: unknown; timeoutMs?: unknown };
   /**
    * Explicit client marker (P1 countermeasure 2): this send is a
@@ -190,6 +198,7 @@ export function screenConversationForSend(messages: OriginChatMessage[]): Origin
 
 export function originClientPolicy(body: OriginChatBody): Partial<OriginExecutionPolicy> | undefined {
   enterActiveContext(body.activeContext);
+  enterAlterEgoMode(body.alterEgoMode);
   const input = body.executionPolicy;
   if (!input) return undefined;
   const policy: Partial<OriginExecutionPolicy> = {};
