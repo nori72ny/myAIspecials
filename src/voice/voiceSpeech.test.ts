@@ -1,11 +1,14 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
+  resolveVoiceSpeechRateStep,
   splitSpeechSentences,
   toSpeechText,
   voiceGenderFromName,
+  voiceSpeechRateForStep,
   VoiceSpeechController,
   VOICE_OUTPUT_RATE_STORAGE_KEY,
   VOICE_OUTPUT_VOICE_URI_STORAGE_KEY,
+  VOICE_SPEECH_RATE_STEPS,
   type SpeechSynthesisLike,
   type SpeechUtteranceLike,
   type SpeechVoiceLike,
@@ -268,5 +271,55 @@ describe('VoiceSpeechController', () => {
     const { controller } = makeController();
     expect(controller.speak('msg-1', '```\ncode only\n```')).toBe(false);
     expect(controller.getActiveId()).toBeNull();
+  });
+});
+
+describe('speaking-speed steps （声の速さ）', () => {
+  it('offers the five owner-facing steps around normal = 1.0', () => {
+    expect(VOICE_SPEECH_RATE_STEPS.map((step) => step.id)).toEqual([
+      'slow', 'slightly-slow', 'normal', 'slightly-fast', 'fast',
+    ]);
+    expect(VOICE_SPEECH_RATE_STEPS.map((step) => step.labelJa)).toEqual([
+      'ゆっくり', 'ややゆっくり', 'ふつう', 'ややはやい', 'はやい',
+    ]);
+    expect(VOICE_SPEECH_RATE_STEPS.map((step) => step.rate)).toEqual([0.8, 0.9, 1.0, 1.1, 1.25]);
+    expect(voiceSpeechRateForStep('normal')).toBe(1.0);
+  });
+
+  it('defaults to ふつう when nothing is stored', () => {
+    const { controller } = makeController();
+    expect(controller.getRateStep()).toBe('normal');
+  });
+
+  it('stores a step as the plain rate under the existing key and reads it back', () => {
+    const { controller, storage } = makeController();
+    controller.setRateStep('fast');
+    expect(storage.getItem(VOICE_OUTPUT_RATE_STORAGE_KEY)).toBe('1.25');
+    expect(controller.getRate()).toBe(1.25);
+    expect(controller.getRateStep()).toBe('fast');
+    controller.setRateStep('slow');
+    expect(storage.getItem(VOICE_OUTPUT_RATE_STORAGE_KEY)).toBe('0.8');
+    expect(controller.getRateStep()).toBe('slow');
+  });
+
+  it('reads a stored non-step rate as the nearest step', () => {
+    const { controller } = makeController();
+    controller.setRate(1.15);
+    expect(controller.getRateStep()).toBe('slightly-fast');
+    controller.setRate(2.0);
+    expect(controller.getRateStep()).toBe('fast');
+    controller.setRate(0.5);
+    expect(controller.getRateStep()).toBe('slow');
+    expect(resolveVoiceSpeechRateStep(1.0)).toBe('normal');
+    expect(resolveVoiceSpeechRateStep(0.9)).toBe('slightly-slow');
+  });
+
+  it('applies the chosen step to read-aloud and preview playback', () => {
+    const { controller, synthesis } = makeController();
+    controller.setRateStep('slightly-slow');
+    expect(controller.speak('msg-1', 'こんにちは。')).toBe(true);
+    expect(synthesis.spoken[0]?.rate).toBe(0.9);
+    expect(controller.preview('ichiro-uri')).toBe(true);
+    expect(synthesis.spoken.at(-1)?.rate).toBe(0.9);
   });
 });

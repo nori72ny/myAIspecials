@@ -6,6 +6,7 @@ import VoiceOutputSettings from './VoiceOutputSettings';
 import { refreshVoiceOutputAvailability } from '../voice/voiceOutputAvailability';
 import {
   voiceSpeech,
+  VOICE_OUTPUT_RATE_STORAGE_KEY,
   VOICE_OUTPUT_VOICE_URI_STORAGE_KEY,
   type SpeechUtteranceLike,
   type SpeechVoiceLike,
@@ -128,6 +129,29 @@ describe('VoiceOutputSettings', () => {
     expect(window.localStorage.getItem(VOICE_CONVERSATION_TONE_STORAGE_KEY)).toBe('gentle');
     expect(screen.getByTestId('orin-voice-tone-gentle').getAttribute('aria-checked')).toBe('true');
     expect(screen.getByTestId('orin-voice-tone-everyday').getAttribute('aria-checked')).toBe('false');
+  });
+
+  it('offers the five speaking-speed steps and persists the choice as the stored rate', async () => {
+    await act(async () => { await refreshVoiceOutputAvailability(healthFetch(true)); });
+    render(<VoiceOutputSettings language="ja" />);
+    expect(screen.getByRole('heading', { name: '声の速さ' })).toBeTruthy();
+    expect(screen.getByTestId('orin-voice-speed-slow').textContent).toContain('ゆっくり');
+    expect(screen.getByTestId('orin-voice-speed-slightly-slow').textContent).toContain('ややゆっくり');
+    expect(screen.getByTestId('orin-voice-speed-normal').textContent).toContain('ふつう');
+    expect(screen.getByTestId('orin-voice-speed-slightly-fast').textContent).toContain('ややはやい');
+    expect(screen.getByTestId('orin-voice-speed-fast').textContent).toContain('はやい');
+    // ふつう is the default step.
+    expect(screen.getByTestId('orin-voice-speed-normal').getAttribute('aria-checked')).toBe('true');
+
+    fireEvent.click(screen.getByTestId('orin-voice-speed-fast'));
+    expect(window.localStorage.getItem(VOICE_OUTPUT_RATE_STORAGE_KEY)).toBe('1.25');
+    expect(screen.getByTestId('orin-voice-speed-fast').getAttribute('aria-checked')).toBe('true');
+    expect(screen.getByTestId('orin-voice-speed-normal').getAttribute('aria-checked')).toBe('false');
+
+    // The chosen speed is what the preview speaks with.
+    fireEvent.click(screen.getByTestId('orin-voice-preview-button'));
+    expect(synthesis.spoken).toHaveLength(1);
+    expect(synthesis.spoken[0]?.rate).toBe(1.25);
   });
 
   it('says so plainly when the device has no Japanese voice', async () => {
