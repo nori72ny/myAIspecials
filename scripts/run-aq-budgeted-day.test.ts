@@ -4,7 +4,7 @@ import { mkdtemp, readFile, readdir, rm, writeFile, symlink } from 'node:fs/prom
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { validateDailyBatch } from './validate-aq-daily-batch.mjs';
-import { runBudgetedDay } from './run-aq-budgeted-day.js';
+import { runBudgetedDay, sanitizedSessionFailureStage } from './run-aq-budgeted-day.js';
 import { createOriginAnswerQualityFrozenCorpus } from '../src/lib/orchestration/OriginAnswerQualityBenchmarkCorpus.js';
 import { planOriginAnswerQualityBenchmarkCaseShards } from '../src/lib/orchestration/OriginAnswerQualityBenchmarkQuotaPlan.js';
 const roots: string[] = [];
@@ -137,5 +137,44 @@ describe('AQ first failure diagnostics remain safe and durable in logs', () => {
     expect(summary).not.toContain('SECRET_CANARY');
     expect(JSON.parse(summary)).toMatchObject({failureCode:expected, completedShardCount:0, interrupted:true});
     await expect(validateDailyBatch(path.join(root,'new'),'a'.repeat(40),'b'.repeat(40))).rejects.toThrow('AQ_DAILY_BATCH_INVALID');
+  });
+});
+
+describe("AQ session stage diagnostics exclude arbitrary detail", () => {
+  it.each([
+    ["AQ_BENCHMARK_SESSION_RUNTIME_NOT_READY", "AQ_BENCHMARK_SESSION_RUNTIME_NOT_READY"],
+    ["AQ_BENCHMARK_SESSION_EXECUTION_FAILED:case-id:SECRET_CANARY", "AQ_BENCHMARK_SESSION_EXECUTION_FAILED"],
+    ["AQ_BENCHMARK_SESSION_SCORECARD_INVALID:SECRET_CANARY", "AQ_BENCHMARK_SESSION_SCORECARD_INVALID"],
+    ["SECRET_CANARY", null],
+    ["AQ_BENCHMARK_SESSION_EXECUTION_FAILED SECRET_CANARY", null],
+    ["AQ_BENCHMARK_SESSION_EXECUTION_FAILED\\nSECRET_CANARY", null],
+    [undefined, null],
+    [123, null],
+    ["AQ_BENCHMARK_SESSION_EXECUTION_FAILED:" + "x".repeat(16_384), null],
+  ])("sanitizes %s", (detail, expected) => {
+    expect(sanitizedSessionFailureStage(detail)).toBe(expected);
+  });
+
+  it("records only an allowlisted session stage from a validated failure file", async () => {
+    const root = await setup();
+    const log = vi.spyOn(process.stdout, "write").mockReturnValue(true);
+    let calls = 0;
+    await expect(runBudgetedDay(async env => {
+      calls++;
+      await writeFile(env.ORIGIN_AQ_OUTPUT_PATH!, JSON.stringify({
+        schemaVersion: "origin.aq-local-shard-result.v1", ok: false,
+        code: "AQ_BENCHMARK_SHARD_BASELINE_SESSION_FAILED",
+        detail: "AQ_BENCHMARK_SESSION_EXECUTION_FAILED:case-id:SECRET_CANARY",
+      }));
+      throw new Error("SECRET_CANARY");
+    })).rejects.toThrow("SECRET_CANARY");
+    const output = log.mock.calls.map(call => call[0]).join("");
+    expect(output).toContain("AQ session failure stage AQ_BENCHMARK_SESSION_EXECUTION_FAILED");
+    expect(output).not.toContain("SECRET_CANARY");
+    expect(output).not.toContain("case-id");
+    expect(calls).toBe(1);
+    expect(await readdir(path.join(root, "state"))).toEqual([]);
+    const summary = JSON.parse(await readFile(path.join(root, "new/aq-budgeted-day-summary.json"), "utf8"));
+    expect(summary).toMatchObject({ failureCode: "AQ_BENCHMARK_SHARD_BASELINE_SESSION_FAILED", completedShardCount: 0, interrupted: true });
   });
 });
