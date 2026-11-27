@@ -133,6 +133,28 @@ const asksResultAmount = /(?:いくらになります|いくらになる|合計�
 // through to price_spec below.
 || /(?:元の値段|元の価格|元値|売値|定価|原価).{0,4}いくら/.test(message);
 if (hasDigits && hasSuppliedValue && asksResultAmount) return true;
+// Amount × percentage → result amount (round 7, Q6-01,
+// ANSWER_ROUND7_DIAGNOSIS_2026-11-27): "9000万円の6.2%はいくら
+// ですか？" supplies every input — an amount (万/億 magnitudes
+// included), a percentage (% / パーセント / 割), and the bare
+// result-amount ask いくらですか — so it is arithmetic, not a
+// price lookup. It slipped past both shapes above: the 万 broke
+// the plain amount pattern inside hasSuppliedCalculationValue
+// (which demands digits directly against 円), and いくらですか
+// was not a result-amount cue. All three parts are required — a
+// bare price question supplies neither value, an amount alone is
+// a price question, and a percentage alone is a rate question —
+// and the freshness guard at the top of this function has
+// already run, so a question demanding the CURRENT rate never
+// reaches here. The amount / percentage patterns run on the
+// NFKC + separator-stripped copy, the same treatment as
+// hasSuppliedCalculationValue, so they only ever face a plain
+// digit run against a unit (no overlapping quantifiers).
+const suppliedValueNormalized = message.normalize("NFKC").replace(/(\d),(?=\d)/g, "$1");
+const suppliedMagnitudeAmount = /\d+(?:\.\d+)?\s*(?:億|万)?\s*円/.test(suppliedValueNormalized);
+const suppliedPercentage = /\d+(?:\.\d+)?\s*(?:%|パーセント|割)/.test(suppliedValueNormalized);
+const asksBareResultAmount = /(?:いくらですか|いくらでしょう)/.test(message);
+if (hasDigits && suppliedMagnitudeAmount && suppliedPercentage && asksBareResultAmount) return true;
 // Self-contained ratio splits and supplied-rate conversions (routing
 // calibration, 2026-11-17 re-measurement H-06 / H-08): the question
 // itself supplies every input — an amount plus an explicit ratio to

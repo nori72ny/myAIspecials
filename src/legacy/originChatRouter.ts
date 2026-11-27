@@ -33,6 +33,7 @@ import {
 } from "../search/originDeterministicDateAnswer.js";
 import { resolveOriginOfficialSourceRoutingEnabled } from "../search/originOfficialSourceRouting.js";
 import { buildGroundedResearchPartialAnswer, buildGroundedResearchReport } from "../research/groundedResearchV11.js";
+import { tryDeterministicCalculationFallback } from "../research/groundedDeterministicCalculation.js";
 import {
   buildGroundedResearchAbstainAnswer,
   ensureGroundedResearchTerminalBody,
@@ -657,6 +658,7 @@ export function createOriginChatRouter(options: OriginChatRouterOptions = {}) {
         content: string;
         kind: "nonexistence" | "undetermined";
       } | null = null;
+      let recoveryCalculation: { content: string } | null = null;
       let recoveryProcedureConditional = false;
       const adoptRecoveryConditional = (
         site: "t4" | "t3",
@@ -720,7 +722,41 @@ export function createOriginChatRouter(options: OriginChatRouterOptions = {}) {
           if (recoveryRefusalMode === "enforce") recoveryProcedureConditional = true;
         }
       }
-      if (grounded.sourceCount === 0 && !recoveryTemplate) {
+      // Round 7 (measure C-2, ANSWER_ROUND7_DIAGNOSIS_2026-11-27):
+      // the deterministic calculation safety net. A question whose
+      // every input is supplied — an amount × a percentage — can
+      // still reach this zero-source exit when its phrasing slips
+      // past C-1's routing exemptions, and here a source-retrieval
+      // failure would otherwise refuse it outright (Q6-01's
+      // production shape: the calculation needs no source at all).
+      // When the question parses as that construction, the answer
+      // is computed exactly from the question's own numbers — no
+      // source, no model — instead of landing on the T4 hold. The
+      // publication gate passes the computed text first, exactly
+      // as for the template and conditional fallbacks: a held
+      // calculation does not fire. This is not gated on the refusal
+      // switch: it corrects a category error (arithmetic refused
+      // for lack of sources), it does not soften a refusal.
+      if (grounded.sourceCount === 0 && !recoveryTemplate && !recoveryConditional && !recoveryProcedureConditional) {
+        const calculation = tryDeterministicCalculationFallback(lastUserMessage, grounded.language);
+        if (calculation) {
+          const gate = applyOriginPublicationGate({
+            requestId,
+            answerText: calculation.text,
+            query: lastUserMessage,
+            language: grounded.language,
+            env,
+          });
+          if (!gate.held) recoveryCalculation = { content: calculation.text };
+          console.info("[origin-chat] recovery calculation", {
+            requestId,
+            recoveryCalculationKind: calculation.kind,
+            recoveryCalculationFired: recoveryCalculation !== null,
+            ...(gate.held ? { publicationGateHeld: true } : {}),
+          });
+        }
+      }
+      if (grounded.sourceCount === 0 && !recoveryTemplate && !recoveryCalculation) {
         // Failure classification (synthesis-hygiene): record why this
         // request fail-closed to the could-not-confirm answer, without
         // logging any message or answer text. monthly-cap-reached means
@@ -1779,6 +1815,10 @@ export function createOriginChatRouter(options: OriginChatRouterOptions = {}) {
             : (grounded.language === "en"
               ? "The outcome is not decided yet, so the answer states that no confirmed information exists."
               : "結果がまだ確定していない事柄のため、確定情報は存在しない旨を明示しました。")
+        : recoveryCalculation
+          ? (grounded.language === "en"
+            ? "Sources could not be retrieved, but the question supplies every value it needs, so the answer was computed deterministically from those values."
+            : "出典は取得できませんでしたが、ご質問に含まれる数値から決定的に計算して回答しました。")
           : researchReconstruction
             ? researchReconstruction.via === "value-vote"
               ? (grounded.language === "en"
@@ -1804,6 +1844,10 @@ export function createOriginChatRouter(options: OriginChatRouterOptions = {}) {
             : (grounded.language === "en"
               ? "Please check the official announcement once the result is final."
               : "結果が確定した後は、公式の発表でご確認ください。")]
+          : recoveryCalculation
+          ? [grounded.language === "en"
+            ? "This is a calculation from the values stated in the question itself; no external source was retrieved."
+            : "ご質問に含まれる数値に基づく計算結果です。外部の出典は取得できていません。"]
           : researchReconstruction
           ? [grounded.language === "en"
             ? "AI synthesis was not adopted, so this answer is assembled only from the retrieved sources' own verbatim statements and values confirmed across multiple sources; claim truth, completeness, and publisher authority were not independently verified."
@@ -1834,7 +1878,11 @@ export function createOriginChatRouter(options: OriginChatRouterOptions = {}) {
             // sources as its evidence would repeat the round-5
             // failure it exists to correct.
             []
-          : grounded.evidence;
+          : recoveryCalculation
+            ? // A computed answer cites no source either: it is
+              // derived from the question's own supplied values.
+              []
+            : grounded.evidence;
       // Terminal guarantee (N-1, CONSULT_ADOPTION_DESIGN_2026-11-17
       // §1.4): this return is the research path's final assembly, and it
       // structurally cannot emit an empty or shell-only body (failure
@@ -1846,6 +1894,7 @@ export function createOriginChatRouter(options: OriginChatRouterOptions = {}) {
       const recoveryBody =
         recoveryTemplate?.content ??
         recoveryConditional?.content ??
+        recoveryCalculation?.content ??
         researchReconstruction?.content ??
         (recoveryProcedureConditional
           ? buildProcedureConditionalAnswer({ baseText: grounded.content, language: grounded.language })
@@ -1871,7 +1920,7 @@ export function createOriginChatRouter(options: OriginChatRouterOptions = {}) {
       }
       const landing: OriginResearchLanding = terminalGuardFired
         ? researchLandingForAbstain("provider-error")
-        : recoveryTemplate || recoveryConditional
+        : recoveryTemplate || recoveryConditional || recoveryCalculation
           ? researchLandingForAdopted(false)
           : grounded.landing;
       if (terminalGuardFired) {
@@ -1896,6 +1945,7 @@ export function createOriginChatRouter(options: OriginChatRouterOptions = {}) {
         sourceCount: grounded.sourceCount,
         ...(recoveryTemplate ? { recoveryTemplate: true } : {}),
         ...(recoveryConditional ? { recoveryRefusalKind: recoveryConditional.kind } : {}),
+        ...(recoveryCalculation ? { recoveryCalculation: true } : {}),
         ...(recoveryProcedureConditional ? { recoveryProcedureConditional: true } : {}),
         ...(researchReconstruction ? { researchReconstruction: researchReconstruction.via } : {}),
         ...(synthesisProviderRetrySkipDetail ? { synthesisProviderRetrySkipDetail } : {}),
@@ -1922,7 +1972,7 @@ export function createOriginChatRouter(options: OriginChatRouterOptions = {}) {
           // claim sentences taken from the sources, so it stays a
           // class-A verification target exactly as the T3 partial
           // answer was (V-PR-2 coverage is preserved, not narrowed).
-          deterministicLanding: terminalGuardFired || Boolean(recoveryTemplate) || Boolean(recoveryConditional) || recoveryProcedureConditional,
+          deterministicLanding: terminalGuardFired || Boolean(recoveryTemplate) || Boolean(recoveryConditional) || Boolean(recoveryCalculation) || recoveryProcedureConditional,
           hasClaimSentences,
           hasGenerationResult: synthesisExecutionResult !== null,
         });
@@ -1959,7 +2009,7 @@ export function createOriginChatRouter(options: OriginChatRouterOptions = {}) {
           steps: [
             {
               id: "research",
-              status: grounded.sourceCount > 0 || recoveryTemplate || recoveryConditional ? "completed" : "blocked",
+              status: grounded.sourceCount > 0 || recoveryTemplate || recoveryConditional || recoveryCalculation ? "completed" : "blocked",
               evidenceCount: Math.max(grounded.sourceCount, recoveryTemplate?.attempt.confirmingSources.length ?? 0),
               provider: grounded.provider,
             },

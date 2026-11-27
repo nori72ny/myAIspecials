@@ -4,6 +4,10 @@ import {
   type OriginSourceAuthorityTier,
 } from "../search/originSearchProviders.js";
 import {
+  parseOriginOfficialEdition,
+  type OriginOfficialEdition,
+} from "../search/originOfficialEdition.js";
+import {
   buildGroundedResearchEvidencePacket,
   type RecoveryEvidencePacket,
 } from "./groundedResearchEvidencePacket.js";
@@ -72,6 +76,26 @@ import {
  * types — and never touches the answer. The confirmed value is NOT a
  * substitute for the publication gate: PR-4's template excludes the
  * gate's fatal classes (ages, office-holders, law names) by design.
+ *
+ * Round 7 (ANSWER_ROUND7_DIAGNOSIS_2026-11-27, measure S-1) adds
+ * the edition discipline the round-6 statistics failures forced.
+ * The vote above judged a value's newness by the date of the
+ * article restating it, but a periodic statistic's newness is its
+ * EDITION — the reference period the release reports （令和8年9月分,
+ * 2026年7-9月期）. Old values are restated as history inside new
+ * articles, so the stale group held BOTH the newest article date
+ * and the most domains and won on the old rules in all three
+ * measured questions (unemployment, job-offer ratio, GDP). Each
+ * candidate now also carries the edition its statement belongs to
+ * — read from its own sentence first, else from its source (title,
+ * then the source's own text, the reading PR-2's packet and the
+ * reconstruction's measure C already apply to sources) — and a
+ * group whose edition is strictly older than the newest edition
+ * stated anywhere in the pool is disqualified: it can neither
+ * confirm nor arbitrate. A group stating no edition is of unknown
+ * vintage and is never disqualified by this rule (an unknown
+ * vintage is not a stale one, the same discipline as measure C);
+ * a pool stating a single edition behaves exactly as before.
  */
 
 export type RecoveryAnswerType =
@@ -124,6 +148,15 @@ export interface RecoveryCandidateValue {
    * recency: it is when the VALUE is from, not when the page is from.
    */
   statedDate?: string;
+  /**
+   * The edition (reference period) this statement of the value
+   * belongs to, when one can be read — the candidate's own sentence
+   * first, else its source (round 7, measure S-1). The comparable
+   * sort key (year * 100 + month) the vote's edition discipline
+   * compares; the label is the edition as written, for diagnostics.
+   */
+  editionSortKey?: number;
+  editionLabel?: string;
   /** True when this occurrence is the source's title sentence. */
   inTitleOnly: boolean;
   /** The packet sentence's rule score (PR-2). */
@@ -141,6 +174,18 @@ export interface RecoveryValueVoteGroup {
   /** Every occurrence of this value is title-only. */
   titleOnly: boolean;
   candidateCount: number;
+  /**
+   * The newest edition any statement of this value belongs to
+   * (round 7, measure S-1), when at least one statement's edition
+   * could be read.
+   */
+  editionSortKey?: number;
+  /**
+   * True when this group's edition is strictly older than the
+   * newest edition stated in the pool: the group is a superseded
+   * edition and can neither confirm nor arbitrate (round 7).
+   */
+  editionDisqualified?: boolean;
 }
 
 export interface RecoveryValueVote {
@@ -297,6 +342,26 @@ function latestStatedDate(sentence: string): string | undefined {
   for (const match of sentence.matchAll(/\b(\d{4})-(\d{2})-(\d{2})\b/g)) {
     const iso = `${match[1]}-${match[2]}-${match[3]}`;
     if (!best || iso > best) best = iso;
+  }
+  return best;
+}
+
+/**
+ * The newest edition a text states, read chunk by chunk (round 7,
+ * measure S-1): parseOriginOfficialEdition reads ONE edition per
+ * text (its first formal label), so a whole excerpt — which may
+ * name several editions — is read sentence by sentence and the
+ * newest reading wins. Used for the source-level edition of a
+ * candidate whose own sentence states none: a release page's
+ * heading names the edition while its value sentence states the
+ * bare figure (the deterministic release-page candidate of round 6
+ * carries its edition only there).
+ */
+function newestEditionInText(text: string): OriginOfficialEdition | null {
+  let best: OriginOfficialEdition | null = null;
+  for (const chunk of text.split(/[。！？!?\n]+/)) {
+    const edition = parseOriginOfficialEdition(chunk);
+    if (edition && (!best || edition.sortKey > best.sortKey)) best = edition;
   }
   return best;
 }
@@ -593,11 +658,41 @@ export function extractRecoveryCandidateValues(
     return [];
   }
   const metas = (sources ?? []).map(metaOfSource);
+  // Round 7 (measure S-1): the edition each source belongs to —
+  // its title's edition, else the newest edition its own text
+  // states. When the caller passes no sources, the packet's own
+  // sentences are the only text available and are read the same
+  // way (title sentences included). A candidate whose sentence
+  // states an edition binds to THAT edition (an article titled
+  // with September's release can still state August's value as
+  // history, in a sentence that names August); only a sentence
+  // stating none falls back to its source's edition.
+  const sourceEditions = new Map<number, OriginOfficialEdition>();
+  if (sources) {
+    sources.forEach((source, index) => {
+      const edition =
+        parseOriginOfficialEdition(source.title ?? "") ??
+        newestEditionInText(source.excerpt ?? source.body ?? "");
+      if (edition) sourceEditions.set(index, edition);
+    });
+  } else {
+    for (const sentence of packet.sentences) {
+      const edition = parseOriginOfficialEdition(sentence.text);
+      if (!edition) continue;
+      const previous = sourceEditions.get(sentence.sourceIndex);
+      if (!previous || edition.sortKey > previous.sortKey) {
+        sourceEditions.set(sentence.sourceIndex, edition);
+      }
+    }
+  }
   const candidates: RecoveryCandidateValue[] = [];
   for (const sentence of packet.sentences) {
     const meta = metas[sentence.sourceIndex];
     const normalizedSentence = normalizeSurface(sentence.text);
     const statedDate = latestStatedDate(normalizedSentence);
+    const edition =
+      parseOriginOfficialEdition(normalizedSentence) ??
+      sourceEditions.get(sentence.sourceIndex);
     for (const raw of extractRawCandidates(type, normalizedSentence, question)) {
       candidates.push({
         type,
@@ -609,6 +704,9 @@ export function extractRecoveryCandidateValues(
         authorityTier: meta?.authorityTier ?? "general",
         ...(meta?.publishedAt ? { publishedAt: meta.publishedAt } : {}),
         ...(statedDate ? { statedDate } : {}),
+        ...(edition
+          ? { editionSortKey: edition.sortKey, editionLabel: edition.label }
+          : {}),
         inTitleOnly: sentence.origin === "title",
         packetScore: sentence.score,
       });
@@ -642,6 +740,11 @@ export const RECOVERY_TIER_WEIGHT: Readonly<Record<OriginSourceAuthorityTier, nu
  * the vote is "contested". With no eligible group the best group is
  * reported as "single" so shadow diagnostics can see how close it
  * came. Returns null when there are no candidates at all.
+ *
+ * Round 7 (measure S-1): a group whose stated edition is strictly
+ * older than the newest edition stated anywhere in the pool is
+ * disqualified before any of the above — it is not eligible, and
+ * the "single" fallback never reports it as the leading value.
  */
 export function voteRecoveryValues(
   candidates: readonly RecoveryCandidateValue[],
@@ -676,6 +779,8 @@ export function voteRecoveryValues(
     bestStrength: readonly [number, number, number];
     /** Newest value date among the group's candidates (NaN when undated). */
     newestRecencyMs: number;
+    /** Newest edition among the group's candidates (undefined when unread). */
+    editionSortKey: number | undefined;
   }
   const groupsByKey = new Map<string, MutableGroup>();
   for (const candidate of candidates) {
@@ -693,10 +798,17 @@ export function voteRecoveryValues(
         domainWeights: new Map(),
         bestStrength: [Number.NEGATIVE_INFINITY, Number.NEGATIVE_INFINITY, Number.NEGATIVE_INFINITY],
         newestRecencyMs: Number.NaN,
+        editionSortKey: undefined,
       };
       groupsByKey.set(key, group);
     }
     group.candidateCount += 1;
+    if (
+      candidate.editionSortKey !== undefined &&
+      (group.editionSortKey === undefined || candidate.editionSortKey > group.editionSortKey)
+    ) {
+      group.editionSortKey = candidate.editionSortKey;
+    }
     const candidateRecencyMs = recencyMsOf(candidate);
     if (
       Number.isFinite(candidateRecencyMs) &&
@@ -731,7 +843,8 @@ export function voteRecoveryValues(
     }
   }
 
-  const finalized = [...groupsByKey.values()].map((group) => {
+  const finalized: Array<{ newestRecencyMs: number; group: RecoveryValueVoteGroup }> =
+    [...groupsByKey.values()].map((group) => {
     let score = 0;
     for (const weight of group.domainWeights.values()) score += weight;
     return {
@@ -744,6 +857,9 @@ export function voteRecoveryValues(
         score,
         titleOnly: group.titleOnly,
         candidateCount: group.candidateCount,
+        ...(group.editionSortKey !== undefined
+          ? { editionSortKey: group.editionSortKey }
+          : {}),
       } satisfies RecoveryValueVoteGroup,
     };
   });
@@ -760,12 +876,46 @@ export function voteRecoveryValues(
       if (newestKeys.has(`${group.normalizedValue}||${group.unit ?? ""}`)) group.score += 1;
     }
   }
+  // Edition discipline (round 7, measure S-1): the newest edition
+  // stated anywhere in the pool sets the bar. A group whose own
+  // edition is strictly older is a superseded edition — however
+  // many domains restate it, and however new the articles restating
+  // it are — and is disqualified from confirming or arbitrating.
+  // The bar is pool-wide, not eligibility-wide: in the B1 shape the
+  // current value's group is itself ineligible (a single domain),
+  // yet its edition is what proves the eligible stale group old.
+  // A group stating no edition is of unknown vintage and is never
+  // disqualified (measure C's discipline); with no edition read
+  // anywhere, nothing here changes.
+  const poolNewestEditionSortKey = groups.reduce<number | undefined>(
+    (max, group) =>
+      group.editionSortKey !== undefined &&
+      (max === undefined || group.editionSortKey > max)
+        ? group.editionSortKey
+        : max,
+    undefined,
+  );
+  const isEditionDisqualified = (group: RecoveryValueVoteGroup): boolean =>
+    poolNewestEditionSortKey !== undefined &&
+    group.editionSortKey !== undefined &&
+    group.editionSortKey < poolNewestEditionSortKey;
+  for (const group of groups) {
+    if (isEditionDisqualified(group)) group.editionDisqualified = true;
+  }
   const eligible = groups.filter(
-    (group) => !group.titleOnly && group.domains.length >= 2,
+    (group) => !group.titleOnly && group.domains.length >= 2 && !group.editionDisqualified,
   );
   const ranked = [...groups].sort(
     (a, b) => b.score - a.score || b.candidateCount - a.candidateCount,
   );
+  // The "single" fallback winner is picked from the groups that
+  // survive the edition discipline: reporting a disqualified stale
+  // group as the leading value would hand PR-4's diagnostics (and
+  // any future consumer) the superseded figure as the pool's best.
+  // The returned `groups` list keeps every group, disqualified
+  // ones flagged, exactly as before.
+  const rankedLivePool = ranked.filter((group) => !group.editionDisqualified);
+  const rankedLive = rankedLivePool.length > 0 ? rankedLivePool : ranked;
   const rankedEligible = [...eligible].sort(
     (a, b) => b.score - a.score || b.candidateCount - a.candidateCount,
   );
@@ -778,7 +928,10 @@ export function voteRecoveryValues(
   // confirmation, so the vote degrades to contested and PR-4's
   // freshness rules arbitrate with full publication dates.
   const eligibleFinalized = finalized.filter(
-    (entry) => !entry.group.titleOnly && entry.group.domains.length >= 2,
+    (entry) =>
+      !entry.group.titleOnly &&
+      entry.group.domains.length >= 2 &&
+      !entry.group.editionDisqualified,
   );
   const newestEligibleMs = eligibleFinalized.reduce(
     (max, entry) =>
@@ -809,7 +962,7 @@ export function voteRecoveryValues(
     }
   } else {
     status = "single";
-    winner = ranked[0];
+    winner = rankedLive[0];
   }
 
   return {

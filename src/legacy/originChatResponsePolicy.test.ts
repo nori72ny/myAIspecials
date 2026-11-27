@@ -1052,6 +1052,22 @@ describe("routing calibration (2026-11-16 measurement)", () => {
     // Korea; H-08 answered that the sources held no exchange rate).
     ["30万円を3対2の割合で2人に分けると、それぞれいくらですか？", false], // H-06
     ["1ドル=150円のとき、350ドルは日本円でいくらですか？", false], // H-08
+    // Amount × percentage → result amount (round 7, Q6-01,
+    // ANSWER_ROUND7_DIAGNOSIS_2026-11-27): every input is inside
+    // the question, so it is arithmetic. All three exemptions
+    // missed the shape — the 万 broke the amount pattern and the
+    // bare いくらですか cue matched nothing — and the bare price
+    // fallback at the bottom of the policy promoted it into
+    // grounded research, where a source-retrieval failure refused
+    // the whole answer (production: "9000万円の6.2%はいくらです
+    // か？" → 正答558万円, refused twice).
+    ["9000万円の6.2%はいくらですか？", false], // Q6-01
+    ["5000万円の10%はいくらですか？", false],
+    ["9000万円の10%引きはいくらですか？", false],
+    ["100万円の3割はいくらですか？", false],
+    // Counter-shape: a supplied amount with NO percentage is a
+    // price question, not arithmetic, and stays grounded.
+    ["9000万円の家はいくらですか？", true],
     // Counter-shapes: a question that names the exchange rate itself
     // as its subject, or demands the latest rate, is a rate
     // verification demand and stays grounded.
