@@ -119,7 +119,7 @@ function setup() {
   const speech = new FakeSpeech();
   const scheduler = createManualScheduler();
   const storage = createMemoryStorage();
-  const transcripts: string[] = [];
+  const sent: string[] = [];
   const controller = new VoiceConversationController({
     createRecognition: () => {
       const recognition = new FakeRecognition();
@@ -131,9 +131,9 @@ function setup() {
     now: () => FIXED_NOW,
     schedule: scheduler.schedule,
     cancelSchedule: scheduler.cancel,
-    onTranscript: (text) => { transcripts.push(text); },
+    onUtterance: (text) => { sent.push(text); return true; },
   });
-  return { controller, recognitions, speech, scheduler, storage, transcripts };
+  return { controller, recognitions, speech, scheduler, storage, sent };
 }
 
 /** Starts the conversation and plays the opening to its end, so the
@@ -144,7 +144,8 @@ function startToListening(ctx: ReturnType<typeof setup>): void {
   ctx.scheduler.fireByMs(VOICE_CONVERSATION_NEXT_TURN_DELAY_MS);
 }
 
-/** Drives one full turn: opening, transcript, send, answer. */
+/** Drives one full turn: opening, utterance (sent at once by the
+ * controller), the chat surface confirming the send, answer. */
 function driveTurnToSpeaking(ctx: ReturnType<typeof setup>): void {
   startToListening(ctx);
   const recognition = ctx.recognitions.at(-1)!;
@@ -231,7 +232,7 @@ describe('VoiceConversationController speaking style', () => {
       schedule: scheduler.schedule,
       cancelSchedule: scheduler.cancel,
       styleProfile: () => ({ rate: 1.1, pitch: 0.95 }),
-      onTranscript: () => {},
+      onUtterance: () => true,
     });
     controller.startConversation();
     expect(speech.spoken.at(-1)?.style).toEqual({ rate: 1.1, pitch: 0.95 });
@@ -261,7 +262,7 @@ describe('VoiceConversationController speaking style', () => {
 });
 
 describe('VoiceConversationController turn-taking', () => {
-  it('delivers the final transcript to the composer and waits at ready', () => {
+  it('sends the final transcript at once and rests until the send is confirmed', () => {
     const ctx = setup();
     startToListening(ctx);
     const recognition = ctx.recognitions.at(-1)!;
@@ -269,12 +270,17 @@ describe('VoiceConversationController turn-taking', () => {
     expect(ctx.controller.getState().interimText).toBe('明日の');
     recognition.emitResult([{ isFinal: true, transcript: '明日の天気は？' }]);
     recognition.emitEnd();
-    expect(ctx.transcripts).toEqual(['明日の天気は？']);
-    expect(ctx.controller.getState().phase).toBe('ready');
+    // No composer, no send tap: the utterance went straight to the
+    // send pipeline, and the floor passes to the answer only when
+    // the chat surface confirms (notifyUserSent).
+    expect(ctx.sent).toEqual(['明日の天気は？']);
+    expect(ctx.controller.getState().phase).toBe('idle');
     expect(ctx.controller.getState().turnsUsedToday).toBe(1);
+    ctx.controller.notifyUserSent();
+    expect(ctx.controller.getState().phase).toBe('thinking');
   });
 
-  it('speaks the summary of the final answer once the owner has sent', () => {
+  it('speaks the summary of the final answer once the send is confirmed', () => {
     const ctx = setup();
     driveTurnToSpeaking(ctx);
     expect(ctx.controller.getState().phase).toBe('speaking');
@@ -334,8 +340,8 @@ describe('VoiceConversationController turn-taking', () => {
     ctx.controller.pressMainButton();
     expect(recognition.stopCalls).toBe(1);
     recognition.emitEnd();
-    expect(ctx.transcripts).toEqual(['ありがとう']);
-    expect(ctx.controller.getState().phase).toBe('ready');
+    expect(ctx.sent).toEqual(['ありがとう']);
+    expect(ctx.controller.getState().phase).toBe('idle');
   });
 
   it('stops the listening turn at the 60 second cap', () => {
@@ -364,7 +370,7 @@ describe('VoiceConversationController turn-taking', () => {
     recognition.emitResult([{ isFinal: true, transcript: '質問です' }]);
     recognition.emitEnd();
     const spokenBefore = ctx.speech.spoken.length;
-    ctx.controller.notifyAnswerReady('a1', '答えです。'); // still 'ready', not sent
+    ctx.controller.notifyAnswerReady('a1', '答えです。'); // still idle, not thinking
     expect(ctx.speech.spoken).toHaveLength(spokenBefore);
   });
 
@@ -375,6 +381,90 @@ describe('VoiceConversationController turn-taking', () => {
     expect(ctx.controller.getState().mode).toBe('off');
     expect(ctx.controller.getState().phase).toBe('idle');
     expect(ctx.speech.getActiveId()).toBeNull();
+  });
+});
+
+describe('VoiceConversationController direct-send loop', () => {
+  it('runs turn after turn with no button press anywhere in the loop', () => {
+    const ctx = setup();
+    startToListening(ctx);
+    // Turn 1: speak, and the utterance is sent the moment the turn
+    // ends — no pressMainButton, no composer.
+    ctx.recognitions.at(-1)!.emitResult([{ isFinal: true, transcript: '明日の天気は？' }]);
+    ctx.recognitions.at(-1)!.emitEnd();
+    expect(ctx.sent).toEqual(['明日の天気は？']);
+    ctx.controller.notifyUserSent(); // the chat surface's glue
+    ctx.controller.notifyAnswerReady('a1', '明日は晴れです。');
+    expect(ctx.controller.getState().phase).toBe('speaking');
+    // Playback ends: the next listening turn opens on its own.
+    ctx.speech.finishPlayback();
+    ctx.scheduler.fireByMs(VOICE_CONVERSATION_NEXT_TURN_DELAY_MS);
+    expect(ctx.controller.getState().phase).toBe('listening');
+    // Turn 2, exactly the same shape.
+    ctx.recognitions.at(-1)!.emitResult([{ isFinal: true, transcript: 'あさっては？' }]);
+    ctx.recognitions.at(-1)!.emitEnd();
+    expect(ctx.sent).toEqual(['明日の天気は？', 'あさっては？']);
+    expect(ctx.controller.getState().turnsUsedToday).toBe(2);
+  });
+
+  it('drops the utterance and rests with a notice when the send surface refuses it', () => {
+    const recognitions: FakeRecognition[] = [];
+    const speech = new FakeSpeech();
+    const scheduler = createManualScheduler();
+    const attempts: string[] = [];
+    const controller = new VoiceConversationController({
+      createRecognition: () => {
+        const recognition = new FakeRecognition();
+        recognitions.push(recognition);
+        return recognition;
+      },
+      speech,
+      storage: () => null,
+      now: () => FIXED_NOW,
+      schedule: scheduler.schedule,
+      cancelSchedule: scheduler.cancel,
+      onUtterance: (text) => { attempts.push(text); return false; },
+    });
+    controller.startConversation();
+    speech.finishPlayback();
+    scheduler.fireByMs(VOICE_CONVERSATION_NEXT_TURN_DELAY_MS);
+    recognitions.at(-1)!.emitResult([{ isFinal: true, transcript: '聞こえますか' }]);
+    recognitions.at(-1)!.emitEnd();
+    expect(attempts).toEqual(['聞こえますか']);
+    // Not wedged in 'thinking': the conversation rests, tells the
+    // owner, and the main button opens the microphone again.
+    expect(controller.getState().phase).toBe('idle');
+    expect(controller.getState().notice).toBe('failed');
+    controller.pressMainButton();
+    expect(controller.getState().phase).toBe('listening');
+    expect(controller.getState().notice).toBeNull();
+    controller.dispose();
+  });
+
+  it('never sends when no utterance handler is registered', () => {
+    const recognitions: FakeRecognition[] = [];
+    const speech = new FakeSpeech();
+    const scheduler = createManualScheduler();
+    const controller = new VoiceConversationController({
+      createRecognition: () => {
+        const recognition = new FakeRecognition();
+        recognitions.push(recognition);
+        return recognition;
+      },
+      speech,
+      storage: () => null,
+      now: () => FIXED_NOW,
+      schedule: scheduler.schedule,
+      cancelSchedule: scheduler.cancel,
+    });
+    controller.startConversation();
+    speech.finishPlayback();
+    scheduler.fireByMs(VOICE_CONVERSATION_NEXT_TURN_DELAY_MS);
+    recognitions.at(-1)!.emitResult([{ isFinal: true, transcript: '質問です' }]);
+    recognitions.at(-1)!.emitEnd();
+    expect(controller.getState().phase).toBe('idle');
+    expect(controller.getState().notice).toBe('failed');
+    controller.dispose();
   });
 });
 
@@ -429,6 +519,54 @@ describe('VoiceConversationController caps and failures', () => {
     ctx.recognitions.at(-1)!.emitEnd();
     expect(ctx.controller.getState().turnsUsedToday).toBe(1);
   });
+
+  it('sends the cap-reaching utterance, speaks its answer, then stops reopening the microphone', () => {
+    const storage = createMemoryStorage();
+    storage.map.set(
+      VOICE_CONVERSATION_DAILY_STORAGE_KEY,
+      JSON.stringify({ date: '2026-11-25', count: VOICE_CONVERSATION_DAILY_LIMIT - 1 }),
+    );
+    const recognitions: FakeRecognition[] = [];
+    const speech = new FakeSpeech();
+    const scheduler = createManualScheduler();
+    const sent: string[] = [];
+    const controller = new VoiceConversationController({
+      createRecognition: () => {
+        const recognition = new FakeRecognition();
+        recognitions.push(recognition);
+        return recognition;
+      },
+      speech,
+      storage: () => storage,
+      now: () => FIXED_NOW,
+      schedule: scheduler.schedule,
+      cancelSchedule: scheduler.cancel,
+      onUtterance: (text) => { sent.push(text); return true; },
+    });
+    controller.startConversation();
+    speech.finishPlayback();
+    scheduler.fireByMs(VOICE_CONVERSATION_NEXT_TURN_DELAY_MS);
+    expect(controller.getState().phase).toBe('listening');
+    // The 20th turn: heard under the cap, so it is sent and answered.
+    recognitions.at(-1)!.emitResult([{ isFinal: true, transcript: '最後の質問です' }]);
+    recognitions.at(-1)!.emitEnd();
+    expect(sent).toEqual(['最後の質問です']);
+    expect(controller.getState().turnsUsedToday).toBe(VOICE_CONVERSATION_DAILY_LIMIT);
+    expect(controller.getState().dailyLimitReached).toBe(true);
+    controller.notifyUserSent();
+    controller.notifyAnswerReady('a1', '答えです。');
+    expect(controller.getState().phase).toBe('speaking');
+    // After playback, the loop tries to reopen the microphone and
+    // is refused: the conversation rests with the limit notice and
+    // no new recognition session is started.
+    const sessionsBefore = recognitions.length;
+    speech.finishPlayback();
+    scheduler.fireByMs(VOICE_CONVERSATION_NEXT_TURN_DELAY_MS);
+    expect(controller.getState().phase).toBe('idle');
+    expect(controller.getState().notice).toBe('daily-limit');
+    expect(recognitions).toHaveLength(sessionsBefore);
+    controller.dispose();
+  });
 });
 
 describe('VoiceConversationController wake phrase', () => {
@@ -453,7 +591,7 @@ describe('VoiceConversationController wake phrase', () => {
 
     wakeSession.emitResult([{ isFinal: true, transcript: '今日はいい天気ですね' }]);
     wakeSession.emitEnd();
-    expect(ctx.transcripts).toEqual([]);
+    expect(ctx.sent).toEqual([]);
     ctx.scheduler.fireByMs(300);
     const nextWakeSession = ctx.recognitions.at(-1)!;
     expect(nextWakeSession).not.toBe(wakeSession);
@@ -461,8 +599,8 @@ describe('VoiceConversationController wake phrase', () => {
     nextWakeSession.emitResult([{ isFinal: true, transcript: 'ハイ、オリン、明日の天気を教えて' }]);
     expect(ctx.controller.getState().phase).toBe('listening');
     ctx.recognitions.at(-1)!.emitEnd();
-    expect(ctx.transcripts).toEqual(['明日の天気を教えて']);
-    expect(ctx.controller.getState().phase).toBe('ready');
+    expect(ctx.sent).toEqual(['明日の天気を教えて']);
+    expect(ctx.controller.getState().phase).toBe('idle');
   });
 
   it('stops wake waiting on a recognizer network failure instead of looping', () => {

@@ -36,7 +36,7 @@ import { appendVoiceTranscript, formatVoiceElapsed } from './voice/voiceTranscri
 import SpeakAnswerButton from './components/SpeakAnswerButton';
 import { voiceSpeech } from './voice/voiceSpeech';
 import VoiceConversationBar from './components/VoiceConversationBar';
-import { setVoiceConversationTranscriptHandler, voiceConversation } from './voice/voiceConversation';
+import { setVoiceConversationUtteranceHandler, voiceConversation } from './voice/voiceConversation';
 
 // ホームのスターターチップのアイコン対応（デザイン是正バッチ8、D1）。
 // チップの並びとアイコンの意味は i18n の StarterChip.icon が正本。
@@ -3475,26 +3475,34 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenAg
       document.removeEventListener('keydown', dismissOnEscape);
     };
   }, []);
-  // Voice input (PR-V3): the transcription is only ever placed in the
-  // composer for the user to review and send themselves — this wiring has
-  // no path that sends a message.
+  // Voice input (PR-V3, dictation): the transcription is only ever
+  // placed in the composer for the user to review and send
+  // themselves — this wiring has no path that sends a message.
+  // That stays: the mic button is a text-entry aid, not the
+  // conversation door (see the conversation wiring below).
   const voiceInput = useVoiceInput({
     onTranscript: (text) => {
       setInputText((current) => appendVoiceTranscript(current, text));
       textareaRef.current?.focus();
     },
   });
-  // Voice conversation (VC-2): the conversation controller's
-  // finalized transcripts land in the composer through the exact
-  // same append path as the transcription mic above — the owner
-  // reviews and sends them; this wiring has no send path either.
+  // Voice conversation (VC-2, direct send — owner 2026-11-27): a
+  // finalized utterance is sent at once through the exact same
+  // send pipeline as the owner's own send action; it never lands
+  // in the composer and no tap stands in the loop. Offline the
+  // utterance is refused (dropped with a notice by the controller)
+  // rather than parked in the outbox to be sent later, silently —
+  // a spoken turn belongs to the moment it was spoken.
   useEffect(() => {
-    setVoiceConversationTranscriptHandler((text) => {
-      setInputText((current) => appendVoiceTranscript(current, text));
-      textareaRef.current?.focus();
+    setVoiceConversationUtteranceHandler((text) => {
+      if (isOfflineRef.current) return false;
+      const send = handleSendRef.current;
+      if (!send) return false;
+      void send(text);
+      return true;
     });
     return () => {
-      setVoiceConversationTranscriptHandler(null);
+      setVoiceConversationUtteranceHandler(null);
       voiceConversation.stopConversation();
     };
   }, []);

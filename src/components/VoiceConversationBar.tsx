@@ -26,12 +26,15 @@ interface Props {
  *
  * The entry is a single button — microphone icon + 「オリンと会話」 —
  * and pressing it starts conversation mode at once: Orin speaks an
- * opening line and the first listening turn follows. No multi-step
- * choices stand between the press and the conversation. Inside the
- * mode, the main button follows the floor (finish / barge in /
- * listen again), the status line names whose turn it is in plain
- * words, and the wake toggle arms the 「ハイ、オリン」 waiting for
- * when the conversation rests.
+ * opening line and the first listening turn follows. Inside the
+ * mode the loop runs itself (owner, 2026-11-27): a finished
+ * utterance is sent at once — never placed in the composer — the
+ * answer's summary is spoken, and the next listening turn opens on
+ * its own. No button press stands between turns; the main button
+ * follows the floor (finish / barge in / listen again), the status
+ * line names whose turn it is in plain words, the stop button is
+ * the only way the conversation ends, and the wake toggle arms the
+ * 「ハイ、オリン」 waiting for when the conversation rests.
  */
 export default function VoiceConversationBar({ language, controller = voiceConversation }: Props) {
   const availability = useSyncExternalStore(
@@ -96,9 +99,7 @@ export default function VoiceConversationBar({ language, controller = voiceConve
 
   const statusText = phase === 'listening'
     ? (ja ? '聞き取り中です。話してください' : 'Listening — go ahead')
-    : phase === 'ready'
-      ? (ja ? '入力欄に入れました。確認して送信してください' : 'In the input box — review and send')
-      : phase === 'thinking'
+    : phase === 'thinking'
         ? (ja ? '考え中です' : 'Thinking…')
         : phase === 'speaking'
           ? (ja ? 'オリンが話しています' : 'Orin is speaking')
@@ -138,7 +139,7 @@ export default function VoiceConversationBar({ language, controller = voiceConve
           <button
             type="button"
             data-testid="voice-conversation-main"
-            disabled={phase === 'ready' || phase === 'thinking'}
+            disabled={phase === 'thinking'}
             onClick={() => controller.pressMainButton()}
             className="origin-primary-button min-h-11 shrink-0 px-3 text-sm font-semibold disabled:cursor-not-allowed disabled:opacity-50"
           >

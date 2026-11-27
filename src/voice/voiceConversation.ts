@@ -26,16 +26,26 @@ import { voiceSpeech, type SpeechStyleOptions, type VoiceStorageLike } from './v
  *
  * Owns the turn-taking state machine for talking with Orin:
  *
- *   listening → (final transcript) → ready → (owner sends) →
- *   thinking → (final answer) → speaking → (playback ends) →
- *   listening → …
+ *   listening → (final transcript) → sent at once → thinking →
+ *   (final answer) → speaking → (playback ends) → listening → …
  *
  * The rules that shape it, all from the owner's standing orders:
  *
- * - Confirm before sending. A transcript is only ever placed in the
- *   composer (via onTranscript) for the owner to review and send
- *   themselves. Nothing here can send a chat message, so the loop is
- *   hands-minimal (one tap per turn), not fully hands-free.
+ * - Send at once (owner, 2026-11-27 20:58 / 21:00). When a
+ *   listening turn ends with a transcript, the utterance is handed
+ *   to the chat surface's send pipeline (via onUtterance) in the
+ *   same tick — it never lands in the composer and no send tap
+ *   stands anywhere in the loop. The floor then passes to the
+ *   answer through the chat surface's own glue (notifyUserSent
+ *   when the user message lands). What guards against mis-sends
+ *   now: only a non-empty final transcript is ever handed over,
+ *   empty / silent / failed turns are never sent (the microphone
+ *   simply reopens, then rests), an offline handover is refused
+ *   by the chat surface and drops the utterance with a notice,
+ *   and every sent utterance is visible in the history as an
+ *   ordinary user message. The composer dictation entry (the mic
+ *   button, useVoiceInput) is a different door — text entry, not
+ *   conversation — and keeps its review-then-send shape.
  * - Speak only the gated final answer's summary. Playback input is
  *   buildSpokenSummary(finalAnswer) — extractive, no new claims —
  *   kept short on purpose (two lead sentences; the detail stays in
@@ -45,9 +55,8 @@ import { voiceSpeech, type SpeechStyleOptions, type VoiceStorageLike } from './v
  *   is built deterministically in the same tick the final answer
  *   lands, and playback starts with the first sentence immediately
  *   because the speech controller queues sentence by sentence
- *   instead of waiting for a whole script. The only deliberate stop
- *   in the loop is the owner's own send tap (confirm-before-send);
- *   no confirmation screens or extra steps sit anywhere else.
+ *   instead of waiting for a whole script. No confirmation screens
+ *   or extra steps sit anywhere in the loop.
  * - Barge-in by tap. While Orin is speaking, pressing the main
  *   button stops playback at once and opens the microphone for the
  *   owner's next turn. Voice-activity barge-in (listening while
@@ -101,7 +110,7 @@ const WAKE_RESTART_DELAY_MS = 300;
  * forever. Any heard turn resets the count. */
 const MAX_EMPTY_RESTARTS = 5;
 
-export type VoiceConversationPhase = 'idle' | 'listening' | 'ready' | 'thinking' | 'speaking';
+export type VoiceConversationPhase = 'idle' | 'listening' | 'thinking' | 'speaking';
 export type VoiceConversationNotice = 'daily-limit' | 'unsupported' | 'permission-denied' | 'failed';
 
 export interface VoiceConversationState {
@@ -152,9 +161,12 @@ export interface VoiceConversationDeps {
   now?: () => number;
   schedule?: (fn: () => void, ms: number) => unknown;
   cancelSchedule?: (handle: unknown) => void;
-  /** Receives each finalized transcript. The owner of the composer
-   * places it in the input for review; it is never auto-sent. */
-  onTranscript?: (text: string) => void;
+  /** Receives each finalized utterance for immediate sending
+   * through the chat surface's normal send pipeline. Returns true
+   * when the surface accepted the utterance; false (or no handler
+   * at all) drops the utterance — the conversation rests instead
+   * of waiting for an answer that will never come. */
+  onUtterance?: (text: string) => boolean;
   /** Overrides the opening line (tests, future localization). */
   openingText?: string;
   /** The speaking-style profile, or a resolver consulted at each
@@ -432,8 +444,22 @@ export class VoiceConversationController {
     if (text) {
       this.emptyRestarts = 0;
       this.recordTurn();
-      this.setState({ phase: 'ready' });
-      this.deps.onTranscript?.(text);
+      // Send at once (owner, 2026-11-27): the utterance goes
+      // straight to the chat surface's send pipeline — never to
+      // the composer, never waiting for a tap. The controller
+      // rests at idle; the floor passes to the answer when the
+      // user message lands and the chat surface calls
+      // notifyUserSent. Resting (instead of assuming 'thinking')
+      // is what keeps the loop unwedged when the pipeline refuses
+      // the utterance (e.g. its sensitive-content check): no
+      // message lands, no answer is expected, and the owner can
+      // simply speak again.
+      const accepted = this.deps.onUtterance ? this.deps.onUtterance(text) : false;
+      if (accepted) {
+        this.setState({ phase: 'idle' });
+      } else {
+        this.setState({ phase: 'idle', notice: 'failed' });
+      }
       return;
     }
     // Silence: reopen the microphone a few times so a pause in the
@@ -586,8 +612,8 @@ export class VoiceConversationController {
     if (phase === 'idle') {
       this.startTurnListening();
     }
-    // 'ready' / 'thinking': the floor is the owner's / the answer's;
-    // the main button does nothing.
+    // 'thinking': the floor is the answer's; the main button does
+    // nothing.
   }
 
   setWakeWaiting(enabled: boolean): void {
@@ -665,18 +691,18 @@ export class VoiceConversationController {
 
 // -- App-wide singleton -----------------------------------------------------
 
-let transcriptHandler: ((text: string) => void) | null = null;
+let utteranceHandler: ((text: string) => boolean) | null = null;
 
-/** The composer registers where finalized transcripts go (the same
- * append-to-input path the server-transcription mic button uses). */
-export function setVoiceConversationTranscriptHandler(handler: ((text: string) => void) | null): void {
-  transcriptHandler = handler;
+/** The chat surface registers its send pipeline here: a finalized
+ * utterance is sent at once through the same path as the owner's
+ * own send action. The handler returns false when it cannot
+ * accept the utterance (e.g. offline), which drops it. */
+export function setVoiceConversationUtteranceHandler(handler: ((text: string) => boolean) | null): void {
+  utteranceHandler = handler;
 }
 
 export const voiceConversation = new VoiceConversationController({
-  onTranscript: (text) => {
-    transcriptHandler?.(text);
-  },
+  onUtterance: (text) => (utteranceHandler ? utteranceHandler(text) : false),
   // How Orin sounds follows the tone pattern the owner picked in
   // settings (強い／優しい／丁寧／日常), read at each playback.
   styleProfile: () => resolveStoredVoiceConversationStyle(),
