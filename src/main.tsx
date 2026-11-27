@@ -12,7 +12,7 @@ import { usePersonalSettings } from './hooks/usePersonalSettings';
 import { getTranslations } from './i18n';
 import { decryptHistoryText, encryptHistoryText, isEncryptedHistoryText, migrateOriginLegacySnapshot, originIndexedDbAdapter, type OriginPersistedSnapshot, type OriginStorageWriteResult } from './lib/local/OriginIndexedDb';
 import { isResearchReportResult } from './research/researchReport';
-import { registerOriginServiceWorker } from './pwa/registerServiceWorker';
+import { PWA_APPLY_UPDATE_EVENT, registerOriginServiceWorker } from './pwa/registerServiceWorker';
 import { installActiveContextChatBridge } from './services/activeContextChatBridge';
 import { refreshVoiceAvailability } from './voice/voiceAvailability';
 import { refreshVoiceOutputAvailability } from './voice/voiceOutputAvailability';
@@ -336,7 +336,7 @@ function PersonalReleaseRoot() {
     <SettingsErrorBoundary>
       <SettingsModal isOpen={isSettingsOpen} focusSection={settingsFocusSection} onClose={() => { setIsSettingsOpen(false); setSettingsFocusSection(null); }} settings={settings} updateSettings={updateSettings} savedConversationCount={sessions.length} onExportHistory={exportHistory} onImportHistory={importHistory} onResetHistory={resetConversation} sourceSessionIds={new Set(sessions.map((session) => session.id))} onOpenSourceSession={openSourceSession} />
     </SettingsErrorBoundary>
-    {updateReady && <p role="status" className="origin-pwa-update-notice">{t.pwaUpdateNotice}</p>}
+    {updateReady && <div role="status" className="origin-pwa-update-notice"><span>{t.pwaUpdateNotice}</span><button type="button" className="origin-pwa-update-notice__apply" onClick={() => window.dispatchEvent(new CustomEvent(PWA_APPLY_UPDATE_EVENT))}>{t.pwaUpdateApply}</button></div>}
     {(!isHydrated || storageHealth !== 'ready') && <p data-testid="origin-storage-status" role="status" className="sr-only">{!isHydrated ? 'この端末への保存を準備しています。' : 'この端末に保存できないため、このセッションはメモリ上だけで続けています。'}</p>}
   </>;
 }

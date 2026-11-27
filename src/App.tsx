@@ -3539,6 +3539,12 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenAg
       watch.lastAssistantId = lastAssistant.id;
       if (!lastAssistant.research && !lastAssistant.researchError && lastAssistant.deliveryState !== 'error' && lastAssistant.content.trim()) {
         voiceConversation.notifyAnswerReady(lastAssistant.id, lastAssistant.content);
+      } else {
+        // An answer that will not be spoken still has to settle
+        // the conversation's floor: without this, a research or
+        // error answer leaves the controller waiting in
+        // 'thinking' and the voice loop silently stops.
+        voiceConversation.notifyAnswerSettled();
       }
     }
   }, [messages, isLoading]);

@@ -10,6 +10,7 @@ import {
   VOICE_CONVERSATION_MAX_TURN_SECONDS,
   VOICE_CONVERSATION_NEXT_TURN_DELAY_MS,
   VOICE_CONVERSATION_OPENING_ID,
+  VOICE_CONVERSATION_TURN_START_RETRY_DELAYS_MS,
   type VoiceConversationSpeech,
 } from './voiceConversation';
 import type {
@@ -568,6 +569,146 @@ describe('VoiceConversationController caps and failures', () => {
     expect(controller.getState().notice).toBe('daily-limit');
     expect(recognitions).toHaveLength(sessionsBefore);
     controller.dispose();
+  });
+});
+
+/** A setup whose recognizer start() can be made to throw for the
+ * next N attempts — the Android shape where the audio path is
+ * still busy with the playback that just ended. */
+function setupWithStartControl() {
+  const recognitions: FakeRecognition[] = [];
+  const speech = new FakeSpeech();
+  const scheduler = createManualScheduler();
+  const sent: string[] = [];
+  const control = { failuresQueued: 0, attempts: 0 };
+  const controller = new VoiceConversationController({
+    createRecognition: () => {
+      const recognition = new FakeRecognition();
+      const originalStart = recognition.start.bind(recognition);
+      recognition.start = () => {
+        control.attempts += 1;
+        if (control.failuresQueued > 0) {
+          control.failuresQueued -= 1;
+          throw new Error('InvalidStateError');
+        }
+        originalStart();
+      };
+      recognitions.push(recognition);
+      return recognition;
+    },
+    speech,
+    storage: () => null,
+    now: () => FIXED_NOW,
+    schedule: scheduler.schedule,
+    cancelSchedule: scheduler.cancel,
+    onUtterance: (text) => { sent.push(text); return true; },
+  });
+  return { controller, recognitions, speech, scheduler, sent, control };
+}
+
+describe('VoiceConversationController turn-start resilience', () => {
+  it('recovers when recognizer start() throws right after playback ends (the real-device stall)', () => {
+    const ctx = setupWithStartControl();
+    ctx.controller.startConversation();
+    ctx.speech.finishPlayback();
+    ctx.scheduler.fireByMs(VOICE_CONVERSATION_NEXT_TURN_DELAY_MS);
+    expect(ctx.controller.getState().phase).toBe('listening');
+    ctx.recognitions.at(-1)!.emitResult([{ isFinal: true, transcript: '明日の天気は？' }]);
+    ctx.recognitions.at(-1)!.emitEnd();
+    ctx.controller.notifyUserSent();
+    ctx.controller.notifyAnswerReady('a1', '明日は晴れです。');
+    expect(ctx.controller.getState().phase).toBe('speaking');
+    // Playback ends; the recognizer start for the next turn hits
+    // the contended audio path and throws once.
+    ctx.control.failuresQueued = 1;
+    ctx.speech.finishPlayback();
+    ctx.scheduler.fireByMs(VOICE_CONVERSATION_NEXT_TURN_DELAY_MS);
+    expect(ctx.controller.getState().phase).toBe('listening'); // still claiming the floor
+    expect(ctx.recognitions.at(-1)!.started).toBe(false);
+    // After the backoff the retry opens the turn and the loop
+    // continues hands-free.
+    ctx.scheduler.fireByMs(VOICE_CONVERSATION_TURN_START_RETRY_DELAYS_MS[0]);
+    expect(ctx.recognitions.at(-1)!.started).toBe(true);
+    expect(ctx.controller.getState().phase).toBe('listening');
+    ctx.recognitions.at(-1)!.emitResult([{ isFinal: true, transcript: 'あさっては？' }]);
+    ctx.recognitions.at(-1)!.emitEnd();
+    expect(ctx.sent).toEqual(['明日の天気は？', 'あさっては？']);
+    ctx.controller.dispose();
+  });
+
+  it('rests with a notice after the start-retry budget is spent instead of looping forever', () => {
+    const ctx = setupWithStartControl();
+    ctx.controller.startConversation();
+    ctx.control.failuresQueued = 99;
+    ctx.speech.finishPlayback();
+    ctx.scheduler.fireByMs(VOICE_CONVERSATION_NEXT_TURN_DELAY_MS);
+    for (const delay of VOICE_CONVERSATION_TURN_START_RETRY_DELAYS_MS) {
+      ctx.scheduler.fireByMs(delay);
+    }
+    expect(ctx.controller.getState().phase).toBe('idle');
+    expect(ctx.controller.getState().notice).toBe('failed');
+    // 1 initial attempt + one per retry delay, then it stops.
+    expect(ctx.control.attempts).toBe(1 + VOICE_CONVERSATION_TURN_START_RETRY_DELAYS_MS.length);
+    const sessions = ctx.recognitions.length;
+    for (const delay of VOICE_CONVERSATION_TURN_START_RETRY_DELAYS_MS) {
+      ctx.scheduler.fireByMs(delay);
+    }
+    expect(ctx.recognitions).toHaveLength(sessions);
+    ctx.controller.dispose();
+  });
+
+  it('retries a turn session after a transient audio-capture error and keeps what was heard', () => {
+    const ctx = setup();
+    startToListening(ctx);
+    const first = ctx.recognitions.at(-1)!;
+    first.emitResult([{ isFinal: true, transcript: '明日の' }]);
+    first.emitError('audio-capture');
+    // Not failed closed: the floor is still the owner's, and a
+    // retry is scheduled instead of a dead 'idle'.
+    expect(ctx.controller.getState().phase).toBe('listening');
+    expect(ctx.controller.getState().notice).toBeNull();
+    ctx.scheduler.fireByMs(VOICE_CONVERSATION_TURN_START_RETRY_DELAYS_MS[0]);
+    const retried = ctx.recognitions.at(-1)!;
+    expect(retried).not.toBe(first);
+    expect(retried.started).toBe(true);
+    retried.emitResult([{ isFinal: true, transcript: '天気は？' }]);
+    retried.emitEnd();
+    expect(ctx.sent).toEqual(['明日の天気は？']);
+  });
+
+  it('never retries a permission error: it ends the conversation at once', () => {
+    const ctx = setup();
+    startToListening(ctx);
+    ctx.recognitions.at(-1)!.emitError('not-allowed');
+    expect(ctx.controller.getState().mode).toBe('off');
+    expect(ctx.controller.getState().notice).toBe('permission-denied');
+    expect(ctx.scheduler.pendingMs()).not.toContain(VOICE_CONVERSATION_TURN_START_RETRY_DELAYS_MS[0]);
+  });
+
+  it('settles an unspoken answer (research / error) back to listening', () => {
+    const ctx = setup();
+    startToListening(ctx);
+    const recognition = ctx.recognitions.at(-1)!;
+    recognition.emitResult([{ isFinal: true, transcript: '調べて教えて' }]);
+    recognition.emitEnd();
+    ctx.controller.notifyUserSent();
+    expect(ctx.controller.getState().phase).toBe('thinking');
+    const sessionsBefore = ctx.recognitions.length;
+    // The glue reports the completed answer as not speakable:
+    // the floor returns instead of 'thinking' holding it forever.
+    ctx.controller.notifyAnswerSettled();
+    expect(ctx.controller.getState().phase).toBe('listening');
+    expect(ctx.recognitions).toHaveLength(sessionsBefore + 1);
+    expect(ctx.recognitions.at(-1)!.started).toBe(true);
+  });
+
+  it('ignores a settle outside the thinking phase', () => {
+    const ctx = setup();
+    startToListening(ctx);
+    const sessionsBefore = ctx.recognitions.length;
+    ctx.controller.notifyAnswerSettled();
+    expect(ctx.controller.getState().phase).toBe('listening');
+    expect(ctx.recognitions).toHaveLength(sessionsBefore);
   });
 });
 

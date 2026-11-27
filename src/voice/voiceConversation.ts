@@ -77,6 +77,20 @@ import { voiceSpeech, type SpeechStyleOptions, type VoiceStorageLike } from './v
  *   only — a web app cannot listen while locked or closed).
  *   Anything heard that is not the phrase is discarded on the spot:
  *   never placed in the composer, never stored, never sent anywhere.
+ * - No single fragile signal owns a floor handover (hardened
+ *   2026-11-27 after the first real-device run stalled). Playback
+ *   completion is assured inside the speech controller on three
+ *   paths (utterance events, speaking/pending poll, duration
+ *   watchdog), because Android Chrome drops utterance end events.
+ *   Opening a listening turn retries transient failures — a
+ *   recognizer start() that throws right after playback, an
+ *   'audio-capture'/'network' session error — with backoff before
+ *   resting, because the audio path is briefly contended exactly
+ *   at that moment; permission errors still fail closed at once.
+ *   And every completed answer settles the floor through the chat
+ *   glue: speakable answers via notifyAnswerReady, answers that
+ *   will not be spoken (research, errors) via notifyAnswerSettled,
+ *   so 'thinking' can never be left holding the floor silently.
  * - End phrase 「バイバイ、オリン」 (owner, 2026-11-27 21:42,
  *   phrase corrected 21:50). During
  *   a conversation, a listening turn whose whole utterance is the
@@ -128,6 +142,13 @@ const WAKE_RESTART_DELAY_MS = 300;
  * controller rests at idle instead of reopening the microphone
  * forever. Any heard turn resets the count. */
 const MAX_EMPTY_RESTARTS = 5;
+/** Backoff for reopening a listening turn after a transient
+ * start failure (start() throwing, or a session error such as
+ * 'audio-capture'/'network' right after playback). Three retries
+ * ride out the audio-path contention that follows speech on
+ * Android; after that the conversation rests with a notice
+ * instead of looping against a broken recognizer. */
+export const VOICE_CONVERSATION_TURN_START_RETRY_DELAYS_MS: readonly number[] = [400, 1000, 2000];
 
 export type VoiceConversationPhase = 'idle' | 'listening' | 'thinking' | 'speaking';
 export type VoiceConversationNotice = 'daily-limit' | 'unsupported' | 'permission-denied' | 'failed';
@@ -233,6 +254,10 @@ export class VoiceConversationController {
    * "no active id" state while it replaces the previous playback;
    * only an observed-then-finished playback counts as finished. */
   private speakingObservedActive = false;
+  /** Consecutive failed attempts to open the current listening
+   * turn; reset whenever a fresh floor opens a turn and whenever
+   * a session actually hears something. */
+  private turnStartRetries = 0;
   private pendingTimer: unknown = null;
   private turnCapTimer: unknown = null;
   private unsubscribeSpeech: (() => void) | null = null;
@@ -377,12 +402,19 @@ export class VoiceConversationController {
     }
   }
 
-  private beginSession(kind: SessionKind): boolean {
+  /**
+   * Opens one recognition session. 'unavailable' means the device
+   * has no recognizer at all (retrying is pointless); 'failed'
+   * means start() itself threw — for turn sessions the caller
+   * decides about retries, for wake sessions the failure is
+   * surfaced exactly as before.
+   */
+  private beginSession(kind: SessionKind): 'started' | 'unavailable' | 'failed' {
     const recognition = this.preparedFirstRecognition ?? this.createRecognition();
     this.preparedFirstRecognition = null;
     if (!recognition) {
       this.setState({ notice: 'unsupported' });
-      return false;
+      return 'unavailable';
     }
     this.stopSession();
     const session = ++this.sessionId;
@@ -414,8 +446,10 @@ export class VoiceConversationController {
     } catch {
       this.recognition = null;
       this.sessionKind = null;
-      this.setState({ notice: 'failed', phase: 'idle' });
-      return false;
+      if (kind === 'wake') {
+        this.setState({ notice: 'failed', phase: 'idle' });
+      }
+      return 'failed';
     }
     if (kind === 'turn') {
       // The 60-second cap: stop() ends the session and onend
@@ -424,7 +458,45 @@ export class VoiceConversationController {
         ? this.deps.schedule(() => this.finishListening(), VOICE_CONVERSATION_MAX_TURN_SECONDS * 1000)
         : setTimeout(() => this.finishListening(), VOICE_CONVERSATION_MAX_TURN_SECONDS * 1000);
     }
-    return true;
+    return 'started';
+  }
+
+  /**
+   * Opens a listening turn, riding out transient start failures
+   * with backoff. The post-playback handover lands here at the
+   * exact moment the device audio path is most contended (the
+   * recognizer and the speech synthesizer share it), so a single
+   * failed start must not end the conversation the way it used
+   * to — fail closed, no retry, floor never returned.
+   */
+  private beginTurnSession(): void {
+    const result = this.beginSession('turn');
+    if (result === 'failed') {
+      this.scheduleTurnStartRetry();
+    } else if (result === 'unavailable') {
+      // No recognizer at all: do not leave the phase claiming to
+      // listen with no session behind it.
+      this.enterIdleOrWake();
+    }
+  }
+
+  private scheduleTurnStartRetry(): void {
+    if (this.state.mode !== 'on') return;
+    const delay = VOICE_CONVERSATION_TURN_START_RETRY_DELAYS_MS[this.turnStartRetries];
+    if (delay === undefined) {
+      // Budget spent: rest like any other exhausted loop, with
+      // the failure on the status line instead of a silent stall.
+      this.turnStartRetries = 0;
+      this.setState({ notice: 'failed' });
+      this.enterIdleOrWake();
+      return;
+    }
+    this.turnStartRetries += 1;
+    this.schedule(() => {
+      if (this.state.mode === 'on' && this.state.phase === 'listening' && !this.recognition) {
+        this.beginTurnSession();
+      }
+    }, delay);
   }
 
   private handleRecognitionError(error: string, kind: SessionKind): void {
@@ -435,12 +507,20 @@ export class VoiceConversationController {
       this.setState({ mode: 'off', wakeWaiting: false, phase: 'idle', notice: 'permission-denied' });
       return;
     }
-    // Network / audio-capture / anything else: fail closed. Wake
-    // waiting in particular must not retry in a loop against a
-    // failing recognizer.
+    // Network / audio-capture / anything else. A wake session
+    // still fails closed at once — retrying a background listener
+    // against a broken recognizer would loop forever. A turn
+    // session the owner is actively waiting on instead retries
+    // with backoff (scheduleTurnStartRetry): these errors are
+    // exactly what a contended audio path produces right after
+    // playback, and one transient failure must not end the
+    // conversation. Text already heard in this turn is kept —
+    // the retried session continues accumulating it.
     this.stopSession();
     if (kind === 'wake') {
       this.setState({ wakeWaiting: false, phase: 'idle', notice: 'failed' });
+    } else if (this.state.mode === 'on' && this.state.phase === 'listening') {
+      this.scheduleTurnStartRetry();
     } else {
       this.setState({ phase: 'idle', notice: 'failed' });
     }
@@ -449,6 +529,9 @@ export class VoiceConversationController {
   // -- Turn sessions ------------------------------------------------------
 
   private handleTurnResult(finalText: string, interimText: string): void {
+    // A session that hears anything proves the audio path works;
+    // the start-retry budget starts fresh from here.
+    this.turnStartRetries = 0;
     if (finalText) this.accumulatedFinal += finalText;
     const heard = `${this.seedText}${this.accumulatedFinal}`;
     this.setState({ interimText: interimText ? `${heard}${interimText}` : heard });
@@ -492,7 +575,10 @@ export class VoiceConversationController {
     this.emptyRestarts += 1;
     if (this.emptyRestarts <= MAX_EMPTY_RESTARTS && !this.state.dailyLimitReached) {
       this.schedule(() => {
-        if (this.state.mode === 'on' && this.state.phase === 'listening') this.beginSession('turn');
+        if (this.state.mode === 'on' && this.state.phase === 'listening') {
+          this.turnStartRetries = 0;
+          this.beginTurnSession();
+        }
       }, VOICE_CONVERSATION_NEXT_TURN_DELAY_MS);
       return;
     }
@@ -505,10 +591,11 @@ export class VoiceConversationController {
       return;
     }
     this.clearPendingTimer();
+    this.turnStartRetries = 0;
     this.accumulatedFinal = '';
     this.seedText = seed;
     this.setState({ phase: 'listening', interimText: seed, notice: null });
-    this.beginSession('turn');
+    this.beginTurnSession();
   }
 
   /** Ends the current listening turn; the transcript (if any) is
@@ -715,6 +802,18 @@ export class VoiceConversationController {
       this.setState({ notice: 'failed' });
       this.startTurnListening();
     }
+  }
+
+  /** Called by the chat surface when an answer completed but will
+   * not be spoken — a research result, an error, an empty answer:
+   * the categories the glue deliberately keeps away from
+   * notifyAnswerReady. Without this settle, those answers left
+   * the phase at 'thinking' forever and the conversation silently
+   * stopped after exactly one turn. The floor simply returns to
+   * the owner, as it does when there is nothing speakable. */
+  notifyAnswerSettled(): void {
+    if (this.state.mode !== 'on' || this.state.phase !== 'thinking') return;
+    this.startTurnListening();
   }
 
   clearNotice(): void {

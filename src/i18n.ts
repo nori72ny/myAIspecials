@@ -250,6 +250,7 @@ type Translation = {
   releaseIdCopyFailed: string;
   releaseIdHelp: string;
   pwaUpdateNotice: string;
+  pwaUpdateApply: string;
 };
 
 export const TRANSLATIONS: Record<OriginLanguage, Translation> = {
@@ -498,7 +499,8 @@ export const TRANSLATIONS: Record<OriginLanguage, Translation> = {
     copyReleaseId: 'リリースIDをコピー',
     releaseIdCopyFailed: 'リリースIDをコピーできませんでした。',
     releaseIdHelp: '今動いている版を確認するときに使います。',
-    pwaUpdateNotice: '最新版は、次に開いたときに安全に適用します。今入力している内容はそのまま残ります。',
+    pwaUpdateNotice: '新しいバージョンがあります。安全なタイミングで自動で適用しますが、今すぐ適用もできます（画面が再読み込みされます）。',
+    pwaUpdateApply: '今すぐ更新する',
   },
   en: {
     code: 'Code',
@@ -745,7 +747,8 @@ export const TRANSLATIONS: Record<OriginLanguage, Translation> = {
     copyReleaseId: 'Copy release ID',
     releaseIdCopyFailed: 'Could not copy the release ID.',
     releaseIdHelp: 'Use this when checking which version is running now.',
-    pwaUpdateNotice: 'The latest version will be applied safely the next time you open the app. What you are typing now will be kept as is.',
+    pwaUpdateNotice: 'A new version is available. It applies automatically at a safe moment, or you can apply it now (the app will reload).',
+    pwaUpdateApply: 'Update now',
   },
 };
 

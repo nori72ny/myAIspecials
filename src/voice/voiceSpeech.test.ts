@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
   resolveVoiceSpeechRateStep,
+  speechSettleWatchdogMs,
   splitSpeechSentences,
   toSpeechText,
   voiceGenderFromName,
@@ -12,6 +13,7 @@ import {
   type SpeechSynthesisLike,
   type SpeechUtteranceLike,
   type SpeechVoiceLike,
+  type VoiceSpeechTimers,
   type VoiceStorageLike,
 } from './voiceSpeech';
 
@@ -271,6 +273,143 @@ describe('VoiceSpeechController', () => {
     const { controller } = makeController();
     expect(controller.speak('msg-1', '```\ncode only\n```')).toBe(false);
     expect(controller.getActiveId()).toBeNull();
+  });
+});
+
+class FlaggedSynthesis extends FakeSynthesis {
+  speaking = true;
+  pending = false;
+}
+
+class ManualTimers implements VoiceSpeechTimers {
+  private timeouts = new Map<number, () => void>();
+  private intervals = new Map<number, () => void>();
+  private nextId = 1;
+  setTimeout = (fn: () => void, _ms: number): unknown => {
+    const id = this.nextId;
+    this.nextId += 1;
+    this.timeouts.set(id, fn);
+    return id;
+  };
+  clearTimeout = (handle: unknown): void => { this.timeouts.delete(handle as number); };
+  setInterval = (fn: () => void, _ms: number): unknown => {
+    const id = this.nextId;
+    this.nextId += 1;
+    this.intervals.set(id, fn);
+    return id;
+  };
+  clearInterval = (handle: unknown): void => { this.intervals.delete(handle as number); };
+  fireTimeouts(): void {
+    const pending = [...this.timeouts.values()];
+    this.timeouts.clear();
+    pending.forEach((fn) => fn());
+  }
+  tickIntervals(times = 1): void {
+    for (let round = 0; round < times; round += 1) {
+      [...this.intervals.values()].forEach((fn) => fn());
+    }
+  }
+  get timeoutCount(): number { return this.timeouts.size; }
+  get intervalCount(): number { return this.intervals.size; }
+}
+
+function makeAssuredController() {
+  const synthesis = new FlaggedSynthesis([KYOKO, ICHIRO, GOOGLE_JA, ENGLISH]);
+  const timers = new ManualTimers();
+  const controller = new VoiceSpeechController({
+    synthesis: () => synthesis,
+    createUtterance: (text) => new FakeUtterance(text),
+    storage: () => new FakeStorage(),
+    timers,
+  });
+  return { controller, synthesis, timers };
+}
+
+describe('VoiceSpeechController settle assurance', () => {
+  it('settles through the flag poll when utterance events never arrive', () => {
+    const { controller, synthesis, timers } = makeAssuredController();
+    const listener = vi.fn();
+    controller.subscribe(listener);
+    expect(controller.speak('msg-1', '答えです。')).toBe(true);
+    expect(controller.getActiveId()).toBe('msg-1');
+    // The platform finished the playback but dropped onend; it
+    // reports itself idle instead. One idle sample is not enough
+    // (a queued utterance may not have started yet)…
+    synthesis.speaking = false;
+    timers.tickIntervals(1);
+    expect(controller.getActiveId()).toBe('msg-1');
+    // …the second consecutive idle sample settles the playback
+    // and notifies subscribers (the conversation floor handover
+    // depends on that notification).
+    timers.tickIntervals(1);
+    expect(controller.getActiveId()).toBeNull();
+    expect(listener).toHaveBeenCalled();
+    expect(timers.intervalCount).toBe(0);
+    expect(timers.timeoutCount).toBe(0);
+  });
+
+  it('does not settle while the platform reports playback or a queue', () => {
+    const { controller, synthesis, timers } = makeAssuredController();
+    controller.speak('msg-1', '答えです。');
+    timers.tickIntervals(3);
+    expect(controller.getActiveId()).toBe('msg-1');
+    synthesis.speaking = false;
+    synthesis.pending = true; // next sentence still queued
+    timers.tickIntervals(3);
+    expect(controller.getActiveId()).toBe('msg-1');
+    synthesis.pending = false;
+    timers.tickIntervals(2);
+    expect(controller.getActiveId()).toBeNull();
+  });
+
+  it('watchdog settles a wedged playback whose flags lie (speaking stuck on)', () => {
+    const { controller, synthesis, timers } = makeAssuredController();
+    controller.speak('msg-1', '答えです。');
+    const cancelsAfterSpeak = synthesis.cancelCalls;
+    timers.tickIntervals(5);
+    expect(controller.getActiveId()).toBe('msg-1');
+    // No event, flags stuck at "speaking": the duration bound
+    // concludes the playback is lost, cancels the wedge and
+    // settles — a bounded pause instead of a permanent stall.
+    timers.fireTimeouts();
+    expect(controller.getActiveId()).toBeNull();
+    expect(synthesis.cancelCalls).toBe(cancelsAfterSpeak + 1);
+    expect(timers.intervalCount).toBe(0);
+  });
+
+  it('disarms once utterance events settle the playback normally', () => {
+    const { controller, synthesis, timers } = makeAssuredController();
+    controller.speak('msg-1', '答えです。');
+    synthesis.spoken[0]?.onend?.();
+    expect(controller.getActiveId()).toBeNull();
+    expect(timers.intervalCount).toBe(0);
+    expect(timers.timeoutCount).toBe(0);
+    const cancels = synthesis.cancelCalls;
+    timers.fireTimeouts();
+    timers.tickIntervals(3);
+    expect(synthesis.cancelCalls).toBe(cancels);
+  });
+
+  it('a forced settle of an old playback never disturbs a newer one', () => {
+    const { controller, synthesis, timers } = makeAssuredController();
+    controller.speak('msg-1', '前のです。');
+    timers.fireTimeouts(); // watchdog settles msg-1 (events were lost)
+    expect(controller.getActiveId()).toBeNull();
+    controller.speak('msg-2', '次です。');
+    expect(controller.getActiveId()).toBe('msg-2');
+    // The lost onend of the old playback arrives late; it must
+    // not decrement or clear the new playback.
+    synthesis.spoken[0]?.onend?.();
+    expect(controller.getActiveId()).toBe('msg-2');
+    synthesis.spoken.at(-1)?.onend?.();
+    expect(controller.getActiveId()).toBeNull();
+  });
+
+  it('bounds the watchdog by text length and rate, with a floor', () => {
+    expect(speechSettleWatchdogMs(0, 1)).toBe(4000);
+    expect(speechSettleWatchdogMs(160, 1)).toBeGreaterThan(speechSettleWatchdogMs(40, 1));
+    expect(speechSettleWatchdogMs(160, 0.8)).toBeGreaterThan(speechSettleWatchdogMs(160, 1));
+    expect(speechSettleWatchdogMs(160, 1.25)).toBeLessThan(speechSettleWatchdogMs(160, 1));
   });
 });
 

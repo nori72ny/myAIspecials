@@ -1,3 +1,14 @@
+/** Dispatched by the update notice's button (main.tsx) when the
+ * owner explicitly asks to apply the waiting update now. An
+ * explicit tap is informed consent to reload, so it bypasses the
+ * unsaved-work heuristics that otherwise defer activation —
+ * heuristics which can otherwise defer forever in practice: the
+ * old conversation flow itself filled the composer, and a filled
+ * composer counts as unsaved work (2026-11-27 real-device run: a
+ * deploy never reached the device although the owner reopened
+ * the app, because every automatic path stayed deferred). */
+export const PWA_APPLY_UPDATE_EVENT = 'origin:pwa-apply-update';
+
 const UPDATE_CHECK_INTERVAL_MS = 60 * 60 * 1000;
 const SAFE_APPLY_RETRY_INTERVAL_MS = 5000;
 const UPDATE_RELOAD_GUARD_KEY = 'origin:pwa-update-reload';
@@ -53,8 +64,19 @@ export function registerOriginServiceWorker(): void {
     let hadController = Boolean(navigator.serviceWorker.controller);
     let reloadPending = false;
     let reloadRequested = false;
+    let manualApplyRequested = false;
     const reloadWhenSafe = () => {
       if (!reloadPending || reloadRequested || !canAutoApplyUpdate()) return;
+      if (sessionStorage.getItem(UPDATE_RELOAD_GUARD_KEY) === '1') return;
+      reloadRequested = true;
+      sessionStorage.setItem(UPDATE_RELOAD_GUARD_KEY, '1');
+      window.location.reload();
+    };
+    // The owner's explicit apply request: reload at the boundary
+    // without the unsaved-work check (the reload-once guard still
+    // applies, so a second controllerchange can never loop it).
+    const forceReload = () => {
+      if (reloadRequested) return;
       if (sessionStorage.getItem(UPDATE_RELOAD_GUARD_KEY) === '1') return;
       reloadRequested = true;
       sessionStorage.setItem(UPDATE_RELOAD_GUARD_KEY, '1');
@@ -70,6 +92,10 @@ export function registerOriginServiceWorker(): void {
       // Check for unsaved work again at the actual reload boundary.
       reloadPending = true;
       announceUpdateReady();
+      if (manualApplyRequested) {
+        forceReload();
+        return;
+      }
       reloadWhenSafe();
     });
 
@@ -118,12 +144,37 @@ export function registerOriginServiceWorker(): void {
       });
 
       const retrySafeApply = () => {
+        if (manualApplyRequested && reloadPending) {
+          forceReload();
+          return;
+        }
         reloadWhenSafe();
         if (registration.waiting) {
           updatePending = true;
           scheduleSafeApply();
         }
       };
+
+      const applyUpdateNow = () => {
+        manualApplyRequested = true;
+        if (registration.waiting) {
+          // Activate now; the controllerchange handler reloads
+          // without the unsaved-work check because the owner
+          // asked for exactly that.
+          registration.waiting.postMessage({ type: 'SKIP_WAITING' });
+          return;
+        }
+        if (reloadPending) {
+          // Already activated elsewhere; only the reload was
+          // deferred. Apply it now.
+          forceReload();
+          return;
+        }
+        // Nothing waiting yet: go look, so the button never feels
+        // dead. The found update announces itself as usual.
+        checkForUpdate();
+      };
+      window.addEventListener(PWA_APPLY_UPDATE_EVENT, applyUpdateNow);
       const checkForUpdateWhenVisible = () => {
         // Returning to the app should not wait for the hourly interval to
         // discover an update. Hidden transitions never trigger a check.
