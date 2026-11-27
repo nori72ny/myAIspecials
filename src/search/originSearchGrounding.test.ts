@@ -1288,7 +1288,8 @@ describe("Tavily resilience — failure attribution and 429 observation", () => 
       }
       if (url.includes("api.tavily.com/extract")) return jsonResponse({ results: [], failed_results: [] });
       if (url.includes("/search/page")) return jsonResponse({ pages: options.wikiPages });
-      if (url.includes("wikipedia.org")) {
+      const host = new URL(url).hostname;
+      if (host === "wikipedia.org" || host.endsWith(".wikipedia.org")) {
         return jsonResponse({
           html_url: "https://ja.wikipedia.org/wiki/ChatGPT",
           latest: { timestamp: "2026-11-06T00:00:00.000Z" },
