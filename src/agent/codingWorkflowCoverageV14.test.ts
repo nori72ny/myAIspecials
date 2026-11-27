@@ -28,6 +28,19 @@ describe('V1.4 workflow coverage', () => {
     }
   });
 
+  it('uses the public Node 22 mirror with fail-closed offline-tagged sandbox execution', () => {
+    const workflow = readWorkflow('.github/workflows/coding-session-sandbox.yml');
+    expect(workflow).toContain('public.ecr.aws/docker/library/node:22-bookworm-slim');
+    expect(workflow).toContain('docker pull mirror.gcr.io/library/node:22-bookworm-slim');
+    expect(workflow).toContain('docker pull public.ecr.aws/docker/library/node:22-bookworm-slim');
+    expect(workflow).toContain('CODING_SANDBOX_PUBLIC_IMAGE_UNAVAILABLE');
+    expect(workflow).toContain('docker tag "$trusted_image" node:22-bookworm-slim');
+    expect(workflow).toContain('--network none --pull never --entrypoint node "$trusted_image" --version');
+    expect(workflow).toContain('docker run --rm --pull never --user');
+    expect(workflow).not.toContain('docker pull node:22-bookworm-slim');
+    expect(workflow).toContain('--cap-drop ALL --security-opt no-new-privileges');
+  });
+
   it('keeps Vite and Vitest caches writable without making dependencies mutable', () => {
     const verifier = readWorkflow('src/agent/codingIsolatedVerificationV14.ts');
     const viteConfig = readWorkflow('vite.config.ts');

@@ -47,8 +47,24 @@ jobs:
           persist-credentials: false
       - name: Prepare dependencies without repository lifecycle scripts
         run: |
-          docker pull node:22-bookworm-slim
-          docker run --rm --user "$(id -u):$(id -g)" \
+          set -euo pipefail
+          # GitHub hosted shared runners can hit anonymous image-rate limits
+          # even at ECR (observed 2026-10-10). Try two public cache mirrors
+          # without accessing the billable Docker Hub registry or any secrets.
+          # Never run without the exact Node 22 check below.
+          if docker pull mirror.gcr.io/library/node:22-bookworm-slim; then
+            trusted_image="mirror.gcr.io/library/node:22-bookworm-slim"
+          elif docker pull public.ecr.aws/docker/library/node:22-bookworm-slim; then
+            trusted_image="public.ecr.aws/docker/library/node:22-bookworm-slim"
+          else
+            echo 'CODING_SANDBOX_PUBLIC_IMAGE_UNAVAILABLE' >&2
+            exit 1
+          fi
+          # Verify the runtime major version before giving the sandbox its
+          # local compatibility alias used by the existing isolation scripts.
+          docker run --rm --network none --pull never --entrypoint node "$trusted_image" --version | grep -Eq '^v22\.'
+          docker tag "$trusted_image" node:22-bookworm-slim
+          docker run --rm --pull never --user "$(id -u):$(id -g)" \
             --cap-drop ALL --security-opt no-new-privileges \
             --mount "type=bind,src=$PWD,dst=/work" --workdir /work \
             --env HOME=/tmp node:22-bookworm-slim \
