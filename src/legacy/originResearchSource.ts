@@ -95,6 +95,15 @@ export interface OriginResearchGroundingCandidateStats {
    * insufficient (no value-bearing span, or regional values only).
    */
   officialRetry?: OriginResearchGroundingOfficialRetry;
+  /**
+   * Tavily HTTP 429 responses the request met across all its
+   * Tavily calls (Tavily-resilience observation,
+   * ANSWER_ROUND8_REGRESSION_DIAGNOSIS_2026-11-27 対策4): the
+   * approach signal for the account-level monthly exhaustion,
+   * which the per-process app-side counter cannot show. Present
+   * whenever the search layer produced the candidate stats.
+   */
+  tavilyRateLimitCount?: number;
 }
 
 export interface OriginResearchGroundingFreshnessDecision {
