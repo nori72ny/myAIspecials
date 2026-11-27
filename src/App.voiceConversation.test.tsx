@@ -8,9 +8,10 @@ import { voiceConversation } from './voice/voiceConversation';
 import type { SpeechUtteranceLike, SpeechVoiceLike } from './voice/voiceSpeech';
 
 // App-level tests for VC-2: with the voice-output switch proven on,
-// the conversation bar appears; a spoken turn lands in the composer
-// (never auto-sent); after the owner sends, the completed answer's
-// summary is spoken. With the switch off, the bar never appears.
+// the conversation bar appears; a spoken turn is sent at once
+// (never placed in the composer, no send tap); the completed
+// answer's summary is spoken. With the switch off, the bar never
+// appears.
 
 class FakeUtterance {
   lang = '';
@@ -104,8 +105,9 @@ afterEach(() => {
 });
 
 describe('App voice conversation (VC-2)', () => {
-  it('runs a full turn: Orin opens → speak → review in composer → send → summary is spoken', async () => {
-    await act(async () => { await refreshVoiceOutputAvailability(installFetch(true)); });
+  it('runs a full turn hands-free: Orin opens → speak → sent at once → summary is spoken', async () => {
+    const fetchMock = installFetch(true);
+    await act(async () => { await refreshVoiceOutputAvailability(fetchMock); });
     render(<App language="ja" />);
 
     const start = await screen.findByTestId('voice-conversation-start');
@@ -131,20 +133,21 @@ describe('App voice conversation (VC-2)', () => {
     });
     const recognition = FakeRecognition.instances.at(-1)!;
     expect(recognition.lang).toBe('ja-JP');
+    const composer = screen.getByTestId('origin-home-request') as HTMLTextAreaElement;
 
     act(() => {
       recognition.emitFinal('明日の天気は？');
       recognition.emitEnd();
     });
 
-    // The transcript waits in the composer for the owner's review —
-    // nothing has been sent yet.
-    const composer = screen.getByTestId('origin-home-request') as HTMLTextAreaElement;
-    expect(composer.value).toContain('明日の天気は？');
-    expect(screen.queryByText('明日は晴れです。気温は20度です。')).toBeNull();
-
-    fireEvent.click(screen.getByTestId('start-request-button'));
+    // The utterance never lands in the composer…
+    expect(composer.value).toBe('');
+    // …and nobody taps send: the answer arrives on its own, and
+    // the chat request carried the spoken text.
     await screen.findByText('明日は晴れです。気温は20度です。');
+    const chatCall = fetchMock.mock.calls.find(([input]) => requestPath(input).includes('/api/chat'));
+    expect(chatCall).toBeDefined();
+    expect(String((chatCall![1] as RequestInit | undefined)?.body ?? '')).toContain('明日の天気は？');
 
     await waitFor(() => {
       expect(synthesis.spoken.map((utterance) => utterance.text)).toEqual([
