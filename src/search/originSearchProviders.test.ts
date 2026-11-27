@@ -3,6 +3,8 @@ import {
   classifyOriginDomainTier,
   composeOriginMarketText,
   composeOriginWeatherText,
+  decodeOriginPageHtml,
+  extractOriginPageText,
   extractTavilyPages,
   fetchOpenMeteoWeather,
   fetchStooqMarketQuotes,
@@ -821,6 +823,112 @@ describe("extractTavilyPages", () => {
     expect(outcome.pages.get("https://www.apple.com/jp/iphone-17/")).toContain("128,800円");
     expect(outcome.failedUrls).toEqual(["https://example.com/fail"]);
     expect(outcome.creditsUsed).toBe(1);
+  });
+});
+
+describe("extractOriginPageText", () => {
+  it("removes boilerplate blocks whole and keeps the main text, entities decoded", () => {
+    const html = "<html><head><title>公表ページ</title><script>var secret = 1;</script>"
+      + "<style>.x { color: red; }</style></head><body>"
+      + "<header><nav>ホーム サイトマップ</nav></header>"
+      + "<main><p>完全失業率（季節調整値）は2.4％でした。</p><p>詳細は &quot;結果の概要&quot; を参照。</p></main>"
+      + "<footer>総務省統計局</footer></body></html>";
+    const text = extractOriginPageText(html);
+    expect(text).toContain("完全失業率（季節調整値）は2.4％でした。");
+    expect(text).toContain("詳細は \"結果の概要\" を参照。");
+    expect(text).not.toContain("サイトマップ");
+    expect(text).not.toContain("secret");
+    expect(text).not.toContain("color");
+  });
+
+  it("caps the text at the extract route's 2,000 characters and collapses whitespace", () => {
+    const html = `<main><p>${"本文テキストです。\n".repeat(400)}</p></main>`;
+    const text = extractOriginPageText(html);
+    expect(text.length).toBe(2000);
+    expect(text).not.toContain("\n");
+  });
+
+  it("returns an empty string for a page with no readable text", () => {
+    expect(extractOriginPageText("<html><body><script>onlyCode();</script></body></html>")).toBe("");
+    expect(extractOriginPageText("")).toBe("");
+  });
+});
+
+/* ------------------------------------------------------------------ */
+/* Declared-charset decoding (2026-11-27): the Labour Force Survey    */
+/* monthly page is served as Shift_JIS with no HTTP charset, so a     */
+/* UTF-8 read garbled its value sentence into replacement characters  */
+/* and the direct-GET candidate arrived empty. The fixtures below     */
+/* are real encoded bytes (base64), not strings: a string fixture     */
+/* can never reproduce the defect. Each decodes to a page whose body  */
+/* states 完全失業率（季節調整値）は2.4％です。                          */
+/* ------------------------------------------------------------------ */
+
+function fixtureBytes(base64: string): Uint8Array {
+  return new Uint8Array(Buffer.from(base64, "base64"));
+}
+
+// <html><head><meta charset="Shift_JIS"></head><body><p>完全失業率（季節調整値）は2.4％です。</p></body></html> in Shift_JIS.
+const SHIFT_JIS_META_PAGE_B64 =
+  "PGh0bWw+PGhlYWQ+PG1ldGEgY2hhcnNldD0iU2hpZnRfSklTIj48L2hlYWQ+PGJvZHk+PHA+iq6RU464i8aXpoFpi0eQ35KykK6SbIFqgs0yLjSBk4LFgreBQjwvcD48L2JvZHk+PC9odG1sPg==";
+// The same page shape with no meta declaration at all, in Shift_JIS.
+const SHIFT_JIS_NO_META_PAGE_B64 =
+  "PGh0bWw+PGhlYWQ+PHRpdGxlPpOdjHaLxzwvdGl0bGU+PC9oZWFkPjxib2R5PjxwPoqukVOOuIvGl6aBaYtHkN+SspCukmyBaoLNMi40gZOCxYK3gUI8L3A+PC9ib2R5PjwvaHRtbD4=";
+// The same page with <meta charset="EUC-JP">, in EUC-JP.
+const EUC_JP_META_PAGE_B64 =
+  "PGh0bWw+PGhlYWQ+PG1ldGEgY2hhcnNldD0iRVVDLUpQIj48L2hlYWQ+PGJvZHk+PHA+tLDBtLy6tsjOqKHKtajA4cS0wLDDzaHLpM8yLjSh86THpLmhozwvcD48L2JvZHk+PC9odG1sPg==";
+// The same page with the http-equiv declaration form, in EUC-JP.
+const EUC_JP_HTTP_EQUIV_PAGE_B64 =
+  "PGh0bWw+PGhlYWQ+PG1ldGEgaHR0cC1lcXVpdj0iQ29udGVudC1UeXBlIiBjb250ZW50PSJ0ZXh0L2h0bWw7IGNoYXJzZXQ9RVVDLUpQIj48L2hlYWQ+PGJvZHk+PHA+tLDBtLy6tsjOqKHKtajA4cS0wLDDzaHLpM8yLjSh86THpLmhozwvcD48L2JvZHk+PC9odG1sPg==";
+
+describe("decodeOriginPageHtml", () => {
+  it("decodes a Shift_JIS page by its meta declaration (the stat.go.jp shape: no HTTP charset)", () => {
+    const html = decodeOriginPageHtml(fixtureBytes(SHIFT_JIS_META_PAGE_B64), "text/html");
+    expect(html).toContain("完全失業率（季節調整値）は2.4％です。");
+    expect(html).not.toContain("�");
+    // The pre-fix read (UTF-8 over the same bytes) loses the
+    // sentence entirely — the defect this measure closes.
+    expect(new TextDecoder("utf-8").decode(fixtureBytes(SHIFT_JIS_META_PAGE_B64)))
+      .not.toContain("完全失業率");
+  });
+
+  it("decodes a Shift_JIS page by its HTTP Content-Type charset when no meta exists", () => {
+    const html = decodeOriginPageHtml(
+      fixtureBytes(SHIFT_JIS_NO_META_PAGE_B64),
+      "text/html; charset=Shift_JIS",
+    );
+    expect(html).toContain("完全失業率（季節調整値）は2.4％です。");
+    expect(html).not.toContain("�");
+  });
+
+  it("decodes EUC-JP pages by meta declaration, in both declaration forms", () => {
+    for (const base64 of [EUC_JP_META_PAGE_B64, EUC_JP_HTTP_EQUIV_PAGE_B64]) {
+      const html = decodeOriginPageHtml(fixtureBytes(base64), "text/html");
+      expect(html).toContain("完全失業率（季節調整値）は2.4％です。");
+      expect(html).not.toContain("�");
+    }
+  });
+
+  it("the HTTP charset outranks the meta declaration", () => {
+    // UTF-8 bytes whose meta (wrongly, for this fixture) claims
+    // Shift_JIS: the header wins, so the text survives intact.
+    const utf8Bytes = new TextEncoder().encode(
+      '<html><head><meta charset="Shift_JIS"></head><body><p>完全失業率（季節調整値）は2.4％です。</p></body></html>',
+    );
+    const html = decodeOriginPageHtml(utf8Bytes, "text/html; charset=UTF-8");
+    expect(html).toContain("完全失業率（季節調整値）は2.4％です。");
+    expect(html).not.toContain("�");
+  });
+
+  it("a page that declares nothing decodes as UTF-8, exactly as before", () => {
+    const utf8Bytes = new TextEncoder().encode(
+      "<html><head><title>統計局</title></head><body><p>完全失業率（季節調整値）は2.4％です。</p></body></html>",
+    );
+    for (const contentType of ["text/html", null, undefined]) {
+      const html = decodeOriginPageHtml(utf8Bytes, contentType);
+      expect(html).toContain("完全失業率（季節調整値）は2.4％です。");
+      expect(html).not.toContain("�");
+    }
   });
 });
 

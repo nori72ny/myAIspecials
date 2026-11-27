@@ -1049,6 +1049,7 @@ describe("search packet relevance", () => {
         { domain: "store.google.com", tier: "official", outcome: "kept-verified", basis: "provider-date", basisDate: "2026-11-01" },
         { domain: "kakaku.com", tier: "general", outcome: "kept-verified", basis: "provider-date", basisDate: "2026-11-03" },
       ],
+      tavilyRateLimitCount: 0,
     });
   });
 
@@ -1202,6 +1203,7 @@ describe("search packet relevance", () => {
         freshnessDecisions: [
           { domain: "www3.nhk.or.jp", tier: "major-news", outcome: "dropped-stale", basis: "provider-date", basisDate: "2026-10-01" },
         ],
+        tavilyRateLimitCount: 0,
       });
     }
   });
@@ -1244,5 +1246,99 @@ describe("policy route pairing (routing calibration, 2026-11-16)", () => {
     const outcome = await executeOriginSearchGrounding(PENSION_QUESTION, makeDeps({ fetchImpl }));
     expect(outcome.kind).toBe("unavailable");
     if (outcome.kind === "unavailable") expect(outcome.reason).toBe("no-sources");
+  });
+});
+
+/* ------------------------------------------------------------------ */
+/* Tavily resilience (ANSWER_ROUND8_REGRESSION_DIAGNOSIS_2026-11-27,  */
+/* measures 対策2 + 対策4): when Tavily's monthly credits ran out,    */
+/* every statistical question landed as no-sources — Wikipedia        */
+/* completed normally with zero candidates (its relevance screen      */
+/* drops every hit for those topics), so the all-routes-errored       */
+/* condition never held and the provider outage was attributed to     */
+/* an absence of sources. The attribution now prefers provider-error  */
+/* whenever every attempted Tavily route failed, and every Tavily     */
+/* 429 the request meets is counted in the candidate stats.           */
+/* ------------------------------------------------------------------ */
+
+describe("Tavily resilience — failure attribution and 429 observation", () => {
+  // The round-8 B1/B3 shape on the Wikipedia side: the search
+  // completes, but every hit is off-topic for the question's terms
+  // and the relevance screen drops them all — a normal, empty
+  // completion, not an error.
+  const OFF_TOPIC_WIKI_PAGE = {
+    key: "人工知能",
+    title: "人工知能の歴史",
+    excerpt: "人工知能の発展の歴史について述べる記事。",
+    description: "人工知能の歴史",
+  };
+  const ON_TOPIC_WIKI_PAGE = {
+    key: "ChatGPT",
+    title: "ChatGPT",
+    excerpt: "ChatGPTはOpenAIが開発した最新の対話型モデルである。主な特徴は文脈を踏まえた応答である。".repeat(10),
+    description: "対話型モデル",
+  };
+
+  function outageFetch(options: { tavilyStatus: number; wikiPages: unknown[] }) {
+    const fetchImpl: OriginSearchFetch = async (url) => {
+      if (url.includes("api.tavily.com/search")) {
+        return options.tavilyStatus === 200
+          ? jsonResponse({ results: [] })
+          : jsonResponse({ message: "rate limited" }, options.tavilyStatus);
+      }
+      if (url.includes("api.tavily.com/extract")) return jsonResponse({ results: [], failed_results: [] });
+      if (url.includes("/search/page")) return jsonResponse({ pages: options.wikiPages });
+      if (url.includes("wikipedia.org")) {
+        return jsonResponse({
+          html_url: "https://ja.wikipedia.org/wiki/ChatGPT",
+          latest: { timestamp: "2026-11-06T00:00:00.000Z" },
+        });
+      }
+      throw new Error(`unexpected URL: ${url}`);
+    };
+    return fetchImpl;
+  }
+
+  it("Tavily 429 + Wikipedia's empty completion lands as provider-error, not no-sources", async () => {
+    const fetchImpl = outageFetch({ tavilyStatus: 429, wikiPages: [OFF_TOPIC_WIKI_PAGE] });
+    const outcome = await executeOriginSearchGrounding(FRESH_QUESTION, makeDeps({ fetchImpl }));
+    expect(outcome.kind).toBe("unavailable");
+    if (outcome.kind !== "unavailable") return;
+    expect(outcome.reason).toBe("provider-error");
+    // The one Tavily search this request issued met a 429, and the
+    // count rides the candidate stats (対策4).
+    expect(outcome.candidateStats?.tavilyRateLimitCount).toBe(1);
+    expect(outcome.candidateStats?.totalCount).toBe(0);
+  });
+
+  it("the executor carries the provider-error attribution and the 429 count into the research result", async () => {
+    const fetchImpl = outageFetch({ tavilyStatus: 429, wikiPages: [OFF_TOPIC_WIKI_PAGE] });
+    const legacy = vi.fn(async (): Promise<OriginResearchResult> => {
+      throw new Error("legacy must not serve an unavailable outcome");
+    });
+    const execute = createDefaultOriginResearchExecutor(makeDeps({ fetchImpl }), legacy);
+    const result = await execute(FRESH_QUESTION);
+    expect(result.ok).toBe(false);
+    expect(result.groundingFailure).toBe("provider-error");
+    expect(result.grounding?.candidateStats?.tavilyRateLimitCount).toBe(1);
+    expect(legacy).not.toHaveBeenCalled();
+  });
+
+  it("a completed Tavily search that finds nothing stays no-sources (the fix does not overreach)", async () => {
+    const fetchImpl = outageFetch({ tavilyStatus: 200, wikiPages: [OFF_TOPIC_WIKI_PAGE] });
+    const outcome = await executeOriginSearchGrounding(FRESH_QUESTION, makeDeps({ fetchImpl }));
+    expect(outcome.kind).toBe("unavailable");
+    if (outcome.kind !== "unavailable") return;
+    expect(outcome.reason).toBe("no-sources");
+    expect(outcome.candidateStats?.tavilyRateLimitCount).toBe(0);
+  });
+
+  it("a Tavily 429 is counted even when the Wikipedia route still grounds the answer", async () => {
+    const fetchImpl = outageFetch({ tavilyStatus: 429, wikiPages: [ON_TOPIC_WIKI_PAGE] });
+    const outcome = groundedOf(await executeOriginSearchGrounding(FRESH_QUESTION, makeDeps({ fetchImpl })));
+    expect(outcome.providersUsed).toEqual(["wikipedia"]);
+    expect(outcome.candidateStats?.tavilyRateLimitCount).toBe(1);
+    const result = originSearchGroundingToResearchResult(outcome);
+    expect(result.grounding?.candidateStats?.tavilyRateLimitCount).toBe(1);
   });
 });

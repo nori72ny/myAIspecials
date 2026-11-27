@@ -42,11 +42,14 @@ import {
   classifyOriginDomainTier,
   composeOriginMarketText,
   composeOriginWeatherText,
+  decodeOriginPageHtml,
   defaultOriginSearchFetch,
+  extractOriginPageText,
   extractTavilyPages,
   fetchOpenMeteoWeather,
   fetchStooqMarketQuotes,
   originDomainOf,
+  OriginSearchProviderError,
   ORIGIN_TIER_WEIGHT,
   searchGdeltHeadlines,
   searchTavilySources,
@@ -54,6 +57,7 @@ import {
   STOOQ_SOURCE_URL,
   type OriginMarketQuote,
   type OriginSearchFetch,
+  type OriginSearchFetchResponse,
   type OriginSearchSource,
   type OriginSourceAuthorityTier,
   type OriginWeatherForecast,
@@ -277,6 +281,20 @@ export interface OriginSearchCandidateStats {
    * only when the adopted pool was judged insufficient.
    */
   officialRetry?: OriginSearchOfficialRetryObservation;
+  /**
+   * Tavily HTTP 429 responses this request met, across every
+   * Tavily call it made — searches, the release-page extract
+   * fallback, the insufficiency retry, the extract stage
+   * (Tavily-resilience observation, ANSWER_ROUND8_REGRESSION_
+   * DIAGNOSIS_2026-11-27 対策4). The app-side usage counter is
+   * per-process and resets on deploy, so it can never show the
+   * account-level exhaustion approaching; this count can: a
+   * request that met 429s records them here even when another
+   * route still grounded the answer, so the approach of the
+   * monthly hard stop is visible in the per-request record
+   * before pools start coming back empty.
+   */
+  tavilyRateLimitCount: number;
 }
 
 interface CandidateStatsInputs {
@@ -299,6 +317,8 @@ interface CandidateStatsInputs {
   selection: OriginSearchSelectionObservation | null;
   /** The measure-B retry observation, when insufficiency was detected. */
   officialRetry?: OriginSearchOfficialRetryObservation;
+  /** Tavily HTTP 429 responses this request met (対策4 observation). */
+  tavilyRateLimitCount: number;
 }
 
 /** Sum two freshness-gate results (the measure-B retry gates its own
@@ -379,6 +399,7 @@ function summarizeCandidateStats(inputs: CandidateStatsInputs): OriginSearchCand
     screenDropTierCounts: inputs.screenDropTierCounts,
     freshnessDecisions: inputs.freshnessDecisions,
     ...(inputs.officialRetry ? { officialRetry: inputs.officialRetry } : {}),
+    tavilyRateLimitCount: inputs.tavilyRateLimitCount,
   };
 }
 
@@ -966,6 +987,16 @@ interface RouteResult {
   sources: OriginSearchSource[];
   errored: boolean;
   /**
+   * The HTTP status of the route's provider failure, when the
+   * failure carries one (observation, Tavily-resilience measure
+   * 対策4): the route result is where a provider's 429 first
+   * becomes visible to the orchestrator, and the status is what
+   * distinguishes an approaching quota exhaustion from any other
+   * provider failure. Absent on success and on failures that carry
+   * no status (timeouts, network errors).
+   */
+  errorStatus?: number;
+  /**
    * Candidates the route's relevance screen dropped before the gate
    * (the routes whose providers run a screen: Tavily and Wikipedia).
    * Absent on a cache hit: the cached set is already the post-screen
@@ -1015,8 +1046,13 @@ async function cachedCandidates(
     const sources = await load();
     if (shouldCache(sources)) deps.cache.set(cacheKey, sources, ttlMs, deps.now());
     return { sources, errored: false };
-  } catch {
-    return { sources: [], errored: true };
+  } catch (error) {
+    const errorStatus = error instanceof OriginSearchProviderError ? error.status : undefined;
+    return {
+      sources: [],
+      errored: true,
+      ...(errorStatus !== undefined ? { errorStatus } : {}),
+    };
   }
 }
 
@@ -1109,19 +1145,55 @@ interface OfficialReleaseIndexTarget {
 }
 
 /**
- * The index page's raw HTML, capped: the link sits in the page's
- * body, and the cap only bounds a pathological page — the anchor
- * scan needs the document, not an extract (Tavily's text format
- * drops hrefs, so the extract route cannot resolve links).
+ * A curated official page's raw HTML, capped: the link scan (index
+ * pages) and the body-text reduction (release pages) both work on
+ * the document itself, not an extract — Tavily's text format drops
+ * hrefs, so the extract route cannot resolve links — and the cap
+ * only bounds a pathological page.
  */
-const MAX_RELEASE_INDEX_HTML_CHARS = 512_000;
+const MAX_KEYLESS_PAGE_HTML_CHARS = 512_000;
 
 /**
- * Fetch a release index page's HTML directly (keyless GET of a
- * fixed curated URL — no user text is ever sent). Fail-soft by
- * contract: any failure resolves to null.
+ * The byte-side companion of the character cap: at most 3 bytes
+ * per character in any supported encoding (UTF-8 Japanese is
+ * exactly 3), so this many bytes always holds a full cap of
+ * characters. A multibyte character split at the boundary decodes
+ * to one replacement character at the very end — beyond the
+ * value-bearing head of any real page, and the character cap
+ * still applies after decoding.
  */
-async function fetchReleaseIndexHtml(
+const MAX_KEYLESS_PAGE_HTML_BYTES = MAX_KEYLESS_PAGE_HTML_CHARS * 3;
+
+/**
+ * Read a keyless-fetch response as HTML in the charset the page
+ * declares (decodeOriginPageHtml): byte access when the fetch
+ * offers it, the `text()` read otherwise (test doubles and any
+ * implementation without byte access keep the old behavior —
+ * their bodies are already strings).
+ */
+async function readKeylessPageHtml(response: OriginSearchFetchResponse): Promise<string> {
+  if (typeof response.arrayBuffer === "function") {
+    const bytes = new Uint8Array(await response.arrayBuffer());
+    return decodeOriginPageHtml(
+      bytes.subarray(0, MAX_KEYLESS_PAGE_HTML_BYTES),
+      response.headers?.get("content-type"),
+    );
+  }
+  return response.text();
+}
+
+/**
+ * Fetch a curated official page's HTML directly (keyless GET of a
+ * fixed URL from the topic table — no user text is ever sent).
+ * Used for the release index pages (measure 5-3c, link-follow
+ * variant) and, since the Tavily-resilience measure (round-8
+ * diagnosis 対策3), for the release pages themselves. The body
+ * is decoded with its declared charset — the Labour Force Survey
+ * monthly page is Shift_JIS, and a UTF-8 read garbled its value
+ * sentence out of the candidate text. Fail-soft by contract:
+ * any failure resolves to null.
+ */
+async function fetchKeylessPageHtml(
   deps: ResolvedDeps,
   url: string,
   timeoutMs: number,
@@ -1132,8 +1204,8 @@ async function fetchReleaseIndexHtml(
   try {
     const response = await fetchImpl(url, { signal: controller.signal });
     if (!response.ok) return null;
-    const html = await response.text();
-    return html.trim() ? html.slice(0, MAX_RELEASE_INDEX_HTML_CHARS) : null;
+    const html = await readKeylessPageHtml(response);
+    return html.trim() ? html.slice(0, MAX_KEYLESS_PAGE_HTML_CHARS) : null;
   } catch {
     return null;
   } finally {
@@ -1145,75 +1217,143 @@ async function fetchReleaseIndexHtml(
  * The link-follow variant of the release-page fetch (measure
  * 5-3c): for each index target, fetch the index page, resolve its
  * named link one hop (resolveOriginReleaseIndexLink), and fetch
- * the followed pages through the same extract path as direct
- * release pages, so the candidates are shaped identically. Any
- * failure — index unreachable, link absent, target outside the
- * topic's domains, extract failure — resolves to no candidates
- * for that target, never to an error (fail soft: the pool keeps
- * exactly what the searches brought). `onFollowAttempted` fires
- * once per followed page whose extract is about to be attempted,
- * so the caller writes the issued record in the same discipline
- * as the direct fetch.
+ * the followed pages through the same deterministic-candidate
+ * path as direct release pages, so the candidates are shaped
+ * identically. Any failure — index unreachable, link absent,
+ * target outside the topic's domains, page fetch failure —
+ * resolves to no candidates for that target, never to an error
+ * (fail soft: the pool keeps exactly what the searches brought).
+ * `onFollowAttempted` fires once per followed page whose fetch
+ * is about to be attempted, so the caller writes the issued
+ * record in the same discipline as the direct fetch.
  */
 async function fetchFollowedReleasePageCandidates(
   deps: ResolvedDeps,
   targets: readonly OfficialReleaseIndexTarget[],
   timeoutMs: number,
   onFollowAttempted: (url: string) => void,
-): Promise<OriginSearchSource[]> {
+): Promise<OfficialReleasePageFetchOutcome> {
   const followedTargets: OfficialReleasePageTarget[] = [];
   for (const target of targets) {
-    const html = await fetchReleaseIndexHtml(deps, target.url, timeoutMs);
+    const html = await fetchKeylessPageHtml(deps, target.url, timeoutMs);
     if (!html) continue;
     const followed = resolveOriginReleaseIndexLink(html, target.url, target.linkText, target.domains);
     if (!followed) continue;
     followedTargets.push({ url: followed, title: target.title });
   }
-  if (followedTargets.length === 0) return [];
+  if (followedTargets.length === 0) return { sources: [], tavilyRateLimitCount: 0 };
   for (const target of followedTargets) onFollowAttempted(target.url);
   return fetchOfficialReleasePageCandidates(deps, followedTargets, timeoutMs);
 }
 
 /**
- * Fetch the planned topics' release pages directly (measure 5-3c,
- * design memo §2.3) and shape the extracted texts as ordinary
- * candidates: same fields, same tier classification by domain, no
- * provider date (extract reports none — the freshness gate judges
- * the page by the date its own text states, or as official-undated,
- * exactly like an undated search candidate). Fail-open by contract:
- * any failure — HTTP, extraction, an empty page — resolves to no
- * candidates, never to an error of the whole grounding.
+ * The outcome of a deterministic release-page fetch: the
+ * candidates it produced, and the Tavily 429s its extract
+ * fallback met (対策4 observation — the fallback is a Tavily
+ * call, so its rate limits belong in the request's count).
+ */
+interface OfficialReleasePageFetchOutcome {
+  sources: OriginSearchSource[];
+  tavilyRateLimitCount: number;
+}
+
+/**
+ * One release page's body text by direct keyless GET
+ * (Tavily-resilience measure, round-8 diagnosis 対策3): the same
+ * capped, timed GET the index fetch uses, with the HTML reduced
+ * to plain text in the extract route's shape. A PDF target is
+ * not readable this way — its bytes are not HTML and decode to
+ * no usable text — so the magic header is checked and the
+ * target is left to the extract fallback below. Fail-soft by
+ * contract: any failure resolves to null.
+ */
+async function fetchDirectReleasePageText(
+  deps: ResolvedDeps,
+  url: string,
+  timeoutMs: number,
+): Promise<string | null> {
+  const html = await fetchKeylessPageHtml(deps, url, timeoutMs);
+  if (!html) return null;
+  if (/^\s*%PDF/.test(html)) return null;
+  const text = extractOriginPageText(html);
+  return text ? text : null;
+}
+
+/**
+ * Fetch the planned topics' release pages (measure 5-3c, design
+ * memo §2.3) and shape their body texts as ordinary candidates:
+ * same fields, same tier classification by domain, no provider
+ * date (neither fetch reports one — the freshness gate judges
+ * the page by the date its own text states, or as
+ * official-undated, exactly like an undated search candidate).
+ *
+ * Tavily-resilience form (round-8 diagnosis 対策3): the body
+ * text comes FIRST from a keyless direct GET of the publisher's
+ * own page — the deterministic candidate must not die with the
+ * search provider, as it did when the Tavily monthly credits
+ * ran out and every statistical question refused at once. Only
+ * the pages the direct GET cannot read (the summary PDF is the
+ * standing case) fall back to Tavily extract, and that fallback
+ * stays inside the provider's own disciplines: it is attempted
+ * only while the provider's access — evidence, key, monthly
+ * self cap — allows this one batched call, and its credits are
+ * recorded exactly as before. Fail-open by contract: any
+ * failure — HTTP, extraction, an empty page — resolves to no
+ * candidates for that page, never to an error of the whole
+ * grounding.
  */
 async function fetchOfficialReleasePageCandidates(
   deps: ResolvedDeps,
   targets: readonly OfficialReleasePageTarget[],
   timeoutMs: number,
-): Promise<OriginSearchSource[]> {
-  try {
-    const extract = await extractTavilyPages(
-      targets.map((target) => target.url),
-      { fetchImpl: deps.fetchImpl, timeoutMs, apiKey: tavilyApiKey(deps) },
-    );
-    if (extract.creditsUsed > 0) deps.counter.record("tavily", extract.creditsUsed, deps.now());
-    const sources: OriginSearchSource[] = [];
-    for (const target of targets) {
-      const text = extract.pages.get(target.url);
-      if (!text) continue;
-      const domain = originDomainOf(target.url);
-      sources.push({
-        title: target.title,
-        url: target.url,
-        excerpt: text,
-        providerId: "tavily",
-        domain,
-        authorityTier: classifyOriginDomainTier(domain),
-        evidenceLevel: "extracted",
-      });
-    }
-    return sources;
-  } catch {
-    return [];
+): Promise<OfficialReleasePageFetchOutcome> {
+  const texts = new Map<string, string>();
+  const directResults = await Promise.all(
+    targets.map(async (target) => ({
+      target,
+      text: await fetchDirectReleasePageText(deps, target.url, timeoutMs),
+    })),
+  );
+  const missing: OfficialReleasePageTarget[] = [];
+  for (const { target, text } of directResults) {
+    if (text) texts.set(target.url, text);
+    else missing.push(target);
   }
+  let tavilyRateLimitCount = 0;
+  if (missing.length > 0) {
+    const fallbackAccess = providerAccess("tavily", deps, 1);
+    if (fallbackAccess.enabled) {
+      try {
+        const extract = await extractTavilyPages(
+          missing.map((target) => target.url),
+          { fetchImpl: deps.fetchImpl, timeoutMs, apiKey: tavilyApiKey(deps) },
+        );
+        if (extract.creditsUsed > 0) deps.counter.record("tavily", extract.creditsUsed, deps.now());
+        for (const [url, text] of extract.pages) texts.set(url, text);
+      } catch (error) {
+        if (error instanceof OriginSearchProviderError && error.status === 429) {
+          tavilyRateLimitCount += 1;
+        }
+        // The fallback is best-effort: the direct texts stand.
+      }
+    }
+  }
+  const sources: OriginSearchSource[] = [];
+  for (const target of targets) {
+    const text = texts.get(target.url);
+    if (!text) continue;
+    const domain = originDomainOf(target.url);
+    sources.push({
+      title: target.title,
+      url: target.url,
+      excerpt: text,
+      providerId: "tavily",
+      domain,
+      authorityTier: classifyOriginDomainTier(domain),
+      evidenceLevel: "extracted",
+    });
+  }
+  return { sources, tavilyRateLimitCount };
 }
 
 async function runWikipediaRoute(deps: ResolvedDeps, query: string, timeoutMs: number): Promise<RouteResult> {
@@ -1357,10 +1497,11 @@ export async function executeOriginSearchGrounding(
     : null;
   // Measure 5-3c: the planned topics' release pages, in plan order,
   // deduped by URL (two planned topics could in principle name the
-  // same page). Their batched extract costs one credit, charged to
-  // the access check below alongside the searches, so the monthly
-  // self cap is still charged honestly for every credit this
-  // request may spend.
+  // same page). Their body texts are fetched directly (keyless
+  // GET); only the pages that fetch cannot read fall back to one
+  // batched Tavily extract, charged to the access check below
+  // alongside the searches, so the monthly self cap is still
+  // charged honestly for every credit this request may spend.
   const releasePageTargets: OfficialReleasePageTarget[] = [];
   if (officialPlan) {
     const seenReleaseUrls = new Set<string>();
@@ -1374,11 +1515,12 @@ export async function executeOriginSearchGrounding(
   }
   // Measure 5-3c, link-follow variant: the planned topics' release
   // index pages, in plan order, deduped by URL. The followed page's
-  // extract is a second batched extract call, so the access check
-  // below charges for it alongside the direct pages' — the monthly
-  // self cap is still charged honestly for every credit this
-  // request may spend. The index page's own fetch is a keyless GET
-  // of a fixed URL and costs no credit.
+  // body fetch is a keyless direct GET with one batched extract as
+  // its fallback, so the access check below charges for that
+  // fallback alongside the direct pages' — the monthly self cap is
+  // still charged honestly for every credit this request may
+  // spend. The index page's own fetch is a keyless GET of a fixed
+  // URL and costs no credit.
   const releaseIndexTargets: OfficialReleaseIndexTarget[] = [];
   if (officialPlan) {
     const seenIndexUrls = new Set<string>();
@@ -1490,63 +1632,64 @@ export async function executeOriginSearchGrounding(
   }
 
   // Measure 5-3c (design memo §2.3): in parallel with the searches
-  // above, fetch the planned topics' release pages directly. The
-  // fetch is attempted only inside the same disciplines as every
-  // other Tavily spend — the monthly self cap (checked for this one
-  // batched extract) and the remaining latency budget — and any
-  // failure resolves to no candidates (fail-open), never to an
-  // error of the whole grounding. The issued records are written
-  // only when the fetch is actually attempted, in the same
-  // discipline as the search records above.
-  let releasePageCandidates: Promise<OriginSearchSource[]> = Promise.resolve([]);
-  if (releasePageTargets.length > 0 && tavilyEnabled && remainingMs() >= 1_000) {
-    const releaseAccess = providerAccess("tavily", deps, 1);
-    if (releaseAccess.enabled) {
-      for (const target of releasePageTargets) {
-        queriesIssued.push({
-          provider: "tavily",
-          kind: "official-release-page",
-          query: target.url,
-          url: target.url,
-        });
-      }
-      releasePageCandidates = fetchOfficialReleasePageCandidates(
-        deps,
-        releasePageTargets,
-        searchTimeoutMs(),
-      );
+  // above, fetch the planned topics' release pages. Tavily-resilience
+  // form (round-8 diagnosis 対策3): the attempt is NOT gated on
+  // Tavily's availability — the body text comes from a keyless
+  // direct GET of the publisher's own page, and Tavily extract is
+  // only the fallback for the pages that GET cannot read (that
+  // fallback checks the provider's access itself, inside the
+  // fetch). What still gates the attempt is the remaining latency
+  // budget and that some route runs at all: with no route enabled
+  // the outcome is the early not-applicable / cap return below,
+  // which discards candidates anyway, so fetching would be waste.
+  // The issued records are written only when the fetch is actually
+  // attempted, in the same discipline as the search records above.
+  let releasePageFetch: Promise<OfficialReleasePageFetchOutcome> =
+    Promise.resolve({ sources: [], tavilyRateLimitCount: 0 });
+  if (releasePageTargets.length > 0 && routes.length > 0 && remainingMs() >= 1_000) {
+    for (const target of releasePageTargets) {
+      queriesIssued.push({
+        provider: "tavily",
+        kind: "official-release-page",
+        query: target.url,
+        url: target.url,
+      });
     }
+    releasePageFetch = fetchOfficialReleasePageCandidates(
+      deps,
+      releasePageTargets,
+      searchTimeoutMs(),
+    );
   }
 
   // Measure 5-3c, link-follow variant: in parallel with the
   // searches, resolve the planned topics' release index pages and
   // fetch the followed release pages. The same disciplines gate
-  // the attempt — the monthly self cap (checked for the followed
-  // pages' one batched extract) and the remaining latency budget —
-  // and the issued record is written per followed page when its
-  // extract is actually attempted, naming the followed URL: the
-  // record's meaning stays "this page was fetched as the topic's
-  // deterministic release-page candidate", whichever of the two
-  // forms produced it. An unresolved index writes no record — no
-  // page was fetched — and contributes no candidates.
-  let followedReleasePageCandidates: Promise<OriginSearchSource[]> = Promise.resolve([]);
-  if (releaseIndexTargets.length > 0 && tavilyEnabled && remainingMs() >= 1_000) {
-    const followAccess = providerAccess("tavily", deps, 1);
-    if (followAccess.enabled) {
-      followedReleasePageCandidates = fetchFollowedReleasePageCandidates(
-        deps,
-        releaseIndexTargets,
-        searchTimeoutMs(),
-        (url) => {
-          queriesIssued.push({
-            provider: "tavily",
-            kind: "official-release-page",
-            query: url,
-            url,
-          });
-        },
-      );
-    }
+  // the attempt — the remaining latency budget and that some
+  // route runs at all (the index fetch itself is keyless, and the
+  // followed page's fetch follows the direct-GET discipline
+  // above) — and the issued record is written per followed page
+  // when its fetch is actually attempted, naming the followed
+  // URL: the record's meaning stays "this page was fetched as the
+  // topic's deterministic release-page candidate", whichever of
+  // the two forms produced it. An unresolved index writes no
+  // record — no page was fetched — and contributes no candidates.
+  let followedReleasePageFetch: Promise<OfficialReleasePageFetchOutcome> =
+    Promise.resolve({ sources: [], tavilyRateLimitCount: 0 });
+  if (releaseIndexTargets.length > 0 && routes.length > 0 && remainingMs() >= 1_000) {
+    followedReleasePageFetch = fetchFollowedReleasePageCandidates(
+      deps,
+      releaseIndexTargets,
+      searchTimeoutMs(),
+      (url) => {
+        queriesIssued.push({
+          provider: "tavily",
+          kind: "official-release-page",
+          query: url,
+          url,
+        });
+      },
+    );
   }
 
   if (routes.length === 0) {
@@ -1571,6 +1714,25 @@ export async function executeOriginSearchGrounding(
     candidates = fallback.sources;
   }
 
+  // Observation (round-8 diagnosis 対策4): the Tavily HTTP 429
+  // responses this request meets, counted across every Tavily
+  // call it makes — the routes here, the release-page extract
+  // fallbacks below, the insufficiency retry and the extract
+  // stage further down add theirs as they run. The count rides
+  // the candidate stats of every outcome this pipeline returns.
+  // Results pair with their providers by position; the one
+  // append beyond routeProviders is the stable route's Tavily
+  // fallback above, so an unpaired result is Tavily's.
+  const resultProviders: OriginSearchProviderId[] = results.map(
+    (_, index) => routeProviders[index] ?? "tavily",
+  );
+  const tavilyRouteIndexes = resultProviders.flatMap((provider, index) =>
+    provider === "tavily" ? [index] : [],
+  );
+  let tavilyRateLimitCount = results.filter(
+    (result, index) => resultProviders[index] === "tavily" && result.errorStatus === 429,
+  ).length;
+
   // Measure 5-3c: the deterministic release-page candidates join
   // the same pool, behind the search candidates (packet selection
   // re-orders by tier and the official sub-ranking, so pool order
@@ -1583,7 +1745,9 @@ export async function executeOriginSearchGrounding(
   // against the query's terms), while a release page's aboutness is
   // fixed by the topic match that fired the plan — the page IS the
   // matched topic's own release page, fetched by its table URL.
-  const releaseSources = await releasePageCandidates;
+  const releaseFetchOutcome = await releasePageFetch;
+  tavilyRateLimitCount += releaseFetchOutcome.tavilyRateLimitCount;
+  const releaseSources = releaseFetchOutcome.sources;
   if (releaseSources.length > 0) {
     candidates = [...candidates, ...releaseSources];
     if (!providersUsed.includes("tavily")) providersUsed.push("tavily");
@@ -1593,7 +1757,9 @@ export async function executeOriginSearchGrounding(
   // and on the same terms: candidacy is deterministic (the index
   // link is the publisher's own pointer at the current release),
   // adoption is not — every downstream gate applies unchanged.
-  const followedSources = await followedReleasePageCandidates;
+  const followedFetchOutcome = await followedReleasePageFetch;
+  tavilyRateLimitCount += followedFetchOutcome.tavilyRateLimitCount;
+  const followedSources = followedFetchOutcome.sources;
   if (followedSources.length > 0) {
     candidates = [...candidates, ...followedSources];
     if (!providersUsed.includes("tavily")) providersUsed.push("tavily");
@@ -1620,10 +1786,25 @@ export async function executeOriginSearchGrounding(
 
   if (candidates.length === 0) {
     const allErrored = results.every((result) => result.errored);
+    // Tavily-resilience (round-8 diagnosis 対策2): when every
+    // Tavily route this request attempted failed, the empty pool
+    // is a provider failure, not an absence of sources. The old
+    // attribution let a keyless route's empty completion mask it:
+    // Wikipedia completes normally with zero candidates for the
+    // statistical topics (its relevance screen drops every hit),
+    // so a total Tavily outage — the monthly-credit hard stop —
+    // landed as no-sources, indistinguishable from a search that
+    // genuinely found nothing, and the round-8 diagnosis spent
+    // most of its effort on exactly that ambiguity. The failure
+    // code now separates them: provider-error is the retryable
+    // provider-failure shape, no-sources stays for a completed
+    // search whose routes answered and found nothing usable.
+    const tavilyAllErrored = tavilyRouteIndexes.length > 0
+      && tavilyRouteIndexes.every((index) => results[index]?.errored);
     return {
       kind: "unavailable",
       questionType,
-      reason: allErrored ? "provider-error" : "no-sources",
+      reason: allErrored || tavilyAllErrored ? "provider-error" : "no-sources",
       freshness: emptyStats,
       candidateStats: summarizeCandidateStats({
         candidates,
@@ -1635,6 +1816,7 @@ export async function executeOriginSearchGrounding(
         freshnessDecisions: [],
         keptCount: 0,
         selection: null,
+        tavilyRateLimitCount,
       }),
       queriesIssued,
     };
@@ -1675,6 +1857,7 @@ export async function executeOriginSearchGrounding(
         freshnessDecisions,
         keptCount: 0,
         selection: null,
+        tavilyRateLimitCount,
       }),
       queriesIssued,
       // PR-4: every candidate here reached the freshness gate and was
@@ -1759,6 +1942,7 @@ export async function executeOriginSearchGrounding(
             query: retryQueryText,
             includeDomains: retryTopic.domains,
           });
+          if (retryResult.errorStatus === 429) tavilyRateLimitCount += 1;
           if (retryResult.sources.length > 0 && !providersUsed.includes("tavily")) {
             providersUsed.push("tavily");
           }
@@ -1863,8 +2047,14 @@ export async function executeOriginSearchGrounding(
           });
           if (!providersUsed.includes("tavily")) providersUsed.push("tavily");
         }
-      } catch {
+      } catch (error) {
         // Extract is an enhancement only; snippets remain the evidence.
+        // A 429 here still counts toward the request's rate-limit
+        // observation (対策4) — the stage's silence is about the
+        // answer, not about the record.
+        if (error instanceof OriginSearchProviderError && error.status === 429) {
+          tavilyRateLimitCount += 1;
+        }
       }
     }
   }
@@ -1912,6 +2102,7 @@ export async function executeOriginSearchGrounding(
       keptCount: kept.length,
       selection: selection.observation,
       ...(officialRetry ? { officialRetry } : {}),
+      tavilyRateLimitCount,
     }),
     queriesIssued,
   };
@@ -2084,6 +2275,10 @@ function groundingMetadataFromOutcome(
             ...(candidateStats.officialRetry
               ? { officialRetry: candidateStats.officialRetry }
               : {}),
+            // Tavily-resilience observation (対策4): the request's
+            // Tavily 429 count, so the exhaustion approach is
+            // attributable from the research record.
+            tavilyRateLimitCount: candidateStats.tavilyRateLimitCount,
           },
         }
       : {}),

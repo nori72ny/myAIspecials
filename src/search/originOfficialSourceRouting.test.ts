@@ -2272,3 +2272,363 @@ describe("executeOriginSearchGrounding — measure 5-3c link-follow variant (B1)
     expect(calls.every((call) => !(call.init?.body ?? "").includes("newpage_76960"))).toBe(true);
   });
 });
+
+/* ------------------------------------------------------------------ */
+/* Tavily resilience (ANSWER_ROUND8_REGRESSION_DIAGNOSIS_2026-11-27,  */
+/* 対策3 + 対策4): the deterministic candidates' body text comes      */
+/* from a keyless direct GET of the publisher's own page; Tavily      */
+/* extract is only the fallback for the pages that GET cannot read    */
+/* (the summary PDF). In the round-8 outage every Tavily call met     */
+/* the monthly hard stop (429) and all three statistical questions    */
+/* refused at once, because the deterministic path shared the         */
+/* provider's fate.                                                   */
+/* ------------------------------------------------------------------ */
+
+// The monthly results page as the publisher serves it: global
+// navigation and scripts around a main block that states the
+// value as an ordinary sentence and the publication date in the
+// text — the same facts RELEASE_PAGE_TEXT carries in extract
+// form.
+const RELEASE_PAGE_HTML = `<!DOCTYPE html>
+<html lang="ja">
+<head><meta charset="utf-8"><title>労働力調査（基本集計）月次結果｜総務省統計局</title>
+<script>var trackerId = "UA-000000";</script><style>.global-nav { margin: 0; }</style></head>
+<body>
+<header><nav><ul><li>ホーム</li><li>サイトマップ</li><li>よくある質問</li></ul></nav></header>
+<main>
+<h1>労働力調査（基本集計）2026年（令和8年）9月分結果の概要</h1>
+<p>就業者数は6816万人でした。完全失業率（季節調整値）は2.4％。前月に比べ0.1ポイントの低下。2026年10月31日に公表しました。</p>
+</main>
+<footer>総務省統計局</footer>
+</body>
+</html>`;
+
+describe("executeOriginSearchGrounding — Tavily resilience (direct-GET deterministic candidates)", () => {
+  it("Tavily fully down (429): the keyless direct GET still grounds B3 on the release page", async () => {
+    const calls: RecordedCall[] = [];
+    const fetchImpl: OriginSearchFetch = async (url, init) => {
+      calls.push({ url, init });
+      if (url === RELEASE_PAGE_HTML_URL) {
+        return { ok: true, status: 200, text: async () => RELEASE_PAGE_HTML };
+      }
+      if (url === RELEASE_PAGE_PDF_URL) {
+        // A PDF is not readable as HTML text: the direct GET
+        // leaves it to the extract fallback (which is also down).
+        return { ok: true, status: 200, text: async () => "%PDF-1.7\n%\xE2\xE3\xCF\xD3\n(binary stream)" };
+      }
+      if (url.includes("api.tavily.com/search")) return jsonResponse({ message: "credits exhausted" }, 429);
+      if (url.includes("api.tavily.com/extract")) return jsonResponse({ message: "credits exhausted" }, 429);
+      const host = new URL(url).hostname;
+      if (host === "wikipedia.org" || host.endsWith(".wikipedia.org")) return jsonResponse({ pages: [] });
+      throw new Error(`unexpected URL: ${url}`);
+    };
+    const deps = makeDeps({
+      fetchImpl,
+      env: { TAVILY_API_KEY: "tvly-test-key", ORIGIN_OFFICIAL_SOURCE_ROUTING_MODE: "true" },
+    });
+    const outcome = groundedOf(await executeOriginSearchGrounding(F06_QUESTION, deps));
+    // The HTML release page grounded the answer on its own: the
+    // value sentence arrived by direct GET, reduced from the
+    // page's main block (no navigation boilerplate, no script).
+    const release = outcome.sources.find((source) => source.url === RELEASE_PAGE_HTML_URL);
+    expect(release).toBeDefined();
+    expect(release?.authorityTier).toBe("official");
+    expect(release?.evidenceLevel).toBe("extracted");
+    expect(release?.excerpt).toContain("完全失業率（季節調整値）は2.4％");
+    expect(release?.excerpt).not.toContain("サイトマップ");
+    expect(release?.excerpt).not.toContain("trackerId");
+    expect(release?.dateVerified).toBe(true);
+    // The PDF candidate could not be read either way, so it is
+    // absent — and the extract fallback was asked for the PDF
+    // alone (the HTML page never needed it).
+    expect(outcome.sources.some((source) => source.url === RELEASE_PAGE_PDF_URL)).toBe(false);
+    const extractCalls = calls.filter((call) => call.url.includes("api.tavily.com/extract"));
+    const fallbackBody = JSON.parse(extractCalls[0]?.init?.body ?? "{}") as { urls?: string[] };
+    expect(fallbackBody.urls).toEqual([RELEASE_PAGE_PDF_URL]);
+    // No Tavily call succeeded, so no credit was recorded — the
+    // direct GET is keyless and spends nothing.
+    expect(deps.counter?.usage("tavily", NOW)).toBe(0);
+    // Every Tavily call this request made met the hard stop, and
+    // the count says so (対策4): ordinary search, official
+    // search, the release extract fallback, the insufficiency
+    // retry, and the extract stage — five 429s.
+    expect(outcome.candidateStats?.officialRetry).toMatchObject({ reason: "stale-edition", fired: true });
+    expect(outcome.candidateStats?.tavilyRateLimitCount).toBe(5);
+    const result = originSearchGroundingToResearchResult(outcome);
+    expect(result.grounding?.candidateStats?.tavilyRateLimitCount).toBe(5);
+  });
+
+  it("a failed direct GET falls back to one batched Tavily extract for just the unread pages", async () => {
+    const calls: RecordedCall[] = [];
+    const fetchImpl: OriginSearchFetch = async (url, init) => {
+      calls.push({ url, init });
+      if (url === RELEASE_PAGE_HTML_URL || url === RELEASE_PAGE_PDF_URL) {
+        return { ok: false, status: 500, text: async () => "server error" };
+      }
+      if (url.includes("api.tavily.com/search")) {
+        const body = JSON.parse(init?.body ?? "{}") as { include_domains?: string[] };
+        // The search pool on its own holds no quotable value (the
+        // production B3 shape): a navigation page and a blog.
+        if (body.include_domains?.includes("stat.go.jp")) return jsonResponse({ results: [JILPT_NAV_RESULT] });
+        return jsonResponse({ results: [BLOG_RESULT] });
+      }
+      if (url.includes("api.tavily.com/extract")) {
+        const body = JSON.parse(init?.body ?? "{}") as { urls?: string[] };
+        const results = (body.urls ?? [])
+          .filter((target) => target === RELEASE_PAGE_HTML_URL || target === RELEASE_PAGE_PDF_URL)
+          .map((target) => ({ url: target, raw_content: RELEASE_PAGE_TEXT }));
+        return jsonResponse({ results, failed_results: [] });
+      }
+      const host = new URL(url).hostname;
+      if (host === "wikipedia.org" || host.endsWith(".wikipedia.org")) return jsonResponse({ pages: [] });
+      throw new Error(`unexpected URL: ${url}`);
+    };
+    const deps = makeDeps({
+      fetchImpl,
+      env: { TAVILY_API_KEY: "tvly-test-key", ORIGIN_OFFICIAL_SOURCE_ROUTING_MODE: "true" },
+    });
+    const outcome = groundedOf(await executeOriginSearchGrounding(F06_QUESTION, deps));
+    // Both pages were attempted directly first (keyless GETs, no
+    // request body) ...
+    expect(calls.some((call) => call.url === RELEASE_PAGE_HTML_URL && !call.init?.body)).toBe(true);
+    expect(calls.some((call) => call.url === RELEASE_PAGE_PDF_URL && !call.init?.body)).toBe(true);
+    // ... and the fallback extract was batched once, for both
+    // unread pages, in table order.
+    const fallbackCalls = calls.filter((call) =>
+      call.url.includes("api.tavily.com/extract")
+      && ((JSON.parse(call.init?.body ?? "{}") as { urls?: string[] }).urls ?? []).includes(RELEASE_PAGE_PDF_URL));
+    expect(fallbackCalls).toHaveLength(1);
+    expect((JSON.parse(fallbackCalls[0]?.init?.body ?? "{}") as { urls?: string[] }).urls)
+      .toEqual([RELEASE_PAGE_HTML_URL, RELEASE_PAGE_PDF_URL]);
+    // The candidates stand exactly as the extract-only path
+    // produced them, with the same honest accounting (3 searches
+    // + the batched release extract + the extract stage's call).
+    const release = outcome.sources.find((source) => source.url === RELEASE_PAGE_HTML_URL);
+    expect(release?.excerpt).toContain("完全失業率（季節調整値）は2.4％");
+    expect(outcome.candidateStats?.domainCounts["stat.go.jp"]).toBe(2);
+    expect(deps.counter?.usage("tavily", NOW)).toBe(5);
+    expect(outcome.candidateStats?.tavilyRateLimitCount).toBe(0);
+  });
+
+  it("the followed B1 page is read by direct GET too: no extract result, still a candidate", async () => {
+    const FOLLOWED_PAGE_HTML = `<!DOCTYPE html>
+<html lang="ja">
+<head><meta charset="utf-8"><title>一般職業紹介状況（令和8年9月分）｜厚生労働省</title></head>
+<body>
+<header><nav><ul><li>ホーム</li><li>サイトマップ</li></ul></nav></header>
+<main>
+<h1>一般職業紹介状況（令和8年9月分）について</h1>
+<p>令和8年9月の有効求人倍率は1.19倍で、前月と比べて0.01ポイント上昇しました。新規求人倍率は2.19倍でした。2026年10月30日に公表しました。</p>
+</main>
+<footer>厚生労働省</footer>
+</body>
+</html>`;
+    const calls: RecordedCall[] = [];
+    const fetchImpl: OriginSearchFetch = async (url, init) => {
+      calls.push({ url, init });
+      if (url === RELEASE_INDEX_URL) {
+        return { ok: true, status: 200, text: async () => RELEASE_INDEX_HTML };
+      }
+      if (url === FOLLOWED_RELEASE_URL) {
+        return { ok: true, status: 200, text: async () => FOLLOWED_PAGE_HTML };
+      }
+      if (url.includes("api.tavily.com/search")) {
+        const body = JSON.parse(init?.body ?? "{}") as { include_domains?: string[] };
+        if (body.include_domains?.includes("mhlw.go.jp")) {
+          return jsonResponse({
+            results: [{
+              title: "一般職業紹介状況のご案内 茨城労働局",
+              url: "https://jsite.mhlw.go.jp/ibaraki-roudoukyoku/roudoukyoku/antei/kyujin.html",
+              content: "一般職業紹介状況の令和8年9月分の集計結果は、結果の概要のリンク先をご覧ください。統計の概要と問い合わせ先の案内ページです。",
+              score: 0.7,
+            }],
+          });
+        }
+        return jsonResponse({
+          results: [{
+            title: "有効求人倍率とは？意味と見方を分かりやすく解説",
+            url: "https://blog.example.com/job-offers-ratio",
+            content: "これは十分な長さの抜粋テキストです。有効求人倍率について説明します。".repeat(30),
+            score: 0.8,
+            published_date: "2026-11-18T00:00:00.000Z",
+          }],
+        });
+      }
+      // The extract route returns NOTHING in this test: under the
+      // extract-only path the followed page could never become a
+      // candidate, so an adopted followed page with this text
+      // proves the direct GET read it.
+      if (url.includes("api.tavily.com/extract")) return jsonResponse({ results: [], failed_results: [] });
+      const host = new URL(url).hostname;
+      if (host === "wikipedia.org" || host.endsWith(".wikipedia.org")) return jsonResponse({ pages: [] });
+      throw new Error(`unexpected URL: ${url}`);
+    };
+    const deps = makeDeps({
+      fetchImpl,
+      env: { TAVILY_API_KEY: "tvly-test-key", ORIGIN_OFFICIAL_SOURCE_ROUTING_MODE: "true" },
+    });
+    const outcome = groundedOf(await executeOriginSearchGrounding(B1_QUESTION, deps));
+    const followed = outcome.sources.find((source) => source.url === FOLLOWED_RELEASE_URL);
+    expect(followed).toBeDefined();
+    expect(followed?.authorityTier).toBe("official");
+    expect(followed?.excerpt).toContain("有効求人倍率は1.19倍");
+    expect(followed?.excerpt).not.toContain("サイトマップ");
+    expect(followed?.dateVerified).toBe(true);
+    expect(outcome.candidateStats?.domainCounts["mhlw.go.jp"]).toBe(1);
+    expect(outcome.candidateStats?.officialRetry).toMatchObject({ reason: "stale-edition", fired: true });
+    expect(outcome.candidateStats?.tavilyRateLimitCount).toBe(0);
+  });
+
+  /* ---------------------------------------------------------------- */
+  /* Declared-charset decoding (2026-11-27): the real Labour Force    */
+  /* Survey monthly page is Shift_JIS (meta declaration, no HTTP      */
+  /* charset), so the direct GET must decode the BYTES by that        */
+  /* declaration — a UTF-8 text() read garbles the value sentence      */
+  /* into replacement characters and the candidate arrives empty.     */
+  /* The fixture is the RELEASE_PAGE_HTML page shape re-encoded as    */
+  /* real Shift_JIS bytes (base64): a string fixture cannot           */
+  /* reproduce the defect.                                            */
+  /* ---------------------------------------------------------------- */
+
+  // RELEASE_PAGE_HTML's page shape in Shift_JIS bytes, with
+  // <meta charset="Shift_JIS"> and the value sentence
+  // 完全失業率（季節調整値）は2.4％ in its main block.
+  const SHIFT_JIS_RELEASE_PAGE_B64 =
+    "PCFET0NUWVBFIGh0bWw+CjxodG1sIGxhbmc9ImphIj4KPGhlYWQ+PG1ldGEgY2hhcnNldD0iU2hpZnRfSklTIj48dGl0bGU+mEqTrZfNkrKNuIFpiu6We49XjHaBaoyOjp+Mi4nKgWKRjZaxj8iTnYx2i8c8L3RpdGxlPgo8c2NyaXB0PnZhciB0cmFja2VySWQgPSAiVUEtMDAwMDAwIjs8L3NjcmlwdD48c3R5bGU+Lmdsb2JhbC1uYXYgeyBtYXJnaW46IDA7IH08L3N0eWxlPjwvaGVhZD4KPGJvZHk+CjxoZWFkZXI+PG5hdj48dWw+PGxpPoN6gVuDgDwvbGk+PGxpPoNUg0ODZ4N9g2KDdjwvbGk+PGxpPoLmgq2CoILpjr+W4jwvbGk+PC91bD48L25hdj48L2hlYWRlcj4KPG1haW4+CjxoMT6YSpOtl82Sso24gWmK7pZ7j1eMdoFqMjAyNpROgWmX35hhOJROgWo5jI6VqoyLicqCzIpUl3Y8L2gxPgo8cD6PQYvGjtKQlILNNjgxNpackGyCxYK1gr2BQoqukVOOuIvGl6aBaYtHkN+SspCukmyBaoLNMi40gZOBQpFPjI6CyZTkgtcwLjGDfINDg5ODZ4LMkuGJuoFCMjAyNpROMTCMjjMxk/qCyYz2lVyCtYLcgrWCvYFCPC9wPgo8L21haW4+Cjxmb290ZXI+kY2WsY/Ik52MdovHPC9mb290ZXI+CjwvYm9keT4KPC9odG1sPg==";
+
+  function fixtureBytes(base64: string): Uint8Array {
+    return new Uint8Array(Buffer.from(base64, "base64"));
+  }
+
+  function arrayBufferOf(bytes: Uint8Array): ArrayBuffer {
+    return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
+  }
+
+  function contentTypeHeaders(value: string) {
+    return {
+      get: (name: string) => (name.toLowerCase() === "content-type" ? value : null),
+    };
+  }
+
+  it("Tavily fully down (429): a Shift_JIS release page still grounds B3, decoded by its meta charset", async () => {
+    const pageBytes = fixtureBytes(SHIFT_JIS_RELEASE_PAGE_B64);
+    const calls: RecordedCall[] = [];
+    const fetchImpl: OriginSearchFetch = async (url, init) => {
+      calls.push({ url, init });
+      if (url === RELEASE_PAGE_HTML_URL) {
+        return {
+          ok: true,
+          status: 200,
+          // The stat.go.jp serving shape: no charset on the HTTP
+          // response; the declaration lives in the document's
+          // meta. text() is what the pre-fix read consumed — a
+          // UTF-8 decode that garbles the page — so a candidate
+          // built from it could never carry the value sentence;
+          // the byte read must win.
+          headers: contentTypeHeaders("text/html"),
+          text: async () => new TextDecoder("utf-8").decode(pageBytes),
+          arrayBuffer: async () => arrayBufferOf(pageBytes),
+        };
+      }
+      if (url === RELEASE_PAGE_PDF_URL) {
+        return { ok: true, status: 200, text: async () => "%PDF-1.7\n%\xE2\xE3\xCF\xD3\n(binary stream)" };
+      }
+      if (url.includes("api.tavily.com/search")) return jsonResponse({ message: "credits exhausted" }, 429);
+      if (url.includes("api.tavily.com/extract")) return jsonResponse({ message: "credits exhausted" }, 429);
+      const host = new URL(url).hostname;
+      if (host === "wikipedia.org" || host.endsWith(".wikipedia.org")) return jsonResponse({ pages: [] });
+      throw new Error(`unexpected URL: ${url}`);
+    };
+    const deps = makeDeps({
+      fetchImpl,
+      env: { TAVILY_API_KEY: "tvly-test-key", ORIGIN_OFFICIAL_SOURCE_ROUTING_MODE: "true" },
+    });
+    const outcome = groundedOf(await executeOriginSearchGrounding(F06_QUESTION, deps));
+    const release = outcome.sources.find((source) => source.url === RELEASE_PAGE_HTML_URL);
+    expect(release).toBeDefined();
+    expect(release?.authorityTier).toBe("official");
+    expect(release?.evidenceLevel).toBe("extracted");
+    // The value sentence survived decoding intact — no mojibake,
+    // no replacement characters.
+    expect(release?.excerpt).toContain("完全失業率（季節調整値）は2.4％");
+    expect(release?.excerpt).not.toContain("�");
+    expect(release?.excerpt).not.toContain("サイトマップ");
+    expect(release?.dateVerified).toBe(true);
+    // The PDF alone still needed the (down) extract fallback.
+    const extractCalls = calls.filter((call) => call.url.includes("api.tavily.com/extract"));
+    const fallbackBody = JSON.parse(extractCalls[0]?.init?.body ?? "{}") as { urls?: string[] };
+    expect(fallbackBody.urls).toEqual([RELEASE_PAGE_PDF_URL]);
+    expect(deps.counter?.usage("tavily", NOW)).toBe(0);
+  });
+
+  it("the link-follow index page is read from bytes too: a UTF-8 index served via arrayBuffer behaves exactly as before", async () => {
+    const indexBytes = new TextEncoder().encode(RELEASE_INDEX_HTML);
+    const calls: RecordedCall[] = [];
+    const fetchImpl: OriginSearchFetch = async (url, init) => {
+      calls.push({ url, init });
+      if (url === RELEASE_INDEX_URL) {
+        return {
+          ok: true,
+          status: 200,
+          headers: contentTypeHeaders("text/html; charset=utf-8"),
+          text: async () => RELEASE_INDEX_HTML,
+          arrayBuffer: async () => arrayBufferOf(indexBytes),
+        };
+      }
+      if (url === FOLLOWED_RELEASE_URL) {
+        // The followed page's direct GET cannot read it here, so
+        // it arrives by the extract fallback — the index read is
+        // the behavior under test, not the followed read.
+        return { ok: false, status: 404, text: async () => "" };
+      }
+      if (url.includes("api.tavily.com/search")) {
+        const body = JSON.parse(init?.body ?? "{}") as { include_domains?: string[] };
+        if (body.include_domains?.includes("mhlw.go.jp")) {
+          return jsonResponse({
+            results: [{
+              title: "一般職業紹介状況のご案内 茨城労働局",
+              url: "https://jsite.mhlw.go.jp/ibaraki-roudoukyoku/roudoukyoku/antei/kyujin.html",
+              content: "一般職業紹介状況の令和8年9月分の集計結果は、結果の概要のリンク先をご覧ください。統計の概要と問い合わせ先の案内ページです。",
+              score: 0.7,
+            }],
+          });
+        }
+        return jsonResponse({
+          results: [{
+            title: "有効求人倍率とは？意味と見方を分かりやすく解説",
+            url: "https://blog.example.com/job-offers-ratio",
+            content: "これは十分な長さの抜粋テキストです。有効求人倍率について説明します。".repeat(30),
+            score: 0.8,
+            published_date: "2026-11-18T00:00:00.000Z",
+          }],
+        });
+      }
+      if (url.includes("api.tavily.com/extract")) {
+        const body = JSON.parse(init?.body ?? "{}") as { urls?: string[] };
+        const results = (body.urls ?? [])
+          .filter((target) => target === FOLLOWED_RELEASE_URL)
+          .map((target) => ({ url: target, raw_content: FOLLOWED_RELEASE_TEXT }));
+        return jsonResponse({ results, failed_results: [] });
+      }
+      const host = new URL(url).hostname;
+      if (host === "wikipedia.org" || host.endsWith(".wikipedia.org")) return jsonResponse({ pages: [] });
+      throw new Error(`unexpected URL: ${url}`);
+    };
+    const deps = makeDeps({
+      fetchImpl,
+      env: { TAVILY_API_KEY: "tvly-test-key", ORIGIN_OFFICIAL_SOURCE_ROUTING_MODE: "true" },
+    });
+    const outcome = groundedOf(await executeOriginSearchGrounding(B1_QUESTION, deps));
+    // The byte-served index resolved its named link exactly as
+    // the string-served index does in the link-follow suite.
+    expect(calls.some((call) => call.url === RELEASE_INDEX_URL && !call.init?.body)).toBe(true);
+    const followed = outcome.sources.find((source) => source.url === FOLLOWED_RELEASE_URL);
+    expect(followed).toBeDefined();
+    expect(followed?.authorityTier).toBe("official");
+    expect(followed?.excerpt).toContain("有効求人倍率は1.19倍");
+    expect((outcome.queriesIssued ?? []).filter((issued) => issued.kind === "official-release-page"))
+      .toEqual([
+        { provider: "tavily", kind: "official-release-page", query: FOLLOWED_RELEASE_URL, url: FOLLOWED_RELEASE_URL },
+      ]);
+  });
+});

@@ -15,6 +15,21 @@ export interface OriginSearchFetchResponse {
   ok: boolean;
   status: number;
   text(): Promise<string>;
+  /**
+   * Byte access, when the implementation offers it (the real
+   * fetch Response does). Optional so existing test doubles that
+   * only model `text()` stay valid; callers that need the raw
+   * bytes — the keyless page fetch decoding a page in its own
+   * declared charset — use it when present and fall back to
+   * `text()` otherwise.
+   */
+  arrayBuffer?(): Promise<ArrayBuffer>;
+  /**
+   * Minimal header access (the real Response's Headers shape),
+   * for the same caller: the Content-Type charset outranks the
+   * page's own meta declaration when both exist.
+   */
+  headers?: { get(name: string): string | null };
 }
 
 export type OriginSearchFetch = (
@@ -227,6 +242,92 @@ function stripHtml(value: unknown): string {
     .replace(/&(?:amp|quot|#39|apos|lt|gt);/g, (entity) => HTML_ENTITY_DECODE_MAP[entity] ?? entity)
     .replace(/\s+/g, " ")
     .trim();
+}
+
+/**
+ * Reduce a directly fetched page's HTML to plain body text — the
+ * keyless counterpart of the extract route's text format, used for
+ * the deterministic release-page candidates (Tavily-resilience
+ * measure, ANSWER_ROUND8_REGRESSION_DIAGNOSIS_2026-11-27 対策3).
+ * Boilerplate blocks (script / style / header / footer / nav /
+ * aside / form) are removed whole before stripping, because a raw
+ * page's document order leads with its global navigation while the
+ * extract route returns the main content; the remaining text goes
+ * through the same tag stripping and entity decoding as provider
+ * snippets, is whitespace-collapsed, and is capped at the extract
+ * route's 2,000 characters, so a directly fetched page and an
+ * extracted page enter the candidate pool in the same shape.
+ */
+export function extractOriginPageText(html: string): string {
+  const withoutBoilerplate = (html ?? "").replace(
+    /<(script|style|noscript|header|footer|nav|aside|form)\b[^>]*>[\s\S]*?<\/\1\s*>/gi,
+    " ",
+  );
+  return stripHtml(withoutBoilerplate).slice(0, 2000);
+}
+
+/**
+ * Map a declared charset label to one this decoder supports, or
+ * null when the label names anything else. Japanese official
+ * pages still publish in Shift_JIS (the Labour Force Survey
+ * monthly page is the standing case) or, more rarely, EUC-JP;
+ * everything else the keyless fetch meets is UTF-8. Unsupported
+ * labels fall through to the next declaration source instead of
+ * being handed to the decoder, so a wrong or exotic label can
+ * never mojibake a page a later source would have read correctly.
+ */
+function supportedPageCharset(label: string | null | undefined): string | null {
+  if (!label) return null;
+  const key = label.trim().toLowerCase().replace(/_/g, "-");
+  if (key === "utf-8" || key === "utf8") return "utf-8";
+  if (key === "euc-jp" || key === "eucjp") return "euc-jp";
+  if (
+    key === "shift-jis" || key === "sjis" || key === "x-sjis"
+    || key === "windows-31j" || key === "ms932" || key === "cp932"
+  ) return "shift_jis";
+  return null;
+}
+
+function pageCharsetFromContentType(contentType: string | null | undefined): string | null {
+  if (!contentType) return null;
+  const match = contentType.match(/charset\s*=\s*"?([^";\s]+)"?/i);
+  return supportedPageCharset(match?.[1]);
+}
+
+/** How much of a page's head is scanned for a meta charset. */
+const PAGE_CHARSET_META_SCAN_BYTES = 4096;
+
+function pageCharsetFromMeta(bytes: Uint8Array): string | null {
+  // The declaration itself is ASCII in every supported encoding,
+  // so a byte-wise latin1 read of the head finds it without
+  // knowing the encoding first. One regex covers both forms:
+  // <meta charset="Shift_JIS"> and the http-equiv variant whose
+  // content attribute carries "text/html; charset=EUC-JP".
+  const head = bytes.subarray(0, PAGE_CHARSET_META_SCAN_BYTES);
+  let headText = "";
+  for (const byte of head) headText += String.fromCharCode(byte);
+  const match = headText.match(/<meta\s[^>]*?charset\s*=\s*["']?\s*([A-Za-z0-9._:-]+)/i);
+  return supportedPageCharset(match?.[1]);
+}
+
+/**
+ * Decode a directly fetched page's bytes with the charset the
+ * page declares — HTTP Content-Type first, then the document's
+ * own meta declaration, then UTF-8 (the `text()` default the
+ * fetch used before this measure, and still the fallback for
+ * pages that declare nothing). Measured defect (2026-11-27):
+ * the Labour Force Survey monthly page is served as Shift_JIS
+ * with no HTTP charset, so a UTF-8 read garbled it into
+ * replacement characters and the value sentence never reached
+ * the candidate text — invisible to the UTF-8 fixtures.
+ */
+export function decodeOriginPageHtml(bytes: Uint8Array, contentType?: string | null): string {
+  const charset = pageCharsetFromContentType(contentType) ?? pageCharsetFromMeta(bytes) ?? "utf-8";
+  try {
+    return new TextDecoder(charset).decode(bytes);
+  } catch {
+    return new TextDecoder("utf-8").decode(bytes);
+  }
 }
 
 /* ------------------------------------------------------------------ */
