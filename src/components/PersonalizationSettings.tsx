@@ -606,7 +606,9 @@ export default function PersonalizationSettings({ language, enabled, onToggleEna
           <span className="text-sm font-semibold">{p.alterEgoToggleLabel}</span>
           <ToggleSwitch checked={alterEgoEnabled} ariaLabel={p.alterEgoToggleLabel} onChange={onToggleAlterEgo} />
         </div>
-        {!alterEgoEnabled && <p className="origin-muted text-[13px] leading-5">{p.alterEgoOffNote}</p>}
+        {alterEgoEnabled
+          ? <p className="origin-muted text-[13px] leading-5">{p.alterEgoOnNote}</p>
+          : <p className="origin-muted text-[13px] leading-5">{p.alterEgoOffNote}</p>}
         {!enabled && <p className="origin-muted text-[13px] leading-5">{p.alterEgoNeedsPersonalization}</p>}
         <p className="origin-muted text-[13px] leading-5">{p.alterEgoFieldsIntro}</p>
         {alterEgoDraft && ALTER_EGO_FIELD_KEYS.map((key) => (

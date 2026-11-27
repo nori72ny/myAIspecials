@@ -220,6 +220,7 @@ type Translation = {
     alterEgoDescription: string;
     alterEgoToggleLabel: string;
     alterEgoOffNote: string;
+    alterEgoOnNote: string;
     alterEgoNeedsPersonalization: string;
     alterEgoFieldsIntro: string;
     alterEgoSave: string;
@@ -468,6 +469,7 @@ export const TRANSLATIONS: Record<OriginLanguage, Translation> = {
       alterEgoDescription: 'オンにすると、オリンそのままの姿で、性格だけがあなたの分身【ノリ】に切り替わります。一人称は「僕」、あなたにはタメ口で、結論から率直に話す相棒になります。答えられる内容の範囲は変わりません。',
       alterEgoToggleLabel: 'オリンの性格を分身【ノリ】に切り替える',
       alterEgoOffNote: 'オフの間は、いつものオリンのままです。',
+      alterEgoOnNote: '分身モードがオンです。ノリとしてふるまっています。',
       alterEgoNeedsPersonalization: '分身モードは「覚えている内容を、回答に活かす」がオンのときに働きます。',
       alterEgoFieldsIntro: '分身があなたのことを語るときの根拠になる情報です。端末の中にだけ保存され、項目ごとに「回答に使う」を切れます。カード番号や暗証番号などは保存できません。',
       alterEgoSave: '分身の情報を保存',
@@ -714,6 +716,7 @@ export const TRANSLATIONS: Record<OriginLanguage, Translation> = {
       alterEgoDescription: 'When on, Orin stays Orin — only the personality switches to your alter ego. It speaks as "boku", casually with you, conclusion first and frank: a companion version of Orin. What it can answer does not change.',
       alterEgoToggleLabel: "Switch Orin's personality to my alter ego",
       alterEgoOffNote: 'While off, Orin is exactly as always.',
+      alterEgoOnNote: 'Alter-ego mode is on. Orin is acting as Nori.',
       alterEgoNeedsPersonalization: 'Alter-ego mode works while "use what ORIGIN remembers in answers" is on.',
       alterEgoFieldsIntro: 'The information your alter ego grounds itself in when speaking about you. It is stored only on this device, and each field can be excluded from answers. Card numbers, PINs and the like cannot be saved.',
       alterEgoSave: 'Save alter-ego information',

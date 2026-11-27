@@ -727,3 +727,21 @@ describe('PersonalizationSettings style traits', () => {
     });
   });
 });
+
+// --- Alter-ego mode note -------------------------------------------------------
+
+describe('PersonalizationSettings alter-ego note', () => {
+  it('shows the off note while alter-ego mode is off', async () => {
+    const { PersonalizationSettings } = await loadModules();
+    renderSection(PersonalizationSettings);
+    expect(screen.getByText('オフの間は、いつものオリンのままです。')).toBeTruthy();
+    expect(screen.queryByText('分身モードがオンです。ノリとしてふるまっています。')).toBeNull();
+  });
+
+  it('shows the on note while alter-ego mode is on', async () => {
+    const { PersonalizationSettings } = await loadModules();
+    renderSection(PersonalizationSettings, { alterEgoEnabled: true });
+    expect(screen.getByText('分身モードがオンです。ノリとしてふるまっています。')).toBeTruthy();
+    expect(screen.queryByText('オフの間は、いつものオリンのままです。')).toBeNull();
+  });
+});
