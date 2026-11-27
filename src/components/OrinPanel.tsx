@@ -44,10 +44,12 @@ import { useOrinPanelRuns } from './useOrinPanelRuns';
  *
  * 常駐オリンのタップで開く表示。上部はプロフィールヘッダー
  * （大きなオリン＋名前「Orin」＋ひとこと）、その下に2タブ
- * （作業状況／できること）を持つ。タブの切り替えはテキスト
- * ではなくアイコン（Muse アプリの流儀）で、意味は aria-label
- * とツールチップで伝える。下線インジケーターはアイコンの下を
- * スライドする（240ms、拡張設計 §3 の曲線を継承）。
+ * （作業状況／できること）を持つ。タブはアイコン＋短い文字
+ * ラベルの併記（デザイン是正 C-5、2026-11-27：NN/g Icon
+ * Usability。旧来のアイコンのみの形は 2026-11-25 17:14 の
+ * オーナー指示によるものだったが、C-5 の採用で置き換えた）。
+ * 下線インジケーターは選択中タブの下をスライドする（240ms、
+ * 拡張設計 §3 の曲線を継承）。
  *
  * 「残っている依頼」と「AIニュース」は当初このパネルのタブ
  * だったが、オーナー指示で左サイドバーの項目＋専用ページへ
@@ -466,6 +468,15 @@ export default function OrinPanel({
     work: ja ? '作業状況' : 'Work status',
     features: ja ? 'できること' : 'What I can do',
   };
+  // 空状態の次の一手（デザイン是正 C-1、2026-11-27：NN/g 空状態
+  // 3 原則の直接経路）。「できること」カタログと同じ3つの入口
+  // （文言もカタログと同一）で、進捗データは使わない。開ける
+  // 画面だけを出す（ハンドラが無いものは出さない）。
+  const emptyActions: Array<{ id: OrinFeatureAction; label: string }> = [
+    ...(onOpenAgent ? [{ id: 'agent' as const, label: ja ? 'エージェントに任せる' : 'Delegate to the agent' }] : []),
+    ...(onOpenCoding ? [{ id: 'coding' as const, label: ja ? 'コードを書く・直す' : 'Write or fix code' }] : []),
+    ...(onOpenCreative ? [{ id: 'creative' as const, label: ja ? '画像を作る' : 'Create images' }] : []),
+  ];
   // ページ切り替えの方向はタブのインデックス比較で決める（拡張設計 §3.3）。
   const selectTab = (next: OrinPanelTab) => {
     setPageDirection(ORIN_PANEL_TABS.indexOf(next) >= tabIndex ? 'from-right' : 'from-left');
@@ -540,6 +551,7 @@ export default function OrinPanel({
                   className={`origin-orin-panel__tab ${tab === tabId ? 'is-selected' : ''}`}
                 >
                   <TabIcon aria-hidden="true" size={20} strokeWidth={1.8} />
+                  <span className="origin-orin-panel__tab-label">{tabLabels[tabId]}</span>
                 </button>
               );
             })}
@@ -568,6 +580,21 @@ export default function OrinPanel({
                 <p data-testid="origin-orin-panel-empty" className="origin-orin-panel__empty-line">
                   {ja ? 'いまは作業していません' : 'Nothing is in progress right now.'}
                 </p>
+                {emptyActions.length > 0 && (
+                  <div className="origin-orin-panel__empty-actions">
+                    {emptyActions.map((action) => (
+                      <button
+                        key={action.id}
+                        type="button"
+                        data-testid={`origin-orin-panel-empty-action-${action.id}`}
+                        onClick={() => openFeature(action.id)}
+                        className="origin-orin-panel__empty-action"
+                      >
+                        {action.label}
+                      </button>
+                    ))}
+                  </div>
+                )}
                 <button
                   type="button"
                   data-testid="origin-orin-panel-empty-guide"

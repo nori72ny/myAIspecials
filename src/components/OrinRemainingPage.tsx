@@ -37,6 +37,8 @@ export interface OrinRemainingPageProps {
   queuedRequests: OrinPanelProps['queuedRequests'];
   onOpenAgent?: () => void;
   onOpenChat?: () => void;
+  /** コード画面の実証済みの形と同じ「設定を開く」導線（C-4）。 */
+  onOpenSettings?: (section?: 'coding' | 'admin') => void;
 }
 
 interface RemainingRow {
@@ -59,6 +61,7 @@ export default function OrinRemainingPage({
   queuedRequests,
   onOpenAgent,
   onOpenChat,
+  onOpenSettings,
 }: OrinRemainingPageProps) {
   const ja = language !== 'en';
   const runsState = useOrinPanelRuns(true);
@@ -187,6 +190,21 @@ export default function OrinRemainingPage({
           <p className="origin-orin-panel__empty-sub">
             {ja ? '設定から管理者キーを入力してください。入力すると、残っている依頼がここに表示されます' : 'Enter the admin key in Settings, and your remaining requests will appear here.'}
           </p>
+          {/* 権限なし表示の「設定を開く」ボタン（デザイン是正 C-4）。
+              コード画面の同種状態（CodingJobWorkspaceV14）と同一の
+              文言・見た目・操作で、設定の管理者キー欄まで案内する。 */}
+          {onOpenSettings && (
+            <div className="mt-3 flex justify-center">
+              <button
+                type="button"
+                data-testid="origin-remaining-open-settings"
+                onClick={() => onOpenSettings('admin')}
+                className="origin-secondary-button inline-flex min-h-11 items-center px-3 text-sm font-semibold"
+              >
+                {ja ? '設定を開く' : 'Open settings'}
+              </button>
+            </div>
+          )}
         </div>
       ) : totalRows === 0 && runsState.kind === 'unavailable' ? (
         <div className="origin-orin-panel__empty-block">

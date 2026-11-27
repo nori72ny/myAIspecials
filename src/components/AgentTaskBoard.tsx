@@ -295,7 +295,11 @@ function diffLines(diffSteps: PlanDiffStepView[]): string[] {
   return lines;
 }
 
-export default function AgentTaskBoard({ browserPlanToken }: { browserPlanToken?: string | null }) {
+export default function AgentTaskBoard({ browserPlanToken, onOpenSettings }: {
+  browserPlanToken?: string | null;
+  /** コード画面の実証済みの形と同じ「設定を開く」導線（Q6-05）。 */
+  onOpenSettings?: (section?: 'coding' | 'admin') => void;
+}) {
   const [auth, setAuth] = useState<BoardAuth | null>(null);
   const [loadState, setLoadState] = useState<LoadState>('idle');
   const [notice, setNotice] = useState<string | null>(null);
@@ -743,7 +747,21 @@ export default function AgentTaskBoard({ browserPlanToken }: { browserPlanToken?
     </div>
     <p className="mt-1 text-sm leading-6 text-origin-muted">止まっている作業と、これまでの作業の進み具合を見られます。再開するときは、新しい計画を確認してから承認します。</p>
 
-    {notice && <p role="status" className="mt-2 text-[13px] leading-5 text-origin-muted">{notice}</p>}
+    {notice && (
+      <div role="status" className="mt-3 rounded-xl border border-origin-border bg-origin-surface-muted/50 p-3">
+        <p className="m-0 text-sm font-semibold leading-6">{notice}</p>
+        {onOpenSettings && (
+          <button
+            type="button"
+            data-testid="origin-board-open-settings"
+            onClick={() => onOpenSettings('admin')}
+            className="origin-secondary-button mt-2 inline-flex min-h-11 items-center px-3 text-sm font-semibold"
+          >
+            設定を開く
+          </button>
+        )}
+      </div>
+    )}
     {loadState === 'unavailable' && <p role="status" className="mt-2 text-sm text-origin-muted">作業の記録を今は利用できません。</p>}
     {loadState === 'auth-error' && <p role="alert" className="mt-2 text-sm font-semibold text-origin-danger">{auth?.kind === 'operator' ? '認証できませんでした。入力したキーを確認してください。キーは設定の「管理者キー」で入力できます。' : '作業を表示できませんでした。上の画面で計画を作ると、ここにも表示されます。'}</p>}
     {loadState === 'error' && <p role="alert" className="mt-2 text-sm font-semibold text-origin-danger">作業を読み込めませんでした。</p>}

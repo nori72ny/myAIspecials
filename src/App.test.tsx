@@ -512,6 +512,30 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
       expect(fetchMock.mock.calls.some(([input]) => requestPath(input) === '/api/chat')).toBe(false);
     });
 
+    it('does not duplicate the question when the research retry fails again (Q6-03)', async () => {
+      const failureResponse = () => new Response(JSON.stringify({ ok: false, code: 'RESEARCH_SOURCE_UNAVAILABLE' }), { status: 503, headers: { 'Content-Type': 'application/json' } });
+      const fetchMock = vi.fn(async (input: RequestInfo | URL, _init?: RequestInit) => {
+        if (requestPath(input) === '/api/research/v1.1/query') return failureResponse();
+        return new Response('{}', { status: 200, headers: { 'Content-Type': 'application/json' } });
+      });
+      vi.stubGlobal('fetch', fetchMock);
+      render(<App language="ja" />);
+      armResearchMode();
+
+      fireEvent.change(screen.getByTestId('origin-home-request'), { target: { value: '見つからない公開情報' } });
+      fireEvent.click(screen.getByTestId('start-request-button'));
+      const retryButton = await screen.findByTestId('chat-research-retry-button');
+      fireEvent.click(retryButton);
+      // 2回目の調査も失敗する。失敗した交換は置き換えられるため、
+      // 質問と拒否カードは1組だけ残る。
+      await waitFor(() => {
+        expect(fetchMock.mock.calls.filter(([input]) => requestPath(input) === '/api/research/v1.1/query')).toHaveLength(2);
+        expect(screen.getAllByText('見つからない公開情報')).toHaveLength(1);
+        expect(screen.getAllByRole('heading', { name: '調査を完了できませんでした' })).toHaveLength(1);
+      });
+      vi.unstubAllGlobals();
+    });
+
     it('shows the research stage in the Orin working presence while research runs', async () => {
       let resolveResearch!: (value: Response) => void;
       const gate = new Promise<Response>((resolve) => { resolveResearch = resolve; });
@@ -2690,6 +2714,13 @@ it('keeps the unsent composer draft across Orin panel open/close and conversatio
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
     const secondCall = fetchMock.mock.calls[1] as unknown as [string, RequestInit];
     expect(String(secondCall[1].body)).toContain('最新の料金を調べて');
+    // 部分着地の再試行は、質問を会話に再追加しない。内部では同じ
+    // 質問を送り直し、会話には新しい回答だけが追加される（統括裁定）。
+    // 既に表示されている部分回答は残るため、同じ文言の回答が2件になる。
+    await waitFor(() => {
+      expect(screen.getAllByText('最新の料金を調べて')).toHaveLength(1);
+      expect(screen.getAllByText(fallbackText)).toHaveLength(2);
+    });
     vi.unstubAllGlobals();
   });
 
@@ -2720,6 +2751,12 @@ it('keeps the unsent composer draft across Orin panel open/close and conversatio
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
     const secondCall = fetchMock.mock.calls[1] as unknown as [string, RequestInit];
     expect(String(secondCall[1].body)).toContain('今日は何曜日ですか？');
+    // 再試行は失敗した交換の置き換え。質問と「確認できませんでした」
+    // の表示は1組だけ残る（Q6-03）。
+    await waitFor(() => {
+      expect(screen.getAllByText('今日は何曜日ですか？')).toHaveLength(1);
+      expect(screen.getAllByText('確認できませんでした')).toHaveLength(1);
+    });
     vi.unstubAllGlobals();
   });
 

@@ -140,6 +140,21 @@ describe('SettingsModalLegacy focus trap', () => {
     await waitFor(() => expect(document.activeElement).toBe(input));
   });
 
+  it('opens the admin key section and focuses its input when opened with focusSection="admin" (C-4)', async () => {
+    render(
+      <SettingsModalLegacy
+        isOpen
+        onClose={() => undefined}
+        settings={settings}
+        updateSettings={() => undefined}
+        focusSection="admin"
+      />,
+    );
+    const input = await screen.findByLabelText('管理者キー');
+    await waitFor(() => expect(document.activeElement).toBe(input));
+    expect(input.closest('details')?.open).toBe(true);
+  });
+
   it('stores the coding and admin keys in the session credential module only', async () => {
     await renderModal();
     fireEvent.change(screen.getByLabelText('実行キー'), { target: { value: 'coding-secret' } });

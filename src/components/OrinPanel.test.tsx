@@ -38,20 +38,20 @@ afterEach(() => {
 });
 
 describe('OrinPanel (panel design 2026-11-24, expansion 2026-11-25)', () => {
-  it('shows the profile header with the unified name "Orin" and the two icon tabs', () => {
+  it('shows the profile header with the unified name "Orin" and the two labelled tabs (C-5)', () => {
     renderPanel();
     const panel = screen.getByTestId('origin-orin-panel');
     expect(within(panel).getByTestId('origin-orin-profile-name').textContent).toBe('Orin');
-    // タブはアイコンで切り替える（オーナー指示 2026-11-25 17:14）。
-    // 意味は aria-label とツールチップ（title）で伝える。
+    // タブはアイコン＋短い文字ラベルの併記（デザイン是正 C-5）。
+    // 可視ラベルが accessible name と一致する。
     const workTab = within(panel).getByTestId('origin-orin-panel-tab-work');
     expect(workTab.getAttribute('aria-label')).toBe('作業状況');
     expect(workTab.getAttribute('title')).toBe('作業状況');
-    expect(workTab.textContent).toBe('');
+    expect(within(workTab).getByText('作業状況')).toBeTruthy();
     const featuresTab = within(panel).getByTestId('origin-orin-panel-tab-features');
     expect(featuresTab.getAttribute('aria-label')).toBe('できること');
     expect(featuresTab.getAttribute('title')).toBe('できること');
-    expect(featuresTab.textContent).toBe('');
+    expect(within(featuresTab).getByText('できること')).toBeTruthy();
     expect(within(panel).getByTestId('origin-orin-panel-tab-indicator')).toBeTruthy();
   });
 
@@ -101,6 +101,27 @@ describe('OrinPanel (panel design 2026-11-24, expansion 2026-11-25)', () => {
   it('shows the plain empty line when nothing is in progress', () => {
     renderPanel();
     expect(screen.getByTestId('origin-orin-panel-empty').textContent).toBe('いまは作業していません');
+  });
+
+  it('offers three next actions in the empty work state (C-1)', () => {
+    const onClose = vi.fn();
+    const onOpenAgent = vi.fn();
+    const onOpenCoding = vi.fn();
+    const onOpenCreative = vi.fn();
+    renderPanel({ onClose, onOpenAgent, onOpenCoding, onOpenCreative });
+    expect(screen.getByTestId('origin-orin-panel-empty-action-agent').textContent).toBe('エージェントに任せる');
+    expect(screen.getByTestId('origin-orin-panel-empty-action-coding').textContent).toBe('コードを書く・直す');
+    expect(screen.getByTestId('origin-orin-panel-empty-action-creative').textContent).toBe('画像を作る');
+    fireEvent.click(screen.getByTestId('origin-orin-panel-empty-action-coding'));
+    expect(onClose).toHaveBeenCalledTimes(1);
+    expect(onOpenCoding).toHaveBeenCalledTimes(1);
+  });
+
+  it('shows only the empty actions whose screen can open (C-1)', () => {
+    renderPanel({ onOpenAgent: vi.fn() });
+    expect(screen.getByTestId('origin-orin-panel-empty-action-agent')).toBeTruthy();
+    expect(screen.queryByTestId('origin-orin-panel-empty-action-coding')).toBeNull();
+    expect(screen.queryByTestId('origin-orin-panel-empty-action-creative')).toBeNull();
   });
 
   it('lists foreground work as active and queued requests as waiting, without percentages', () => {

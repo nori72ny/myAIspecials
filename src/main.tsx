@@ -276,7 +276,7 @@ function PersonalReleaseRoot() {
   const { settings, updateSettings } = usePersonalSettings();
   const t = getTranslations(settings.language);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
-  const [settingsFocusSection, setSettingsFocusSection] = useState<'coding' | null>(null);
+  const [settingsFocusSection, setSettingsFocusSection] = useState<'coding' | 'admin' | null>(null);
   // 起動時は保存済みの進行中会話をそのまま開かず、必ずトップ画面
   // （空の会話）から始める。前回の会話は hydration の完了時に履歴
   // セッションへ退避され、失われない（オーナー指示 2026-11-09）。

@@ -456,7 +456,13 @@ export default function CodingJobWorkspaceV14({ initialGoal, onOpenSettings, onG
             </span>
           </li>)}
         </ol>
-        <p className="mt-3 text-[13px] leading-5 text-origin-muted">上に書いて「作成・修正を始める」を押すと、進み具合と結果はここに表示されます。</p>
+        {/* R6-4: the line must name the button as it actually reads
+            right now. Without a key the main button says
+            「実行キーを入力する」, not 「作成・修正を始める」
+            (the canon name applies once the key is entered). */}
+        <p className="mt-3 text-[13px] leading-5 text-origin-muted">{promptForCredential
+          ? '上に書いて「実行キーを入力する」を押すと、設定で実行キーを入力してから始められます。進み具合と結果はここに表示されます。'
+          : '上に書いて「作成・修正を始める」を押すと、進み具合と結果はここに表示されます。'}</p>
       </section>}
 
       {job && <section className="rounded-2xl border border-origin-border bg-origin-surface/70 p-4" aria-live="polite">
