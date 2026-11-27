@@ -1,8 +1,8 @@
 /**
  * Small in-memory TTL cache for search grounding (design doc §2.6 rate guard,
- * §2.7 latency budget). It keeps shared-IP free quotas safe (Open-Meteo warns
- * that shared-IP platforms share limits) and avoids charging the Tavily
- * monthly counter twice for the same question.
+ * §2.7 latency budget). It keeps shared-IP free quotas safe (several keyless providers
+ * share per-IP limits) and avoids charging the Tavily monthly
+ * counter twice for the same question.
  *
  * TTLs stay inside each question type's freshness window: weather 45 minutes
  * (design range 30-60), news headlines 15 minutes, search results 15 minutes.

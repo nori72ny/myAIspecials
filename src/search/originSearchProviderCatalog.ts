@@ -12,7 +12,7 @@
  * billing path does not exist even if free terms change.
  */
 
-export type OriginSearchProviderId = "open-meteo" | "gdelt" | "wikipedia" | "tavily" | "stooq";
+export type OriginSearchProviderId = "jma" | "gdelt" | "wikipedia" | "tavily" | "stooq";
 
 export interface OriginSearchProviderEvidence {
   providerId: OriginSearchProviderId;
@@ -42,15 +42,15 @@ const SEARCH_EVIDENCE_REVIEW_AFTER = "2026-12-07T00:00:00.000Z";
 
 export const DEFAULT_ORIGIN_SEARCH_PROVIDER_CATALOG: readonly OriginSearchProviderEvidence[] = [
   {
-    providerId: "open-meteo",
-    termsUrl: "https://open-meteo.com/en/terms",
-    freeCap: { amount: 10_000, unit: "requests", period: "day" },
-    freeCapNote: "Free for non-commercial use without an API key or registration (10,000/day, 5,000/hour, 600/minute, ~300,000/month; data CC BY 4.0). Verified 2026-11-07.",
+    providerId: "jma",
+    termsUrl: "https://www.jma.go.jp/jma/en/copyright.html",
+    freeCap: null,
+    freeCapNote: "Keyless public data (bosai forecast JSON) published by the Japan Meteorological Agency under the Public Data License: free, no registration, no billing path exists, commercial use allowed with attribution. Places are resolved to JMA region codes, so no coordinates are ever sent. JMA's privacy policy states it does not collect personally identifiable information and does not use access logs beyond site operation or provide them to third parties; the one unconfirmed item is that the access-log retention period is not published (survey 2026-11-27, WEATHER_SOURCE_SURVEY_2026-11-27). Adopted by the owner's decision on 2026-11-27, replacing Open-Meteo, whose free tier is non-commercial only and whose official terms document 90-day retention of request logs that can include coordinates. Verified 2026-11-27.",
     paymentMethodRequired: false,
     requiresApiKey: false,
     monthlySelfCapUnits: null,
-    verifiedAt: SEARCH_EVIDENCE_VERIFIED_AT,
-    reviewAfter: SEARCH_EVIDENCE_REVIEW_AFTER,
+    verifiedAt: "2026-11-27T00:00:00.000Z",
+    reviewAfter: "2026-12-25T00:00:00.000Z",
   },
   {
     providerId: "gdelt",

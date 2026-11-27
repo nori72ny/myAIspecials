@@ -47,30 +47,70 @@ function routedFetch(routes: Array<{ match: string; respond: (call: RecordedCall
   return { fetchImpl, calls };
 }
 
-const OPEN_METEO_ROUTES = [
+const JMA_AREA_TABLE = {
+  offices: {
+    "130000": { name: "東京都", enName: "Tokyo", officeName: "気象庁", parent: "010300", children: ["130010", "130020"] },
+  },
+  class10s: {
+    "130010": { name: "東京地方", enName: "Tokyo Region", parent: "130000", children: ["130011"] },
+    "130020": { name: "伊豆諸島北部", enName: "Northern Izu Islands", parent: "130000", children: ["130021"] },
+  },
+  class15s: {},
+  class20s: {},
+};
+
+const JMA_ROUTES = [
+  { match: "bosai/common/const/area.json", respond: () => JMA_AREA_TABLE },
   {
-    match: "geocoding-api.open-meteo.com",
-    respond: () => ({ results: [{ name: "東京", admin1: "東京都", country: "日本", latitude: 35.6895, longitude: 139.6917 }] }),
+    match: "bosai/forecast/data/forecast/130000.json",
+    respond: () => ([
+      {
+        publishingOffice: "気象庁",
+        reportDatetime: "2026-11-27T17:00:00+09:00",
+        timeSeries: [
+          {
+            timeDefines: ["2026-11-27T17:00:00+09:00", "2026-11-28T00:00:00+09:00"],
+            areas: [
+              { area: { name: "東京地方", code: "130010" }, weatherCodes: ["111", "313"], weathers: ["晴れ　夜 くもり", "雨　昼前　から　くもり"] },
+            ],
+          },
+          {
+            timeDefines: ["2026-11-27T18:00:00+09:00", "2026-11-28T00:00:00+09:00", "2026-11-28T06:00:00+09:00"],
+            areas: [
+              { area: { name: "東京地方", code: "130010" }, pops: ["20", "90", "60"] },
+            ],
+          },
+          {
+            timeDefines: ["2026-11-28T00:00:00+09:00", "2026-11-28T09:00:00+09:00"],
+            areas: [
+              { area: { name: "東京", code: "44132" }, temps: ["10", "20"] },
+            ],
+          },
+        ],
+      },
+    ]),
   },
   {
-    match: "api.open-meteo.com/v1/forecast",
+    match: "bosai/forecast/data/overview_forecast/130000.json",
     respond: () => ({
-      current: { time: "2026-11-07T12:00", temperature_2m: 18.5, relative_humidity_2m: 55, apparent_temperature: 18.1, weather_code: 1 },
-      daily: {
-        time: ["2026-11-07", "2026-11-08"],
-        weather_code: [1, 61],
-        temperature_2m_max: [21.2, 17.4],
-        temperature_2m_min: [12.3, 10.1],
-        precipitation_probability_max: [20, 80],
-      },
+      publishingOffice: "気象庁",
+      reportDatetime: "2026-11-27T16:38:00+09:00",
+      targetArea: "東京都",
+      headlineText: "",
+      text: " 東京地方は、晴れています。",
     }),
   },
 ];
+
+// The JMA evidence window opens 2026-11-27 (owner adoption); the
+// weather tests run the search clock inside that window.
+const JMA_SEARCH_NOW = Date.parse("2026-11-27T12:00:00.000Z");
 
 function createSearchApp(options: {
   execute: OriginChatExecutor;
   fetchImpl: OriginSearchFetch;
   searchEnv?: NodeJS.ProcessEnv;
+  searchNow?: number;
   researchSynthesis?: OriginChatExecutor | null;
 }) {
   const app = express();
@@ -85,7 +125,7 @@ function createSearchApp(options: {
     searchGrounding: {
       env: options.searchEnv ?? { TAVILY_API_KEY: "tvly-test-key" },
       fetchImpl: options.fetchImpl,
-      now: () => SEARCH_NOW,
+      now: () => options.searchNow ?? SEARCH_NOW,
       counter: new OriginSearchUsageCounter(),
       cache: new OriginSearchTtlCache(),
     },
@@ -101,20 +141,19 @@ describe("createOriginChatRouter with search grounding (default research composi
     execute = executeMock as OriginChatExecutor;
   });
 
-  it("answers a weather question with live Open-Meteo data instead of the not-connected message", async () => {
-    const { fetchImpl } = routedFetch(OPEN_METEO_ROUTES);
-    const response = await request(createSearchApp({ execute, fetchImpl }))
+  it("answers a weather question with live JMA data instead of the not-connected message", async () => {
+    const { fetchImpl } = routedFetch(JMA_ROUTES);
+    const response = await request(createSearchApp({ execute, fetchImpl, searchNow: JMA_SEARCH_NOW }))
       .post("/api/chat")
       .send({ messages: [{ role: "user", content: "今日の東京の天気は？" }] });
     expect(response.status).toBe(200);
     expect(response.body.content).toContain("東京");
-    expect(response.body.content).toContain("18.5");
-    expect(response.body.content).toContain("Open-Meteo");
+    expect(response.body.content).toContain("気象庁");
     expect(response.body.content).not.toContain("接続されていません");
     expect(response.body.routing.answerMode).toBe("weather");
-    expect(response.body.routing.weatherProvider).toBe("Open-Meteo");
+    expect(response.body.routing.weatherProvider).toBe("JMA");
     expect(response.body.answer.evidence).toHaveLength(1);
-    expect(response.body.answer.evidence[0].sourceUrl).toBe("https://open-meteo.com/");
+    expect(response.body.answer.evidence[0].sourceUrl).toBe("https://www.jma.go.jp/bosai/forecast/");
     expect(executeMock).not.toHaveBeenCalled();
   });
 
@@ -122,7 +161,7 @@ describe("createOriginChatRouter with search grounding (default research composi
     const failingFetch: OriginSearchFetch = async () => {
       throw new Error("network down");
     };
-    const response = await request(createSearchApp({ execute, fetchImpl: failingFetch }))
+    const response = await request(createSearchApp({ execute, fetchImpl: failingFetch, searchNow: JMA_SEARCH_NOW }))
       .post("/api/chat")
       .send({ messages: [{ role: "user", content: "今日の東京の天気は？" }] });
     expect(response.status).toBe(200);

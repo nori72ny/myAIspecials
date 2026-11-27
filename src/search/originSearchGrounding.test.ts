@@ -83,6 +83,65 @@ function groundedOf(outcome: OriginSearchGroundingOutcome) {
   return outcome;
 }
 
+const JMA_NOW = Date.parse("2026-11-27T12:00:00.000Z");
+
+// Minimal faithful subset of the official JMA area table: the Tokyo
+// office and its primary subdivision are all the weather tests need.
+const JMA_AREA_TABLE = {
+  offices: {
+    "130000": { name: "東京都", enName: "Tokyo", officeName: "気象庁", parent: "010300", children: ["130010", "130020"] },
+  },
+  class10s: {
+    "130010": { name: "東京地方", enName: "Tokyo Region", parent: "130000", children: ["130011"] },
+    "130020": { name: "伊豆諸島北部", enName: "Northern Izu Islands", parent: "130000", children: ["130021"] },
+  },
+  class15s: {},
+  class20s: {},
+};
+
+const JMA_TOKYO_FORECAST = [
+  {
+    publishingOffice: "気象庁",
+    reportDatetime: "2026-11-27T17:00:00+09:00",
+    timeSeries: [
+      {
+        timeDefines: ["2026-11-27T17:00:00+09:00", "2026-11-28T00:00:00+09:00"],
+        areas: [
+          { area: { name: "東京地方", code: "130010" }, weatherCodes: ["111", "313"], weathers: ["晴れ　夜 くもり", "雨　昼前　から　くもり"] },
+        ],
+      },
+      {
+        timeDefines: ["2026-11-27T18:00:00+09:00", "2026-11-28T00:00:00+09:00", "2026-11-28T06:00:00+09:00"],
+        areas: [
+          { area: { name: "東京地方", code: "130010" }, pops: ["20", "90", "60"] },
+        ],
+      },
+      {
+        timeDefines: ["2026-11-28T00:00:00+09:00", "2026-11-28T09:00:00+09:00"],
+        areas: [
+          { area: { name: "東京", code: "44132" }, temps: ["10", "20"] },
+        ],
+      },
+    ],
+  },
+];
+
+const JMA_TOKYO_OVERVIEW = {
+  publishingOffice: "気象庁",
+  reportDatetime: "2026-11-27T16:38:00+09:00",
+  targetArea: "東京都",
+  headlineText: "",
+  text: " 東京地方は、晴れています。",
+};
+
+function jmaRoutes() {
+  return [
+    { match: "bosai/common/const/area.json", respond: () => JMA_AREA_TABLE },
+    { match: "bosai/forecast/data/forecast/130000.json", respond: () => JMA_TOKYO_FORECAST },
+    { match: "bosai/forecast/data/overview_forecast/130000.json", respond: () => JMA_TOKYO_OVERVIEW },
+  ];
+}
+
 describe("executeOriginSearchGrounding", () => {
   it("does not search for plain chat questions", async () => {
     const { fetchImpl, calls } = routedFetch([]);
@@ -251,27 +310,34 @@ describe("executeOriginSearchGrounding", () => {
     if (outcome.kind === "unavailable") expect(outcome.reason).toBe("provider-error");
   });
 
-  it("grounds a weather question through the dedicated Open-Meteo route", async () => {
-    const { fetchImpl } = routedFetch([
-      { match: "geocoding-api.open-meteo.com", respond: () => ({ results: [{ name: "東京", admin1: "東京都", country: "日本", latitude: 35.6895, longitude: 139.6917 }] }) },
-      {
-        match: "api.open-meteo.com/v1/forecast",
-        respond: () => ({
-          current: { time: "2026-11-07T12:00", temperature_2m: 18.5, relative_humidity_2m: 55, apparent_temperature: 18.1, weather_code: 1 },
-          daily: {
-            time: ["2026-11-07", "2026-11-08"],
-            weather_code: [1, 61],
-            temperature_2m_max: [21.2, 17.4],
-            temperature_2m_min: [12.3, 10.1],
-            precipitation_probability_max: [20, 80],
-          },
-        }),
-      },
-    ]);
-    const outcome = groundedOf(await executeOriginSearchGrounding("明日の東京の天気を教えてください", makeDeps({ fetchImpl })));
+  it("grounds a weather question through the dedicated JMA route", async () => {
+    const { fetchImpl } = routedFetch(jmaRoutes());
+    // The JMA evidence window opens 2026-11-27 (owner adoption), so
+    // this test runs its clock inside that window.
+    const outcome = groundedOf(await executeOriginSearchGrounding(
+      "明日の東京の天気を教えてください",
+      makeDeps({ fetchImpl, now: () => JMA_NOW }),
+    ));
     expect(outcome.questionType).toBe("weather");
-    expect(outcome.providersUsed).toEqual(["open-meteo"]);
-    expect(outcome.sources[0]?.excerpt).toContain("Open-Meteo");
+    expect(outcome.providersUsed).toEqual(["jma"]);
+    expect(outcome.sources[0]?.domain).toBe("jma.go.jp");
+    expect(outcome.sources[0]?.excerpt).toContain("気象庁");
+    expect(outcome.sources[0]?.excerpt).toContain("明日（11/28）");
+  });
+
+  it("falls back to the generic route for a weather place outside Japan", async () => {
+    const { fetchImpl } = routedFetch([
+      { match: "bosai/common/const/area.json", respond: () => JMA_AREA_TABLE },
+      ...tavilyRoute([
+        { title: "ロンドンの天気予報", url: "https://example.com/london-weather", content: LONG_EXCERPT, score: 0.9, published_date: "2026-11-27T10:00:00.000Z" },
+      ]),
+    ]);
+    const outcome = groundedOf(await executeOriginSearchGrounding(
+      "明日のロンドンの天気を教えてください",
+      makeDeps({ fetchImpl, now: () => JMA_NOW }),
+    ));
+    expect(outcome.questionType).toBe("weather");
+    expect(outcome.providersUsed).toEqual(["tavily"]);
   });
 });
 

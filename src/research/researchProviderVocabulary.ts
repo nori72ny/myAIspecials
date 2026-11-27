@@ -5,7 +5,7 @@
  * Why this module exists: #1130 (search grounding) widened the server-side
  * provider vocabulary, but the client kept accepting only the two legacy
  * names ('DuckDuckGo' | 'Wikipedia'). Every other successful, fully
- * grounded response (weather via Open-Meteo, news via GDELT, web via
+ * grounded response (weather via JMA, news via GDELT, web via
  * Tavily, market via Stooq, composite via SearchGrounding) was discarded
  * by the client as "unverifiable" even though the server had completed
  * the research with sources. The vocabulary now lives here exactly once:
@@ -26,7 +26,7 @@ export const RESEARCH_PROVIDER_NAMES = [
   'Wikipedia',
   'Tavily',
   'GDELT',
-  'Open-Meteo',
+  'JMA',
   'Stooq',
   'SearchGrounding',
 ] as const;

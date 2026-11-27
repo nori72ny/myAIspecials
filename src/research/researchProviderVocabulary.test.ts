@@ -45,7 +45,7 @@ describe("research provider vocabulary", () => {
       "Wikipedia",
       "Tavily",
       "GDELT",
-      "Open-Meteo",
+      "JMA",
       "Stooq",
       "SearchGrounding",
     ]);
@@ -55,7 +55,7 @@ describe("research provider vocabulary", () => {
     ["tavily", "Tavily"],
     ["gdelt", "GDELT"],
     ["wikipedia", "Wikipedia"],
-    ["open-meteo", "Open-Meteo"],
+    ["jma", "JMA"],
     ["stooq", "Stooq"],
   ] as const)("accepts the label the grounding adapter emits for %s", (providerId, label) => {
     const result = originSearchGroundingToResearchResult(groundedOutcome([providerId]));

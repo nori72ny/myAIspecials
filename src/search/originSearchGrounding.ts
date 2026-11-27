@@ -46,7 +46,9 @@ import {
   defaultOriginSearchFetch,
   extractOriginPageText,
   extractTavilyPages,
-  fetchOpenMeteoWeather,
+  fetchJmaAreaTable,
+  fetchJmaWeather,
+  resolveJmaArea,
   fetchStooqMarketQuotes,
   originDomainOf,
   OriginSearchProviderError,
@@ -55,6 +57,7 @@ import {
   searchTavilySources,
   searchWikipediaSourcesObserved,
   STOOQ_SOURCE_URL,
+  type JmaAreaTable,
   type OriginMarketQuote,
   type OriginSearchFetch,
   type OriginSearchFetchResponse,
@@ -1417,30 +1420,38 @@ export async function executeOriginSearchGrounding(
 
   if (questionType === "weather") {
     const weather = await fetchOriginWeatherAnswer(message, undefined, depsInput);
-    if (weather.ok === false) {
-      return weather.reason === "provider-not-enabled"
-        ? { kind: "not-applicable", reason: "no-route-enabled" }
-        : { kind: "unavailable", questionType, reason: "provider-error", freshness: emptyStats };
+    if (weather.ok) {
+      return {
+        kind: "grounded",
+        questionType,
+        sources: [{
+          title: `${weather.forecast.place}の天気予報（気象庁）`,
+          url: weather.forecast.sourceUrl,
+          excerpt: weather.text,
+          publishedAt: weather.forecast.reportDatetime,
+          providerId: "jma",
+          domain: "jma.go.jp",
+          authorityTier: "official",
+          evidenceLevel: "extracted",
+          dateVerified: true,
+        }],
+        providersUsed: ["jma"],
+        retrievedAt,
+        freshness: { verifiedFreshCount: 1, unknownDateCount: 0, droppedStaleCount: 0, droppedUndatedCount: 0 },
+        freshnessVerified: true,
+      };
     }
-    return {
-      kind: "grounded",
-      questionType,
-      sources: [{
-        title: `${weather.forecast.place}の天気予報（Open-Meteo）`,
-        url: weather.forecast.sourceUrl,
-        excerpt: weather.text,
-        publishedAt: weather.forecast.retrievedAt,
-        providerId: "open-meteo",
-        domain: "open-meteo.com",
-        authorityTier: "official",
-        evidenceLevel: "extracted",
-        dateVerified: true,
-      }],
-      providersUsed: ["open-meteo"],
-      retrievedAt,
-      freshness: { verifiedFreshCount: 1, unknownDateCount: 0, droppedStaleCount: 0, droppedUndatedCount: 0 },
-      freshnessVerified: true,
-    };
+    if (weather.ok === false && weather.reason === "provider-not-enabled") {
+      return { kind: "not-applicable", reason: "no-route-enabled" };
+    }
+    if (weather.ok === false && weather.reason === "provider-error") {
+      return { kind: "unavailable", questionType, reason: "provider-error", freshness: emptyStats };
+    }
+    // place-unknown: the JMA route covers Japan only and resolves
+    // places deterministically; a place it cannot resolve (a
+    // non-Japanese place, an ambiguous name) is not a weather-route
+    // failure — the generic search route below handles the question
+    // instead of the weather route guessing a forecast.
   }
 
   if (questionType === "market") {
@@ -1569,6 +1580,14 @@ export async function executeOriginSearchGrounding(
   switch (questionType) {
     case "news":
       if (gdeltAccess.enabled) addRoute("gdelt", runGdeltRoute(deps, query, searchTimeoutMs()), ordinaryIssued("gdelt"));
+      if (tavilyEnabled) addRoute("tavily", runTavilyRoute(deps, query, requirement.tavilyTopic, requirement.tavilyTimeRange, searchTimeoutMs()), ordinaryIssued("tavily"));
+      break;
+    case "weather":
+      // Reached only when the dedicated JMA route could not resolve
+      // the place (outside Japan, or a name the area table cannot
+      // resolve to exactly one forecast area): the generic web route
+      // takes the question under the weather freshness requirement,
+      // instead of the weather route guessing a forecast.
       if (tavilyEnabled) addRoute("tavily", runTavilyRoute(deps, query, requirement.tavilyTopic, requirement.tavilyTimeRange, searchTimeoutMs()), ordinaryIssued("tavily"));
       break;
     case "market":
@@ -2122,7 +2141,7 @@ export async function fetchOriginWeatherAnswer(
   depsInput: OriginSearchGroundingDeps = {},
 ): Promise<OriginWeatherAnswerResult> {
   const deps = resolveDeps(depsInput);
-  const access = evaluateOriginSearchProviderAccess("open-meteo", {
+  const access = evaluateOriginSearchProviderAccess("jma", {
     env: deps.env,
     nowMs: deps.now(),
     catalog: deps.catalog,
@@ -2136,7 +2155,22 @@ export async function fetchOriginWeatherAnswer(
   const cached = deps.cache.get<OriginWeatherForecast>(cacheKey, deps.now());
   if (cached) return { ok: true, forecast: cached, text: composeOriginWeatherText(cached) };
   try {
-    const forecast = await fetchOpenMeteoWeather(place, {
+    // The area table is a large static document; it rides the same
+    // TTL cache so a warm process resolves places without refetching
+    // it. Only the resolved region code — never coordinates, which
+    // this route does not have — is sent onward to the forecast
+    // fetch.
+    let areaTable = deps.cache.get<JmaAreaTable>("jma:area-table", deps.now());
+    if (!areaTable) {
+      areaTable = await fetchJmaAreaTable({
+        fetchImpl: deps.fetchImpl,
+        timeoutMs: Math.max(deps.searchMs, 15_000),
+      });
+      deps.cache.set("jma:area-table", areaTable, ORIGIN_SEARCH_CACHE_TTL_MS.weather, deps.now());
+    }
+    const area = resolveJmaArea(areaTable, place);
+    if (!area) return { ok: false, reason: "place-unknown" };
+    const forecast = await fetchJmaWeather(area, {
       fetchImpl: deps.fetchImpl,
       timeoutMs: deps.searchMs,
       nowMs: deps.now(),
@@ -2200,7 +2234,7 @@ const SEARCH_PROVIDER_LABELS: Readonly<Record<OriginSearchProviderId, string>> =
   tavily: "Tavily",
   gdelt: "GDELT",
   wikipedia: "Wikipedia",
-  "open-meteo": "Open-Meteo",
+  jma: "JMA",
   stooq: "Stooq",
 };
 

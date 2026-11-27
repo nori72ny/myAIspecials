@@ -267,7 +267,7 @@ test.describe('ORIGIN full interaction and visual-consistency release gate', () 
         status: 'grounded',
         // 本番で実際に返る検索グラウンディング側の provider 名で固定する
         // （旧 'Wikipedia' のみだと画面側の受入語彙ドリフトを検出できない）。
-        provider: 'Open-Meteo',
+        provider: 'JMA',
         freeOnly: true,
         costUsd: 0,
         paidFallbackUsed: false,
