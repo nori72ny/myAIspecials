@@ -64,6 +64,20 @@ describe('AgentTaskBoard', () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
+  it('shows a settings button with the no-credential result instead of a bare line (Q6-05)', async () => {
+    const fetchMock = vi.fn(async () => { throw new Error('must not be called'); });
+    vi.stubGlobal('fetch', fetchMock);
+    const onOpenSettings = vi.fn();
+    render(<AgentTaskBoard onOpenSettings={onOpenSettings} />);
+    fireEvent.click(screen.getByRole('button', { name: '作業を表示' }));
+    const button = await screen.findByTestId('origin-board-open-settings');
+    expect(button.textContent).toBe('設定を開く');
+    fireEvent.click(button);
+    expect(onOpenSettings).toHaveBeenCalledTimes(1);
+    expect(onOpenSettings).toHaveBeenCalledWith('admin');
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it('lists runs in the four groups with plain-language held details for the operator', async () => {
     const now = Date.now();
     const runs = [

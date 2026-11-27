@@ -1,4 +1,4 @@
-import { cleanup, render, screen, waitFor, within } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import OrinRemainingPage from './OrinRemainingPage';
 import OrinPanel from './OrinPanel';
@@ -143,6 +143,36 @@ describe('OrinRemainingPage (expansion design §7, moved to a sidebar page 2026-
     expect(screen.getByTestId('origin-remaining-page').textContent).toContain('設定から管理者キーを入力してください');
     expect(screen.queryByTestId('origin-remaining-unavailable')).toBeNull();
     expect(screen.queryByTestId('origin-remaining-empty')).toBeNull();
+  });
+
+  it('opens settings at the admin key from the no-permission state (C-4)', async () => {
+    const onOpenSettings = vi.fn();
+    render(
+      <OrinRemainingPage
+        language="ja"
+        foregroundItems={[]}
+        agentFallbackItem={null}
+        queuedRequests={[]}
+        onOpenSettings={onOpenSettings}
+      />,
+    );
+    await screen.findByTestId('origin-remaining-needs-credential');
+    fireEvent.click(screen.getByTestId('origin-remaining-open-settings'));
+    expect(onOpenSettings).toHaveBeenCalledTimes(1);
+    expect(onOpenSettings).toHaveBeenCalledWith('admin');
+  });
+
+  it('shows no settings button in the no-permission state without a settings handler (C-4)', async () => {
+    render(
+      <OrinRemainingPage
+        language="ja"
+        foregroundItems={[]}
+        agentFallbackItem={null}
+        queuedRequests={[]}
+      />,
+    );
+    await screen.findByTestId('origin-remaining-needs-credential');
+    expect(screen.queryByTestId('origin-remaining-open-settings')).toBeNull();
   });
 
   it('shows the same unfinished runs as the Orin panel (shared source)', async () => {

@@ -32,7 +32,7 @@ const WORKSPACE_TITLES: Record<Exclude<OriginWorkspaceModeV31, 'chat'>, { ja: st
 
 type PersonalEditionAppProps = {
   settings?: Settings;
-  onOpenSettings?: (section?: 'coding') => void;
+  onOpenSettings?: (section?: 'coding' | 'admin') => void;
   messages?: ConversationMessage[];
   sessions?: readonly ConversationSession[];
   artifacts?: readonly ArtifactBlock[];
@@ -201,9 +201,16 @@ const PersonalEditionApp = React.memo(function PersonalEditionApp({
   };
 
   return <div className="origin-personal-shell flex h-[100dvh] min-h-0 w-full overflow-hidden">
+    {/* Skip link (design fix C-2, 2026-11-27; WCAG 2.4.1): it must be
+        the first focusable element in tab order, so it sits before
+        the sidebar in DOM order — not after it (the previous place
+        made it 9th). Chat-only: the target #origin-main is the chat
+        view's main element; other workspaces have their own scroll
+        regions and no such target. The link is visually hidden until
+        focus (index.css), so the move changes nothing on screen. */}
+    {workspace === 'chat' && <a href="#origin-main" className="origin-skip-link">{isEn ? 'Skip to main content' : 'メインコンテンツへスキップ'}</a>}
     <OriginSidebar open={sidebarOpen} workspace={workspace} isEn={isEn} onClose={() => setSidebarOpen(false)} onNavigate={handleSidebarNavigate} onNewConversation={handleSidebarNewConversation} onOpenSettings={onOpenSettings ? handleSidebarOpenSettings : undefined} onOpenImagePanel={handleSidebarOpenImage} imageUnavailableReason={imagePanelAvailability.reason} />
     <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
-    {workspace === 'chat' && <a href="#origin-main" className="origin-skip-link">{isEn ? 'Skip to main content' : 'メインコンテンツへスキップ'}</a>}
     {/* 統一ヘッダー（デザイン是正バッチ6、仕様A）：全画面でシェルが
         1部品を描画する。構成は「開閉ボタン＋ロゴ＋（画面タイトル）」
         と「履歴ボタン」で、画面ごとに変わるのはタイトルの有無と
@@ -264,10 +271,10 @@ const PersonalEditionApp = React.memo(function PersonalEditionApp({
         onArtifactRevision={handleArtifactRevision}
       />}
 
-      {workspace === 'agent' && <div className="h-full overflow-y-auto"><Suspense fallback={<p role="status">エージェントを読み込んでいます…</p>}><AgentWorkspace /></Suspense></div>}
+      {workspace === 'agent' && <div className="h-full overflow-y-auto"><Suspense fallback={<p role="status">エージェントを読み込んでいます…</p>}><AgentWorkspace onOpenSettings={onOpenSettings} /></Suspense></div>}
       {workspace === 'coding' && <div className="h-full overflow-y-auto"><Suspense fallback={<p role="status">コード画面を読み込んでいます…</p>}><CodingJobWorkspace initialGoal={codingInitialGoal} onGoalChange={setCodingInitialGoal} onOpenSettings={onOpenSettings} /></Suspense></div>}
       {workspace === 'ai-news' && <div className="h-full overflow-y-auto"><OrinAiNewsPage language={settings?.language ?? 'ja'} /></div>}
-      {workspace === 'remaining' && <div className="h-full overflow-y-auto"><OrinRemainingPage language={settings?.language ?? 'ja'} foregroundItems={orinWorkState.foregroundItems} agentFallbackItem={orinWorkState.agentFallbackItem} queuedRequests={orinWorkState.queuedRequests} onOpenAgent={() => switchWorkspace('agent')} onOpenChat={() => switchWorkspace('chat')} /></div>}
+      {workspace === 'remaining' && <div className="h-full overflow-y-auto"><OrinRemainingPage language={settings?.language ?? 'ja'} foregroundItems={orinWorkState.foregroundItems} agentFallbackItem={orinWorkState.agentFallbackItem} queuedRequests={orinWorkState.queuedRequests} onOpenAgent={() => switchWorkspace('agent')} onOpenChat={() => switchWorkspace('chat')} onOpenSettings={onOpenSettings} /></div>}
     </div>
 
     {workspace === 'chat' && creativePanelRequest !== null && <Suspense fallback={null}><CreativePanel initialRequest={creativePanelRequest} onClose={() => setCreativePanelRequest(null)} onArtifactCreated={handleCreativeArtifactCreated} /></Suspense>}

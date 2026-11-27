@@ -19,7 +19,7 @@ interface Props {
   /** Pointer id captured by the settings opener, when available. */
   openingPointerId?: number;
   /** Section to bring into view when the modal opens (e.g. from the code screen's key guidance). */
-  focusSection?: 'coding' | null;
+  focusSection?: 'coding' | 'admin' | null;
 }
 
 export default function SettingsModal({

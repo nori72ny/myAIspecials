@@ -287,7 +287,10 @@ function phaseLabel(phase: Phase): string {
   return '待機中';
 }
 
-export default function AgentWorkspaceView() {
+export default function AgentWorkspaceView({ onOpenSettings }: {
+  /** 「これまでの作業」の権限なし表示からの「設定を開く」導線（Q6-05）。 */
+  onOpenSettings?: (section?: 'coding' | 'admin') => void;
+} = {}) {
   const [goal, setGoal] = useState('');
   const [capability, setCapability] = useState<AgentCapability | null>(null);
   const [checkingCapability, setCheckingCapability] = useState(true);
@@ -948,7 +951,7 @@ export default function AgentWorkspaceView() {
     </div>
 
     <div className="mx-auto mt-4 w-full max-w-[var(--content-wide)]">
-      <AgentTaskBoard browserPlanToken={boardPlanToken} />
+      <AgentTaskBoard browserPlanToken={boardPlanToken} onOpenSettings={onOpenSettings} />
     </div>
   </section>;
 }

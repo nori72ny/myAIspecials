@@ -135,6 +135,20 @@ describe('CodingJobWorkspaceV14', () => {
     expect(sessionStorage.length).toBe(0);
   });
 
+  it('names the button as it actually reads in the how-it-works line (R6-4)', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(response(capability));
+    vi.stubGlobal('fetch', fetchMock);
+    render(<CodingJobWorkspaceV14 />);
+    await screen.findByText('準備できています');
+    const guide = screen.getByRole('region', { name: '進み方' });
+    // キー未入力の主ボタンは「実行キーを入力する」。
+    expect(guide.textContent).toContain('「実行キーを入力する」を押すと');
+    expect(guide.textContent).not.toContain('「作成・修正を始める」を押すと');
+    act(() => { setSessionCredential('coding', 'operator-secret-that-is-long-enough-for-production'); });
+    await waitFor(() => expect(guide.textContent).toContain('「作成・修正を始める」を押すと'));
+    expect(guide.textContent).not.toContain('「実行キーを入力する」を押すと');
+  });
+
   it('keeps submission fail-closed without an internal readiness breakdown when prerequisites are missing', async () => {
     const fetchMock = vi.fn().mockResolvedValueOnce(response({
       ...capability,

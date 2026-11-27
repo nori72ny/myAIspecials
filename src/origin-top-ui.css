@@ -1274,7 +1274,7 @@
   min-width: max-content;
 }
 /* Tablet sheet form (UI/UX evaluation 2026-11-25): the tab group
-   is two icon buttons, so on a 600–1023px sheet it sat at the
+   is two tab buttons, so on a 600–1023px sheet it sat at the
    left edge of a full-width empty bar and read as stretched.
    Cap and centre the group; the bar's hairline still runs the
    full width, and the indicator keeps measuring from this
@@ -1291,6 +1291,7 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  gap: 6px;
   min-width: 52px;
   min-height: 44px;
   padding: 0 16px;
@@ -1300,6 +1301,15 @@
   cursor: pointer;
   -webkit-tap-highlight-color: transparent;
   transition: color 150ms ease-out;
+}
+/* Tab label (design fix C-5, 2026-11-27): icon + short text label.
+   The underline indicator measures the button width at runtime,
+   so it follows the wider labelled buttons without a code change. */
+.origin-orin-panel__tab-label {
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1.2;
+  white-space: nowrap;
 }
 .origin-orin-panel__tab:hover {
   color: var(--text-primary);
@@ -1555,6 +1565,30 @@
   font-weight: 500;
   line-height: 1.6;
   text-align: center;
+}
+/* Empty-state next actions (design fix C-1, 2026-11-27): up to
+   three pressable chips that open a workspace directly. */
+.origin-orin-panel__empty-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px;
+  margin-top: 16px;
+}
+.origin-orin-panel__empty-action {
+  min-height: 44px;
+  padding: 8px 16px;
+  border: 1px solid var(--border-default);
+  border-radius: 999px;
+  background: var(--bg-surface);
+  color: var(--text-primary);
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.origin-orin-panel__empty-action:hover {
+  background: var(--bg-surface-muted);
 }
 .origin-orin-panel__empty-guide {
   display: block;

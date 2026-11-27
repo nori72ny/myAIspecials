@@ -22,8 +22,8 @@ interface Props {
   sourceSessionIds?: ReadonlySet<string>;
   /** Opens the conversation a memory item came from, when it still exists. */
   onOpenSourceSession?: (sessionId: string) => void;
-  /** Section to bring into view when the modal opens (e.g. from the code screen's key guidance). */
-  focusSection?: 'coding' | null;
+  /** Section to bring into view when the modal opens (e.g. from the code screen's key guidance, or the admin-key guidance on the agent board / remaining-requests page). */
+  focusSection?: 'coding' | 'admin' | null;
 }
 
 const FULL_RELEASE_SHA = /^[0-9a-f]{40}$/i;
@@ -84,13 +84,18 @@ export default function SettingsModalLegacy({
   }, [isOpen]);
 
   // 特定の節への案内から開かれたときは、その節の入力欄まで移動して
-  // フォーカスする（コード画面の実行キー案内）。通常の開き方では
-  // focusSection が無いため、従来どおり閉じるボタンへのフォーカスが担う。
+  // フォーカスする（コード画面の実行キー案内と、管理者キー案内）。
+  // 管理者キーの節は閉じた <details> の中にあるため、先に開いてから
+  // 移動する。通常の開き方では focusSection が無いため、従来どおり
+  // 閉じるボタンへのフォーカスが担う。
   useEffect(() => {
-    if (!isOpen || focusSection !== 'coding') return;
+    if (!isOpen || (focusSection !== 'coding' && focusSection !== 'admin')) return;
     const timer = window.setTimeout(() => {
-      const input = document.getElementById('settings-coding-key');
+      const inputId = focusSection === 'admin' ? 'settings-admin-key' : 'settings-coding-key';
+      const input = document.getElementById(inputId);
       if (!input) return;
+      const details = input.closest('details');
+      if (details && !details.open) details.open = true;
       if (typeof input.scrollIntoView === 'function') input.scrollIntoView({ block: 'center' });
       input.focus();
     }, 60);
