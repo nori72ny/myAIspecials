@@ -345,3 +345,101 @@ describe("shadow-mode wiring", () => {
     expect(vote).toBeNull();
   });
 });
+
+describe("S-3: triangle-sign rates in the ESRI GDP release shape (round 7)", () => {
+  // Fixture provenance: the head of the Tavily-extract linearization
+  // of the real ESRI summary PDF (gaiyou2631.pdf, 2026年7-9月期
+  // 1次速報), reproduced locally with pdf.js content-stream order
+  // plus the production intake transform (whitespace collapse,
+  // 2,000-character cap) of extractTavilyPages. The PDF emits the
+  // headline block bottom-up, so the value run "▲0.0％（年率
+  // ▲0.1％）となった。" arrives as a label-less sentence of its own,
+  // ahead of the sentence carrying its label. Before the fix the
+  // rate extractor dropped the ▲ sign: the headline entered the
+  // vote as +0.0% / +0.1% and the real ▲0.4% merged into the
+  // nominal +0.4% group.
+  const esriSource: RecoveryValueSourceInput = {
+    title: "2026年7-9月期四半期別GDP速報（1次速報値） 結果の概要",
+    url: "https://www.esri.cao.go.jp/jp/sna/data/data_list/sokuhou/files/2026/qe263/pdf/gaiyou2631.pdf",
+    domain: "esri.cao.go.jp",
+    authorityTier: "official",
+    excerpt: "Ⅰ．国内総生産（支出側）及び各需要項目 GDP(Expenditure Approach) and Its Components 1．ポイント Main Points(Japanese) ［１］ＧＤＰ成長率（季節調整済前期比） ［２］ＧＤＰの内外需別の寄与度 ▲0.6％ptとなった。また、名目は国内需要（内需）が1.5％pt、財貨・サービスの純輸出 令 和 8 年 11 月 16 日 内 閣 府 経 済 社 会 総 合 研 究 所 国 民 経 済 計 算 部 となった。 ▲0.0％（年率▲0.1％）となった。また、名目ＧＤＰの成長率は、0.4％（年率1.6％） 2026 年 7 ～ 9 月 期 の 実 質 Ｇ Ｄ Ｐ （ 国 内 総 生 産 ・ 2020 暦 年 連 鎖 価 格 ） の 成 長 率 は 、 ＧＤＰ成長率のうち、どの需要がＧＤＰをどれだけ増加させたかを示す寄与度でみる と、実質は国内需要（内需）が0.6％pt、財貨・サービスの純輸出（輸出－輸入）が （輸出－輸入）が▲1.1％ptとなった。 Economic and Social Research Institute Cabinet Office, Government of Japan Released: 2026.11.16 2026年7～9月期四半期別ＧＤＰ速報 （１次速報値） Quarterly Estimates of GDP for July - September 2026 (First Preliminary Estimates) -0.4 0.3 0.5 0.4 -0.0 -2.0 -1.0 0.0 1.0 2.0 3.0 7-9 2025 10-12 1-3 2026 4-6 7-9 (％) 実質ＧＤＰ成長率の推移 0.2 1.1 0.7 1.4 0.4 -2.0 -1.0 0.0 1.0 2.0 3.0 7-9 2025 10-12 1-3 2026 4-6 7-9 (％) 名目ＧＤＰ成長率の推移 -0.3 0.3 0.1 -0.2 0.6 -0.1 -0.0 0.3 0.6 -0.6 -3.0 -2.0 -1.0 0.0 1.0 2.0 3.0 4.0 7-9 2025 10-12 1-3 2026 4-6 7-9 (％pt) 実質ＧＤＰの内外需要別寄与度の推移 外需寄与度 内需寄与度 0.2 0.9 0.7 1.2 1.5 -0.0 0.2 0.0 0.2 -1.1 -3.0 -2.0 -1.0 0.0 1.0 2.0 3.0 4.0 7-9 2025 10-12 1-3 2026 4-6 7-9 (％pt) 名目ＧＤＰの内外需要別寄与度の推移 外需寄与度 内需寄与度 ［３］需要項目別の動向（季節調整済前期比） （１）民間需要の動向 民間最終消費支出は 、 実質▲0.3％（4～6月期は▲0.3％） 、 名目0.5％（4～6月期は 0.8 ％ ） と な っ た 。 そ の う ち 、 家 計 最 終 消 費 支 出 は 、 実 質 ▲ 0.3 ％ （ 4 ～ 6 月 期 は ▲ 0.4％） 、 名目0.4％（4～6月期は0.7％）となった 。 家計最終消費支出（除く持ち家の帰属 家賃）は 、 実質▲0.4％（4～6月期は▲0.5％） 、 名目0.4％（4～6月期は0.8％）となった 。",
+  };
+  const gdpQuestion = "実質GDPの最新の成長率を教えてください";
+
+  it("keeps the ▲ sign: the headline -0.0% / annualized -0.1% become candidates", () => {
+    const candidates = extractRecoveryValues([esriSource], gdpQuestion);
+    const displays = candidates.map((c) => c.displayValue);
+    expect(displays).toContain("-0.0%");
+    expect(displays).toContain("-0.1%");
+    expect(displays).not.toContain("0.1%");
+    const annualized = candidates.find((c) => c.displayValue === "-0.1%");
+    expect(annualized?.normalizedValue).toBe("-0.1");
+  });
+
+  it("does not merge a negative real figure into the positive group of the same magnitude", () => {
+    const candidates = extractRecoveryValues([esriSource], gdpQuestion);
+    const group04 = candidates.filter((c) => c.normalizedValue === "0.4");
+    const groupMinus04 = candidates.filter((c) => c.normalizedValue === "-0.4");
+    // The nominal +0.4% statements stay positive; the real ▲0.4%
+    // (household consumption) is its own negative candidate.
+    expect(group04.length).toBeGreaterThan(0);
+    expect(groupMinus04.length).toBeGreaterThan(0);
+    expect(group04.every((c) => c.displayValue === "0.4%")).toBe(true);
+  });
+
+  it("confirms -0.0% when a second domain states the same value in ASCII form", () => {
+    const vote = extractAndVoteRecoveryValues(
+      [
+        esriSource,
+        {
+          title: "実質GDP、前期比-0.0%",
+          url: "https://news.example/gdp",
+          domain: "news.example",
+          authorityTier: "major-news",
+          excerpt: "2026年7～9月期の実質GDPは前期比-0.0%だった。",
+        },
+      ],
+      gdpQuestion,
+    );
+    expect(vote?.status).toBe("confirmed");
+    expect(vote?.value).toBe("-0.0%");
+    expect(vote?.domains).toEqual(["esri.cao.go.jp", "news.example"]);
+  });
+
+  it("signs a bare triangle rate and leaves an unattached section-mark ▲ unsigned", () => {
+    const candidates = extractRecoveryValues(
+      [
+        {
+          title: "統計",
+          url: "https://example.com/x",
+          domain: "example.com",
+          excerpt:
+            "消費者物価は△0.2％となった。▲2026年7～9月期の実質成長率は0.5%となった。",
+        },
+      ],
+      "実質成長率を教えてください",
+    );
+    const values = candidates.map((c) => c.normalizedValue);
+    expect(values).toContain("-0.2");
+    expect(values).toContain("0.5");
+    expect(values).not.toContain("-0.5");
+  });
+
+  it("keeps the change-construction exclusion for a triangle-signed left side", () => {
+    const candidates = extractRecoveryValues(
+      [
+        {
+          title: "成長率",
+          url: "https://example.com/y",
+          domain: "example.com",
+          excerpt: "前期比は▲0.5%から0.2%へ変化した。",
+        },
+      ],
+      "成長率を教えてください",
+    );
+    const values = candidates.map((c) => c.normalizedValue);
+    expect(values).toContain("0.2");
+    expect(values).not.toContain("-0.5");
+  });
+});
