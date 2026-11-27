@@ -1,6 +1,7 @@
 import {
   createBrowserSpeechRecognition,
   extractTranscripts,
+  matchEndPhrase,
   matchWakePhrase,
   type SpeechRecognitionFactory,
   type SpeechRecognitionLike,
@@ -76,6 +77,16 @@ import { voiceSpeech, type SpeechStyleOptions, type VoiceStorageLike } from './v
  *   only — a web app cannot listen while locked or closed).
  *   Anything heard that is not the phrase is discarded on the spot:
  *   never placed in the composer, never stored, never sent anywhere.
+ * - End phrase 「バイバイ、オリン」 (owner, 2026-11-27 21:42,
+ *   phrase corrected 21:50). During
+ *   a conversation, a listening turn whose whole utterance is the
+ *   end phrase — a short farewell may follow it — is never sent
+ *   and never counts toward the daily cap: the conversation
+ *   closes through exactly the stop button's transition, with a
+ *   fixed closing line spoken on the way out. Matching is strict
+ *   on purpose (matchEndPhrase): the phrase mentioned inside a
+ *   sentence is an ordinary utterance and is sent as usual, and
+ *   outside a conversation the phrase does nothing at all.
  * - Caps: one listening turn ends at 60 seconds; at most 20
  *   transcript-producing turns per day (client-side counter storing
  *   only the date and the count — no content).
@@ -89,6 +100,14 @@ export const VOICE_CONVERSATION_OPENING_ID = 'orin-conversation-opening';
 /** The fixed opening line Orin speaks when conversation mode
  * starts. A greeting only — no claims, no chat content. */
 export const ORIN_CONVERSATION_OPENING_TEXT = 'こんにちは、オリンです。何をお手伝いしましょうか？';
+
+/** Playback id for the closing line, mirroring the opening's, so
+ * it never looks like an answer is being read. */
+export const VOICE_CONVERSATION_CLOSING_ID = 'orin-conversation-closing';
+/** The fixed closing line Orin speaks when the owner ends the
+ * conversation with the end phrase. A farewell only — no claims,
+ * no chat content. */
+export const ORIN_CONVERSATION_CLOSING_TEXT = 'はい、またいつでも呼んでください。';
 
 export const VOICE_CONVERSATION_MAX_TURN_SECONDS = 60;
 export const VOICE_CONVERSATION_DAILY_LIMIT = 20;
@@ -441,6 +460,12 @@ export class VoiceConversationController {
     this.seedText = '';
     this.setState({ interimText: '' });
     if (this.state.mode !== 'on') return;
+    if (text && matchEndPhrase(text)) {
+      // End phrase: never sent, never counted toward the daily
+      // cap — the conversation closes instead (see the header).
+      this.endConversationWithClosing();
+      return;
+    }
     if (text) {
       this.emptyRestarts = 0;
       this.recordTurn();
@@ -577,6 +602,22 @@ export class VoiceConversationController {
     if (started) return;
     if (this.state.wakeWaiting) this.enterIdleOrWake();
     else this.startTurnListening();
+  }
+
+  /** Ends the conversation on the owner's end phrase: exactly the
+   * stopConversation() transition, plus the fixed closing line
+   * spoken on the ordinary playback path. The line is spoken after
+   * the state has fully closed, so its playback end can never
+   * reopen the microphone — the playback-end path only runs while
+   * the mode is on. When the line cannot be spoken at all, the
+   * conversation simply ends silently. */
+  private endConversationWithClosing(): void {
+    this.stopConversation();
+    this.speech().speak(
+      VOICE_CONVERSATION_CLOSING_ID,
+      ORIN_CONVERSATION_CLOSING_TEXT,
+      this.resolveStyle(),
+    );
   }
 
   stopConversation(): void {

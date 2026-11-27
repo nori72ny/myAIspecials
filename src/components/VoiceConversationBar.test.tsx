@@ -121,6 +121,17 @@ describe('VoiceConversationBar', () => {
     controller.stopConversation();
   });
 
+  it('tells the owner while listening that 「バイバイ、オリン」 ends the conversation', async () => {
+    await act(async () => { await refreshVoiceOutputAvailability(healthFetch(true)); });
+    const { controller, speech } = makeController();
+    render(<VoiceConversationBar language="ja" controller={controller} />);
+    fireEvent.click(screen.getByTestId('voice-conversation-start'));
+    await finishOpening(speech);
+    expect(controller.getState().phase).toBe('listening');
+    expect(screen.getByTestId('voice-conversation-bar').textContent).toContain('バイバイ、オリン');
+    controller.stopConversation();
+  });
+
   it('arms wake waiting from the toggle inside conversation mode', async () => {
     await act(async () => { await refreshVoiceOutputAvailability(healthFetch(true)); });
     const { controller, speech } = makeController();

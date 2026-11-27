@@ -1,8 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import {
   DEFAULT_VOICE_CONVERSATION_STYLE,
+  ORIN_CONVERSATION_CLOSING_TEXT,
   ORIN_CONVERSATION_OPENING_TEXT,
   VoiceConversationController,
+  VOICE_CONVERSATION_CLOSING_ID,
   VOICE_CONVERSATION_DAILY_LIMIT,
   VOICE_CONVERSATION_DAILY_STORAGE_KEY,
   VOICE_CONVERSATION_MAX_TURN_SECONDS,
@@ -566,6 +568,93 @@ describe('VoiceConversationController caps and failures', () => {
     expect(controller.getState().notice).toBe('daily-limit');
     expect(recognitions).toHaveLength(sessionsBefore);
     controller.dispose();
+  });
+});
+
+describe('VoiceConversationController end phrase', () => {
+  it('ends the conversation on the end phrase: nothing sent, nothing counted, closing line spoken', () => {
+    const ctx = setup();
+    startToListening(ctx);
+    const recognition = ctx.recognitions.at(-1)!;
+    recognition.emitResult([{ isFinal: true, transcript: 'バイバイ、オリン' }]);
+    recognition.emitEnd();
+    expect(ctx.sent).toEqual([]);
+    expect(ctx.controller.getState().turnsUsedToday).toBe(0);
+    expect(ctx.controller.getState().mode).toBe('off');
+    expect(ctx.controller.getState().phase).toBe('idle');
+    expect(ctx.controller.getState().wakeWaiting).toBe(false);
+    expect(ctx.speech.spoken.at(-1)).toEqual({
+      id: VOICE_CONVERSATION_CLOSING_ID,
+      text: ORIN_CONVERSATION_CLOSING_TEXT,
+      style: DEFAULT_VOICE_CONVERSATION_STYLE,
+    });
+  });
+
+  it('does not reopen the microphone when the closing line finishes playing', () => {
+    const ctx = setup();
+    startToListening(ctx);
+    const sessionsBefore = ctx.recognitions.length;
+    ctx.recognitions.at(-1)!.emitResult([{ isFinal: true, transcript: 'バイバイ、オリン' }]);
+    ctx.recognitions.at(-1)!.emitEnd();
+    ctx.speech.finishPlayback();
+    ctx.scheduler.fireByMs(VOICE_CONVERSATION_NEXT_TURN_DELAY_MS);
+    expect(ctx.recognitions).toHaveLength(sessionsBefore);
+    expect(ctx.controller.getState().mode).toBe('off');
+  });
+
+  it('ends on spelling variants of the phrase', () => {
+    for (const heard of ['バイバイ オリン', 'ばいばいおりん', 'バイバイ、オリン。']) {
+      const ctx = setup();
+      startToListening(ctx);
+      ctx.recognitions.at(-1)!.emitResult([{ isFinal: true, transcript: heard }]);
+      ctx.recognitions.at(-1)!.emitEnd();
+      expect(ctx.sent).toEqual([]);
+      expect(ctx.controller.getState().mode).toBe('off');
+      ctx.controller.dispose();
+    }
+  });
+
+  it('ends when a short farewell follows the phrase', () => {
+    const ctx = setup();
+    startToListening(ctx);
+    ctx.recognitions.at(-1)!.emitResult([{ isFinal: true, transcript: 'バイバイ、オリン、ありがとう' }]);
+    ctx.recognitions.at(-1)!.emitEnd();
+    expect(ctx.sent).toEqual([]);
+    expect(ctx.controller.getState().turnsUsedToday).toBe(0);
+    expect(ctx.controller.getState().mode).toBe('off');
+  });
+
+  it('sends the shorter 「バイ、オリン」 as an ordinary utterance', () => {
+    const ctx = setup();
+    startToListening(ctx);
+    ctx.recognitions.at(-1)!.emitResult([{ isFinal: true, transcript: 'バイ、オリン' }]);
+    ctx.recognitions.at(-1)!.emitEnd();
+    expect(ctx.sent).toEqual(['バイ、オリン']);
+    expect(ctx.controller.getState().mode).toBe('on');
+    expect(ctx.controller.getState().turnsUsedToday).toBe(1);
+  });
+
+  it('sends an utterance that merely mentions the phrase, as usual', () => {
+    const ctx = setup();
+    startToListening(ctx);
+    ctx.recognitions.at(-1)!.emitResult([{ isFinal: true, transcript: 'バイバイ、オリンってどういう意味？' }]);
+    ctx.recognitions.at(-1)!.emitEnd();
+    expect(ctx.sent).toEqual(['バイバイ、オリンってどういう意味？']);
+    expect(ctx.controller.getState().mode).toBe('on');
+    expect(ctx.controller.getState().turnsUsedToday).toBe(1);
+  });
+
+  it('ignores the end phrase heard outside a conversation (wake waiting)', () => {
+    const ctx = setup();
+    startToWakeWaiting(ctx);
+    expect(ctx.controller.getState().phase).toBe('idle');
+    const spokenBefore = ctx.speech.spoken.length;
+    ctx.recognitions.at(-1)!.emitResult([{ isFinal: true, transcript: 'バイバイ、オリン' }]);
+    ctx.recognitions.at(-1)!.emitEnd();
+    expect(ctx.sent).toEqual([]);
+    expect(ctx.controller.getState().mode).toBe('on');
+    expect(ctx.controller.getState().wakeWaiting).toBe(true);
+    expect(ctx.speech.spoken).toHaveLength(spokenBefore); // no closing line
   });
 });
 

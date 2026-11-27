@@ -161,3 +161,35 @@ export function matchWakePhrase(heard: string): WakePhraseMatch {
   const remainder = heard.slice(cut).replace(/^[\s、。,．・]+/, '').trim();
   return { matched: true, remainder };
 }
+
+/** The owner's end phrase (2026-11-27, corrected 21:50):
+ * 「バイバイ、オリン」. */
+export const END_PHRASE = 'バイバイ、オリン';
+
+const NORMALIZED_END_PHRASE = normalizeHeardText(END_PHRASE);
+
+/**
+ * Short farewells that may follow the end phrase without turning
+ * the utterance into an ordinary one. Kept deliberately small:
+ * anything else after the phrase is real speech, not a farewell.
+ */
+const END_PHRASE_TRAILING_GREETINGS = ['ありがとう', 'またね', 'おやすみ', 'さようなら']
+  .map((greeting) => normalizeHeardText(greeting));
+
+/**
+ * Strict end-phrase matching (a false end is worse than a missed
+ * one): the whole normalized utterance must be the end phrase,
+ * optionally followed by exactly one of the short farewells above.
+ * Merely mentioning the phrase inside a sentence — 「バイバイ、
+ * オリンってどういう意味？」 — does not match and stays an
+ * ordinary utterance, and neither does the shorter 「バイ、オリン」
+ * on its own.
+ */
+export function matchEndPhrase(heard: string): boolean {
+  const normalized = normalizeHeardText(heard);
+  if (!normalized) return false;
+  if (normalized === NORMALIZED_END_PHRASE) return true;
+  if (!normalized.startsWith(NORMALIZED_END_PHRASE)) return false;
+  const remainder = normalized.slice(NORMALIZED_END_PHRASE.length);
+  return END_PHRASE_TRAILING_GREETINGS.includes(remainder);
+}
