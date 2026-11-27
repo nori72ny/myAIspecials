@@ -75,6 +75,9 @@ describe('PersonalEditionApp single-surface wrapper', () => {
     fireEvent.click(screen.getByTestId('sidebar-nav-chat'));
     expect(screen.getByTestId('mock-origin-app')).toBe(originalChat);
     expect(screen.queryByRole('region', { name: 'Agent Workspace' })).toBeNull();
+    // チャットのヘッダーにも他画面と同じくタイトルが出る
+    // （デザイン是正バッチ8、D3：タイトルの有無の差を無くした）。
+    expect(screen.getByTestId('origin-shell-header').textContent).toContain('チャット');
   });
 
   it('opens Code from the chat action and preserves the chat mount', async () => {

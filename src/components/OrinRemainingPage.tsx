@@ -170,11 +170,15 @@ export default function OrinRemainingPage({
 
   return (
     <div data-testid="origin-remaining-page" className="origin-remaining-page mx-auto w-full max-w-[var(--content-reading)] px-4 py-6 sm:px-6">
-      <h1 className="m-0 text-xl font-bold">{ja ? '残っている依頼' : 'Remaining requests'}</h1>
+      {/* 見出しはヘッダーのタイトル（残っている依頼）と同一文に
+          ならないよう、本文側は状態を表す別文にする（デザイン
+          是正バッチ8、D3：他画面と同じく、タイトルはヘッダー、
+          本文見出しは別文の形に統一）。 */}
+      <h1 className="m-0 text-xl font-bold">{ja ? 'まだ終わっていない依頼' : 'Requests still open'}</h1>
       <p className="origin-muted m-0 mt-2 text-sm leading-[1.7]">
         {ja
-          ? 'まだ終わっていない依頼の一覧です。対応が必要なものから順に並んでいます。'
-          : 'Requests that are not finished yet, in the order they need your attention.'}
+          ? '対応が必要なものから順に並んでいます。'
+          : 'In the order they need your attention.'}
       </p>
       {totalRows === 0 && runsState.kind === 'loading' ? (
         <div className="origin-orin-panel__empty-block">

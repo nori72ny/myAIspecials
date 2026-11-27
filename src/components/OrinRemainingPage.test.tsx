@@ -22,6 +22,24 @@ afterEach(() => {
 });
 
 describe('OrinRemainingPage (expansion design §7, moved to a sidebar page 2026-11-25)', () => {
+  it('uses a body heading distinct from the shell header title (batch 8, D3)', () => {
+    render(
+      <OrinRemainingPage
+        language="ja"
+        foregroundItems={[]}
+        agentFallbackItem={null}
+        queuedRequests={[]}
+        onOpenAgent={vi.fn()}
+        onOpenChat={vi.fn()}
+      />,
+    );
+    // ヘッダーのタイトル「残っている依頼」と本文見出しが同一文に
+    // ならない（他画面と同じく、タイトルはヘッダー・見出しは別文）。
+    const heading = screen.getByRole('heading', { level: 1 });
+    expect(heading.textContent).toBe('まだ終わっていない依頼');
+    expect(screen.queryByRole('heading', { name: '残っている依頼' })).toBeNull();
+  });
+
   it('projects only unfinished requests, in attention order', async () => {
     setSessionCredential('admin', 'test-credential');
     const now = Date.now();
