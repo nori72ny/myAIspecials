@@ -44,6 +44,28 @@
  *  - 5-3a: the first-pass official query uses the release form
  *    (buildOfficialReleaseQueryText — publication name + expected
  *    edition) instead of the minimized-question long form.
+ *  - 5-3c (round-6 measure 6-2, ANSWER_STATISTICS_ROUND6_DIAGNOSIS_
+ *    2026-11-27 §3): a topic may carry releasePageUrls — the
+ *    publisher's own page that keeps carrying the LATEST release.
+ *    When the plan fires, the grounding layer fetches those URLs
+ *    directly (Tavily extract) and adds them to the candidate pool,
+ *    so reaching the current release page no longer depends on the
+ *    search provider's index returning it. The round-6 diagnosis
+ *    confirmed the Labour Force Survey's monthly release page never
+ *    entered the pool across two rounds and three query shapes —
+ *    a candidate-generation gap no query text can close. The
+ *    deterministic candidates face every existing gate (freshness,
+ *    edition-keyed material assessment, packet selection) exactly
+ *    like search candidates; candidacy is deterministic, adoption
+ *    is not. Only labour-force-statistics carries URLs today: its
+ *    two URLs were confirmed on the publisher's site at
+ *    implementation time (see the topic entry). GDP was checked and
+ *    deliberately NOT given URLs — the release summary exists only
+ *    as an edition-named PDF (a per-edition URL, which this field
+ *    forbids) and as a persistent-named DATA-TABLE PDF (the
+ *    document form round-6 §2 showed carries no quotable value
+ *    sentence); the ESRI menu page is a dashboard fragment, not the
+ *    release's value sentence (round-6 diagnosis §5, measure 6-3).
  *
  * The domain map is a small curated table, one entry per topic —
  * never per question. Every domain was confirmed against the primary
@@ -182,6 +204,21 @@ export interface OriginOfficialSourceTopic {
    * by date) carry none.
    */
   edition?: OriginOfficialEditionSchedule;
+  /**
+   * The topic's release pages (measure 5-3c, design memo
+   * ANSWER_STATISTICS_ROUND5_MEASURE53C_DESIGN_MEMO_2026-11-27
+   * §2.1): URLs of pages that keep carrying the LATEST release —
+   * the monthly results page itself, or the summary document under
+   * its persistent file name. Never an edition-specific document
+   * or a past-edition archive: pinning an edition's URL would break
+   * the freshness discipline the edition key enforces. At most two
+   * per topic (the results page plus its summary). Each URL was
+   * confirmed on the publisher's site before being written here
+   * (memo §2.2): the page exists, it is the current edition's
+   * release page, and the value's sentence is extractable from it
+   * as an ordinary sentence.
+   */
+  releasePageUrls?: readonly string[];
 }
 
 /**
@@ -204,6 +241,20 @@ export const ORIGIN_OFFICIAL_SOURCE_TOPICS: readonly OriginOfficialSourceTopic[]
     domains: ["stat.go.jp", "e-stat.go.jp"],
     releaseTerms: "労働力調査 基本集計",
     edition: { cycle: "monthly", lagMonths: 2 },
+    // Release pages (measure 5-3c), confirmed on stat.go.jp on
+    // 2026-11-27 (memo §2.2 procedure): the monthly results page
+    // 「労働力調査（基本集計）月次結果」 is the September 2026
+    // （令和8年9月分） release page at confirmation time and states
+    // the value as an ordinary sentence （完全失業率（季節調整値）
+    // は2.4％。); the summary PDF is linked from that page under
+    // its persistent file name (overwritten with each month's
+    // release) and states the same sentence. Both are republished
+    // in place for every new edition — neither URL names an
+    // edition.
+    releasePageUrls: [
+      "https://www.stat.go.jp/data/roudou/sokuhou/tsuki/index.html",
+      "https://www.stat.go.jp/data/roudou/sokuhou/tsuki/pdf/gaiyou.pdf",
+    ],
   },
   {
     id: "population-statistics",
@@ -263,6 +314,12 @@ export interface OriginOfficialSourceQuery {
   expectedEdition?: OriginOfficialEdition;
   /** The expected edition in both notations, for query text (measure 2a). */
   editionTerms?: readonly string[];
+  /**
+   * The topic's release pages (measure 5-3c), carried from the
+   * topic table: when this query is planned, the grounding layer
+   * fetches these URLs directly into the candidate pool.
+   */
+  releasePageUrls?: readonly string[];
 }
 
 export interface OriginOfficialSourcePlan {
@@ -359,6 +416,7 @@ export function planOriginOfficialSourceQueries(
       ...(expectedEdition
         ? { expectedEdition, editionTerms: originOfficialEditionQueryTerms(expectedEdition) }
         : {}),
+      ...(topic.releasePageUrls ? { releasePageUrls: topic.releasePageUrls } : {}),
     });
   }
   if (queries.length === 0) return null;

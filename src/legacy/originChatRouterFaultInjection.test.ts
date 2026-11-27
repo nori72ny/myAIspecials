@@ -542,3 +542,137 @@ describe("fault injection: K-06 plan A (provider retry + deterministic reconstru
     expectSourceListFallback(response.body);
   });
 });
+
+describe("round-6 measure 6-1a: successful synthesis attempts are recorded with durations", () => {
+  // The round-6 diagnosis (ANSWER_STATISTICS_ROUND6_DIAGNOSIS_2026-11-27
+  // §1) could attribute every synthesis FAILURE to a route and model,
+  // but no successful attempt ever reached the response record, so the
+  // main route's success-duration distribution — the input the attempt
+  // budget is calibrated from — did not exist. These cases pin the
+  // success side of the record in both routers.
+  const SUCCESS_TEXT = [
+    "首相官邸のページでは高市早苗が内閣総理大臣として示されています [S1](https://www.kantei.go.jp/jp/104/actions/index.html)",
+    "記者会見も行われました [S2](https://www.nhk.or.jp/politics/articles/1.html)",
+  ].join("\n");
+
+  // A production-shaped composite result: the stopped primary's skip,
+  // then the Cloudflare route serving, with its measured duration.
+  const cloudflareServedResult = (text: string) => ({
+    text,
+    transportRequestCount: 2,
+    actualCostUsd: 0 as const,
+    providerDataPolicy: { allowProviderFallbacks: false as const, dataCollection: "deny" as const, requireZeroDataRetention: true as const },
+    routingEvidence: {
+      requestedModel: "@cf/google/gemma-4-26b-a4b-it",
+      servedModel: "@cf/google/gemma-4-26b-a4b-it",
+      strategy: "verified-free-failover" as const,
+      provider: "Cloudflare",
+      attempt: 2 as const,
+      fallbackUsed: true as const,
+    },
+    usage: { promptTokens: 10, completionTokens: 5, totalTokens: 15, costUsd: 0 as const },
+    attempts: [
+      { providerId: "openrouter-free", modelId: "google/gemma-4-31b-it:free", outcome: "skipped" as const, skipReason: "route-stopped", transportRequestCount: 0 },
+      { providerId: "cloudflare-workers-ai-free", modelId: "@cf/google/gemma-4-26b-a4b-it", outcome: "succeeded" as const, transportRequestCount: 2, durationMs: 16_600 },
+    ],
+  });
+
+  const EXPECTED_SUCCESS_ATTEMPTS = [
+    { providerId: "openrouter-free", modelId: "google/gemma-4-31b-it:free", outcome: "skipped", skipReason: "route-stopped", transportRequestCount: 0 },
+    { providerId: "cloudflare-workers-ai-free", modelId: "@cf/google/gemma-4-26b-a4b-it", outcome: "succeeded", transportRequestCount: 2, durationMs: 16_600 },
+  ];
+
+  it("chat router: an adopted synthesis carries its attempts, durations included", async () => {
+    const synthesis = vi.fn().mockResolvedValue(cloudflareServedResult(SUCCESS_TEXT)) as unknown as OriginChatExecutor;
+    const response = await request(createChatApp(researchOk, synthesis))
+      .post("/api/chat")
+      .send({ messages: [{ role: "user", content: "今日の公開情報を調査してください" }] });
+    expect(response.status).toBe(200);
+    expect(response.body.routing.synthesisStatus).toBe("citation-validated");
+    expect(response.body.routing.synthesisProviderAttempts).toEqual(EXPECTED_SUCCESS_ATTEMPTS);
+  });
+
+  it("chat router: a validation-rejected (but provider-successful) synthesis still records its attempts on the fallback landing", async () => {
+    // Empty text is a citation-validation rejection, not a provider
+    // failure: before 6-1a this landing's attempt record stayed empty
+    // because only failure diagnostics ever populated it.
+    const synthesis = vi.fn().mockResolvedValue(cloudflareServedResult("")) as unknown as OriginChatExecutor;
+    const response = await request(createChatApp(researchOk, synthesis))
+      .post("/api/chat")
+      .send({ messages: [{ role: "user", content: "今日の公開情報を調査してください" }] });
+    expect(response.status).toBe(200);
+    expect(response.body.routing.synthesisStatus).toBe("citation-validation-failed");
+    expect(response.body.routing.synthesisProviderAttempts).toEqual(EXPECTED_SUCCESS_ATTEMPTS);
+  });
+
+  it("chat router: a successful provider retry appends its own succeeded attempt after the failed initial dispatch", async () => {
+    const initialError = new OriginProviderError("PROVIDER_TIMEOUT", "internal", 504, true, undefined, {
+      failoverAttempts: [{
+        providerId: "cloudflare-workers-ai-free",
+        modelId: "@cf/google/gemma-4-26b-a4b-it",
+        outcome: "availability-error",
+        errorCode: "PROVIDER_TIMEOUT",
+        transportRequestCount: 1,
+        durationMs: 25_002,
+      }],
+    });
+    const synthesis = vi.fn().mockRejectedValue(initialError) as unknown as OriginChatExecutor;
+    const providerRetry = vi.fn().mockResolvedValue({
+      kind: "executed",
+      route: 3,
+      // A bare route result: no attempts array of its own, so the
+      // record's entry is built from its routing evidence and the
+      // measured executor duration.
+      result: { ...executionResult, text: SUCCESS_TEXT },
+    }) as unknown as GroundedResearchSynthesisProviderRetryExecutor;
+    const app = express();
+    app.use(express.json());
+    app.use(createOriginChatRouter({
+      env: { OPENROUTER_API_KEY: "synthetic-test-key" },
+      execute: vi.fn().mockResolvedValue(executionResult) as unknown as OriginChatExecutor,
+      research: researchOk,
+      researchSynthesis: synthesis,
+      researchSynthesisProviderRetry: providerRetry,
+      now: (() => { let current = 1_000; return () => { current += 25; return current; }; })(),
+      catalogNow: () => verifiedCatalogTime,
+      createRequestId: () => "origin-round6-measure-61a",
+    }));
+    const response = await request(app)
+      .post("/api/chat")
+      .send({ messages: [{ role: "user", content: "今日の公開情報を調査してください" }] });
+    expect(response.status).toBe(200);
+    expect(response.body.routing.synthesisStatus).toBe("citation-validated");
+    const attempts = response.body.routing.synthesisProviderAttempts as Array<Record<string, unknown>>;
+    expect(attempts).toHaveLength(2);
+    expect(attempts[0]).toEqual({
+      providerId: "cloudflare-workers-ai-free",
+      modelId: "@cf/google/gemma-4-26b-a4b-it",
+      outcome: "availability-error",
+      errorCode: "PROVIDER_TIMEOUT",
+      transportRequestCount: 1,
+      durationMs: 25_002,
+    });
+    expect(attempts[1]).toMatchObject({
+      providerId: "groq-free",
+      modelId: "google/gemma-4-31b-it:free",
+      outcome: "succeeded",
+      transportRequestCount: 1,
+    });
+    expect(typeof attempts[1].durationMs).toBe("number");
+  });
+
+  it("research router: an adopted synthesis carries its attempts in research.synthesis", async () => {
+    const research = vi.fn().mockResolvedValue({ ok: true, searchProvider: "DuckDuckGo", sources: researchRouterSources });
+    const researchText = [
+      "iPhone 18 Proは219,800円で、2026年9月18日に発売されます [S1](https://www.apple.com/jp/newsroom/iphone18)",
+      "価格は219,800円と報じられています [S2](https://example.jp/iphone)",
+    ].join("\n");
+    const synthesis = vi.fn().mockResolvedValue(cloudflareServedResult(researchText)) as unknown as OriginResearchSynthesisExecutor;
+    const response = await request(createResearchApp(research, synthesis))
+      .post("/api/chat")
+      .send({ messages: [{ role: "user", content: "iPhone の最新モデルの、日本での価格と発売日を教えてください" }] });
+    expect(response.status).toBe(200);
+    expect(response.body.research.synthesis.status).toBe("citation-validated");
+    expect(response.body.research.synthesis.attempts).toEqual(EXPECTED_SUCCESS_ATTEMPTS);
+  });
+});

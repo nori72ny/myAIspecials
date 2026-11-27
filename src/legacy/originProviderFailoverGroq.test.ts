@@ -3,14 +3,18 @@ import {
   assertOriginZeroCostExecutionResultWithFailover,
   executeOriginProviderStreamWithFailover,
   executeOriginProviderWithFailover,
+  executeOriginSynthesisWithFailover,
   isOriginGroqFirstEnabled,
+  ORIGIN_CHAT_TOTAL_BUDGET_MS,
   ORIGIN_CLOUDFLARE_ATTEMPT_BUDGET_MS,
   ORIGIN_CLOUDFLARE_CIRCUIT_COOLDOWN_MS,
   ORIGIN_CLOUDFLARE_CIRCUIT_FAILURE_THRESHOLD,
   ORIGIN_CLOUDFLARE_CIRCUIT_SKIP_REASON,
+  ORIGIN_CLOUDFLARE_ROUTE_TIMEOUT_MS,
   ORIGIN_GROQ_ATTEMPT_BUDGET_MS,
   ORIGIN_GROQ_FIRST_ENV,
   ORIGIN_GROQ_ROUTE_RESERVE_MS,
+  ORIGIN_SYNTHESIS_CLOUDFLARE_ATTEMPT_BUDGET_MS,
   resetOriginProviderFailoverCircuitForTests,
 } from "./originProviderFailover";
 
@@ -496,6 +500,56 @@ describe("third-route reserve and attempt durations (PKG-4 PR-1)", () => {
     expect(groqExecute).not.toHaveBeenCalled();
     expect(result.attempts).toHaveLength(2);
     expect(result.attempts?.[1]?.durationMs).toBeGreaterThanOrEqual(75);
+  });
+});
+
+describe("synthesis attempt budget (round-6 measure 6-1c)", () => {
+  // ANSWER_STATISTICS_ROUND6_DIAGNOSIS_2026-11-27 §1/§5: every
+  // round-6 synthesis provider failure was the main route hitting
+  // the general 25s attempt budget (measured 25,002–25,003ms) while
+  // the Groq pool was exhausted. The synthesis dispatch entry gives
+  // the synthesis stage 32s; every other dispatch keeps 25s.
+  it("pins the synthesis budget inside every enclosing bound", () => {
+    expect(ORIGIN_SYNTHESIS_CLOUDFLARE_ATTEMPT_BUDGET_MS).toBe(32_000);
+    expect(ORIGIN_SYNTHESIS_CLOUDFLARE_ATTEMPT_BUDGET_MS).toBeGreaterThan(ORIGIN_CLOUDFLARE_ATTEMPT_BUDGET_MS);
+    // The slice formula caps at remaining − Groq reserve, so the
+    // synthesis budget must fit under total − reserve with the
+    // reserve itself untouched.
+    expect(ORIGIN_SYNTHESIS_CLOUDFLARE_ATTEMPT_BUDGET_MS)
+      .toBeLessThanOrEqual(ORIGIN_CHAT_TOTAL_BUDGET_MS - ORIGIN_GROQ_ROUTE_RESERVE_MS);
+    // Below the route/client caps; the 120s function limit sits far
+    // above all of these (vercel.json maxDuration).
+    expect(ORIGIN_SYNTHESIS_CLOUDFLARE_ATTEMPT_BUDGET_MS).toBeLessThan(ORIGIN_CLOUDFLARE_ROUTE_TIMEOUT_MS);
+  });
+
+  it("dispatches through the general failover with caller options honored after the synthesis default", async () => {
+    const cloudflareExecute = vi.fn(async () => new Promise<OriginProviderExecutionResult>(() => undefined));
+    const groqExecute = groqOk();
+    const startedAt = Date.now();
+    const result = await executeOriginSynthesisWithFailover(request, bothEnv, fetch, {
+      nowMs: NOW_MS, cloudflareExecute, groqExecute,
+      totalBudgetMs: 4_000, groqReserveMs: 500, cloudflareAttemptBudgetMs: 300,
+    });
+    const elapsedMs = Date.now() - startedAt;
+    // The hanging second route is cut at the caller's 300ms budget
+    // and the third route answers — the synthesis entry is the
+    // general dispatch with its options plumbed through.
+    expect(result.text).toBe("第3経路の回答です。");
+    expect(groqExecute).toHaveBeenCalledTimes(1);
+    expect(elapsedMs).toBeGreaterThanOrEqual(250);
+    expect(elapsedMs).toBeLessThan(2_000);
+    expect(result.attempts?.[1]).toMatchObject({ outcome: "availability-error", errorCode: "PROVIDER_TIMEOUT" });
+  });
+
+  it("serves a healthy second route exactly like the general entry", async () => {
+    const cloudflareExecute = vi.fn(async () => cloudflareSuccessResult());
+    const groqExecute = groqOk();
+    const result = await executeOriginSynthesisWithFailover(request, bothEnv, fetch, {
+      nowMs: NOW_MS, cloudflareExecute, groqExecute,
+    });
+    expect(result.text).toBe("第2経路の回答です。");
+    expect(groqExecute).not.toHaveBeenCalled();
+    expect(() => assertOriginZeroCostExecutionResultWithFailover(result, ORIGIN_OPENROUTER_FREE_MODEL)).not.toThrow();
   });
 });
 

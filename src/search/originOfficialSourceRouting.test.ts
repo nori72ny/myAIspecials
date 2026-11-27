@@ -790,7 +790,12 @@ describe("executeOriginSearchGrounding — round-8 measures A + B + D", () => {
     // Measure A: the restricted query names the publication.
     expect(restricted?.query).toContain("労働力調査 基本集計");
     expect(outcome.candidateStats?.officialRetry).toBeUndefined();
-    expect(outcome.queriesIssued?.map((issued) => issued.kind)).toEqual(["ordinary", "ordinary", "official"]);
+    // Measure 5-3c: the labour topic's two release pages are also
+    // fetched directly (the mock's extract returns nothing for
+    // them, so they add records but no candidates here).
+    expect(outcome.queriesIssued?.map((issued) => issued.kind)).toEqual([
+      "ordinary", "ordinary", "official", "official-release-page", "official-release-page",
+    ]);
   });
 
   it("F-06 shape: a value-less pool fires exactly ONE retry (release name + expected edition), which brings the publication page", async () => {
@@ -823,10 +828,17 @@ describe("executeOriginSearchGrounding — round-8 measures A + B + D", () => {
       reason: "no-numeric-span", fired: true, candidateCount: 1, keptCount: 1, adoptedCount: 1,
     });
     // Measure D: issued queries and per-candidate decisions are recorded.
+    // Measure 5-3c: the release-page fetches sit between the official
+    // search and the retry (they start in parallel with the searches).
     expect(outcome.queriesIssued?.map((issued) => issued.kind)).toEqual([
-      "ordinary", "ordinary", "official", "official-retry",
+      "ordinary", "ordinary", "official", "official-release-page", "official-release-page", "official-retry",
     ]);
     expect(outcome.queriesIssued?.[3]).toEqual({
+      provider: "tavily", kind: "official-release-page",
+      query: "https://www.stat.go.jp/data/roudou/sokuhou/tsuki/index.html",
+      url: "https://www.stat.go.jp/data/roudou/sokuhou/tsuki/index.html",
+    });
+    expect(outcome.queriesIssued?.[5]).toEqual({
       provider: "tavily", kind: "official-retry", query: "労働力調査 基本集計 令和8年9月分 2026年9月分",
       includeDomains: ["stat.go.jp", "e-stat.go.jp"],
     });
@@ -838,8 +850,11 @@ describe("executeOriginSearchGrounding — round-8 measures A + B + D", () => {
     // …and the same record reaches the research result's metadata.
     const result = originSearchGroundingToResearchResult(outcome);
     expect(result.grounding?.queriesIssued?.map((issued) => issued.kind)).toEqual([
-      "ordinary", "ordinary", "official", "official-retry",
+      "ordinary", "ordinary", "official", "official-release-page", "official-release-page", "official-retry",
     ]);
+    expect(result.grounding?.queriesIssued?.[4]?.url).toBe(
+      "https://www.stat.go.jp/data/roudou/sokuhou/tsuki/pdf/gaiyou.pdf",
+    );
     expect(result.grounding?.candidateStats?.officialRetry?.reason).toBe("no-numeric-span");
     expect(result.grounding?.candidateStats?.freshnessDecisions?.length).toBeGreaterThan(0);
   });
@@ -1159,8 +1174,14 @@ describe("executeOriginSearchGrounding — follow-up measure A (statistical + of
         return jsonResponse({ results: [BLOG_RESULT] });
       }
       if (url.includes("api.tavily.com/extract")) {
+        // URL-faithful: a page comes back only when it was actually
+        // requested (measure 5-3c's release-page fetch asks for the
+        // labour topic's release URLs and gets nothing here).
+        const body = JSON.parse(init?.body ?? "{}") as { urls?: string[] };
         return jsonResponse({
-          results: [{ url: STAT_RESULT.url, raw_content: EXTRACT_MARKER }],
+          results: (body.urls ?? []).includes(STAT_RESULT.url)
+            ? [{ url: STAT_RESULT.url, raw_content: EXTRACT_MARKER }]
+            : [],
           failed_results: [],
         });
       }
@@ -1179,7 +1200,13 @@ describe("executeOriginSearchGrounding — follow-up measure A (statistical + of
     });
     const outcome = groundedOf(await executeOriginSearchGrounding(F06_QUESTION, deps));
     const extractCalls = calls.filter((call) => call.url.includes("api.tavily.com/extract"));
-    expect(extractCalls).toHaveLength(1);
+    // Two extract calls in total: measure 5-3c's release-page fetch
+    // (asks for the topic's release URLs, gets nothing here) and the
+    // extract STAGE's call — the one carrying the adopted pool's
+    // URLs — which is this measure's subject and fires exactly once.
+    const stageExtractCalls = extractCalls.filter((call) =>
+      (JSON.parse(call.init?.body ?? "{}") as { urls?: string[] }).urls?.includes(STAT_RESULT.url));
+    expect(stageExtractCalls).toHaveLength(1);
     const official = outcome.sources.find((source) => source.domain === "stat.go.jp");
     expect(official).toBeDefined();
     expect(official?.evidenceLevel).toBe("extracted");
@@ -1216,7 +1243,17 @@ describe("executeOriginSearchGrounding — follow-up measure A (statistical + of
     });
     const outcome = groundedOf(await executeOriginSearchGrounding(F06_QUESTION, deps));
     expect(outcome.sources.some((source) => source.authorityTier === "official")).toBe(false);
-    expect(calls.filter((call) => call.url.includes("api.tavily.com/extract"))).toHaveLength(0);
+    // The extract STAGE never fires — its condition needs an adopted
+    // official source. The single extract call is measure 5-3c's
+    // release-page fetch (candidate generation, not the stage),
+    // whose mock returns nothing, so the pool stays official-free.
+    const extractCalls = calls.filter((call) => call.url.includes("api.tavily.com/extract"));
+    expect(extractCalls).toHaveLength(1);
+    const releaseFetchBody = JSON.parse(extractCalls[0]?.init?.body ?? "{}") as { urls?: string[] };
+    expect(releaseFetchBody.urls).toEqual([
+      "https://www.stat.go.jp/data/roudou/sokuhou/tsuki/index.html",
+      "https://www.stat.go.jp/data/roudou/sokuhou/tsuki/pdf/gaiyou.pdf",
+    ]);
   });
 
   it("non-statistical question with an official source adopted: extract does not fire", async () => {
@@ -1743,4 +1780,174 @@ describe("executeOriginSearchGrounding — round-3 measure 2-3 (B2: the summary'
     score: 0.7,
     published_date: "2026-11-16T00:00:00.000Z",
   };
+});
+
+/* ------------------------------------------------------------------ */
+/* Round-6 measure 6-2 = measure 5-3c: deterministic release-page    */
+/* candidates (ANSWER_STATISTICS_ROUND6_DIAGNOSIS_2026-11-27 §3;     */
+/* design memo ANSWER_STATISTICS_ROUND5_MEASURE53C_DESIGN_MEMO).     */
+/* The production B3 shape: across two rounds and three query        */
+/* shapes the Labour Force Survey's monthly release page never       */
+/* entered the candidate pool — the provider's index simply does     */
+/* not return it. The topic table now carries the page's persistent  */
+/* URLs, fetched directly into the pool when the plan fires.         */
+/* ------------------------------------------------------------------ */
+
+const RELEASE_PAGE_HTML_URL = "https://www.stat.go.jp/data/roudou/sokuhou/tsuki/index.html";
+const RELEASE_PAGE_PDF_URL = "https://www.stat.go.jp/data/roudou/sokuhou/tsuki/pdf/gaiyou.pdf";
+// The September 2026 release as the page states it: the value as an
+// ordinary sentence, and the publication date in the text (the
+// extract route reports no provider date).
+const RELEASE_PAGE_TEXT =
+  "労働力調査（基本集計）2026年（令和8年）9月分結果の概要。就業者数は6816万人でした。"
+  + "完全失業率（季節調整値）は2.4％。前月に比べ0.1ポイントの低下。2026年10月31日に公表しました。";
+
+describe("planOriginOfficialSourceQueries — release pages (measure 5-3c)", () => {
+  it("the labour-force plan carries the topic's confirmed release page URLs", () => {
+    const plan = planOriginOfficialSourceQueries(F06_QUESTION, NOW);
+    expect(plan?.queries[0]?.topic).toBe("labour-force-statistics");
+    expect(plan?.queries[0]?.releasePageUrls).toEqual([RELEASE_PAGE_HTML_URL, RELEASE_PAGE_PDF_URL]);
+  });
+
+  it("topics without confirmed release pages carry none (B1 and GDP unchanged)", () => {
+    const b1 = planOriginOfficialSourceQueries("最新の有効求人倍率を教えてください。いつの分ですか？", NOW);
+    expect(b1?.queries[0]?.topic).toBe("employment-and-pension");
+    expect(b1?.queries[0]?.releasePageUrls).toBeUndefined();
+    // GDP was checked and deliberately left out (round-6 diagnosis
+    // §5, measure 6-3): the release summary exists only as an
+    // edition-named PDF (a per-edition URL, which the field
+    // forbids) and as a persistent-named DATA-TABLE PDF — the
+    // document form round-6 §2 showed carries no quotable value
+    // sentence. The ESRI menu page states the headline only as a
+    // dashboard fragment (前期比 only, no 年率）, not the release's
+    // value sentence.
+    const gdp = planOriginOfficialSourceQueries("実質GDPの最新値を教えてください", NOW);
+    expect(gdp?.queries[0]?.topic).toBe("gdp-and-economy");
+    expect(gdp?.queries[0]?.releasePageUrls).toBeUndefined();
+  });
+});
+
+describe("executeOriginSearchGrounding — measure 5-3c (deterministic release-page candidates)", () => {
+  function releasePageAwareFetch(options?: { failExtract?: boolean }) {
+    const calls: RecordedCall[] = [];
+    const fetchImpl: OriginSearchFetch = async (url, init) => {
+      calls.push({ url, init });
+      if (url.includes("api.tavily.com/search")) {
+        const body = JSON.parse(init?.body ?? "{}") as { include_domains?: string[] };
+        // The production B3 shape: NEITHER search returns the
+        // monthly release page — a value-less navigation page and
+        // a blog are all the pool would ever hold.
+        if (body.include_domains?.includes("stat.go.jp")) return jsonResponse({ results: [JILPT_NAV_RESULT] });
+        return jsonResponse({ results: [BLOG_RESULT] });
+      }
+      if (url.includes("api.tavily.com/extract")) {
+        if (options?.failExtract) throw new Error("extract unavailable");
+        const body = JSON.parse(init?.body ?? "{}") as { urls?: string[] };
+        const results = (body.urls ?? [])
+          .filter((target) => target === RELEASE_PAGE_HTML_URL || target === RELEASE_PAGE_PDF_URL)
+          .map((target) => ({ url: target, raw_content: RELEASE_PAGE_TEXT }));
+        return jsonResponse({ results, failed_results: [] });
+      }
+      const host = new URL(url).hostname;
+      if (host === "wikipedia.org" || host.endsWith(".wikipedia.org")) return jsonResponse({ pages: [] });
+      throw new Error(`unexpected URL: ${url}`);
+    };
+    return { fetchImpl, calls };
+  }
+
+  it("the release page enters the pool deterministically and is adopted, though no search returned it", async () => {
+    const { fetchImpl, calls } = releasePageAwareFetch();
+    const deps = makeDeps({
+      fetchImpl,
+      env: { TAVILY_API_KEY: "tvly-test-key", ORIGIN_OFFICIAL_SOURCE_ROUTING_MODE: "true" },
+    });
+    const outcome = groundedOf(await executeOriginSearchGrounding(F06_QUESTION, deps));
+    // The HTML release page was adopted with its official tier and
+    // the extracted body; its title is the publication name.
+    const release = outcome.sources.find((source) => source.url === RELEASE_PAGE_HTML_URL);
+    expect(release).toBeDefined();
+    expect(release?.authorityTier).toBe("official");
+    expect(release?.evidenceLevel).toBe("extracted");
+    expect(release?.title).toBe("労働力調査 基本集計");
+    expect(release?.excerpt).toContain("完全失業率（季節調整値）は2.4％");
+    expect(release?.dateVerified).toBe(true);
+    // The summary PDF is a candidate too, but packet selection's
+    // one-source-per-domain rule leaves the domain's slot to the
+    // HTML page ahead of it — candidacy is deterministic,
+    // adoption is not.
+    expect(outcome.sources.some((source) => source.url === RELEASE_PAGE_PDF_URL)).toBe(false);
+    expect(outcome.candidateStats?.domainCounts["stat.go.jp"]).toBe(2);
+    // The fetch is recorded per URL, in table order (memo §2.4).
+    const releaseIssued = (outcome.queriesIssued ?? []).filter((issued) => issued.kind === "official-release-page");
+    expect(releaseIssued).toEqual([
+      { provider: "tavily", kind: "official-release-page", query: RELEASE_PAGE_HTML_URL, url: RELEASE_PAGE_HTML_URL },
+      { provider: "tavily", kind: "official-release-page", query: RELEASE_PAGE_PDF_URL, url: RELEASE_PAGE_PDF_URL },
+    ]);
+    // …and the same records reach the research result's metadata.
+    const result = originSearchGroundingToResearchResult(outcome);
+    expect(result.grounding?.queriesIssued?.filter((issued) => issued.kind === "official-release-page"))
+      .toHaveLength(2);
+    // The release page's edition cannot be read from its title or
+    // URL, so the edition-keyed assessment stays cautious and the
+    // insufficiency retry still fires — the deterministic candidate
+    // passes through the same gates as every search candidate.
+    expect(outcome.candidateStats?.officialRetry).toMatchObject({ reason: "stale-edition", fired: true });
+    // Honest accounting: 3 searches (ordinary + official + retry)
+    // + the batched release extract (2 pages = 1 credit) + the
+    // extract stage's call (1 page back = 1 credit).
+    expect(deps.counter?.usage("tavily", NOW)).toBe(5);
+    expect(calls.filter((call) => call.url.includes("api.tavily.com/search"))).toHaveLength(3);
+  });
+
+  it("a failed release-page fetch is fail-open: the search pool grounds exactly as before", async () => {
+    const { fetchImpl: baseFetch } = releasePageAwareFetch({ failExtract: true });
+    // The search pool must ground on its own for this pin, so the
+    // ordinary result is dated (the undated blog of the other tests
+    // cannot carry a fresh_general pool alone — pre-existing gate
+    // behaviour, unrelated to the release fetch).
+    const fetchImpl: OriginSearchFetch = async (url, init) => {
+      if (url.includes("api.tavily.com/search")) {
+        const body = JSON.parse(init?.body ?? "{}") as { include_domains?: string[] };
+        if (!body.include_domains) {
+          return jsonResponse({
+            results: [{ ...BLOG_RESULT, published_date: "2026-11-18T00:00:00.000Z" }],
+          });
+        }
+      }
+      return baseFetch(url, init);
+    };
+    const deps = makeDeps({
+      fetchImpl,
+      env: { TAVILY_API_KEY: "tvly-test-key", ORIGIN_OFFICIAL_SOURCE_ROUTING_MODE: "true" },
+    });
+    const outcome = groundedOf(await executeOriginSearchGrounding(F06_QUESTION, deps));
+    expect(outcome.sources.some((source) => source.url === RELEASE_PAGE_HTML_URL)).toBe(false);
+    expect(outcome.sources.some((source) => source.url === RELEASE_PAGE_PDF_URL)).toBe(false);
+    expect(outcome.sources.some((source) => source.domain === "blog.example.com")).toBe(true);
+    // The fetch WAS attempted, so its records stand even though it
+    // produced no candidates.
+    expect((outcome.queriesIssued ?? []).filter((issued) => issued.kind === "official-release-page"))
+      .toHaveLength(2);
+  });
+
+  it("switch OFF: no release-page fetch is attempted and no record is written", async () => {
+    const { fetchImpl, calls } = releasePageAwareFetch();
+    const deps = makeDeps({ fetchImpl });
+    await executeOriginSearchGrounding(F06_QUESTION, deps);
+    expect(calls.every((call) => !(call.init?.body ?? "").includes("sokuhou/tsuki"))).toBe(true);
+  });
+
+  it("a topic without release pages (B1) never fetches one, even with the switch on", async () => {
+    const { fetchImpl, calls } = officialAwareFetch();
+    const deps = makeDeps({
+      fetchImpl,
+      env: { TAVILY_API_KEY: "tvly-test-key", ORIGIN_OFFICIAL_SOURCE_ROUTING_MODE: "true" },
+    });
+    const outcome = await executeOriginSearchGrounding(
+      "最新の有効求人倍率を教えてください。いつの分ですか？", deps,
+    );
+    const issued = outcome.kind === "not-applicable" ? [] : (outcome.queriesIssued ?? []);
+    expect(issued.some((entry) => entry.kind === "official-release-page")).toBe(false);
+    expect(calls.every((call) => !(call.init?.body ?? "").includes("sokuhou/tsuki"))).toBe(true);
+  });
 });

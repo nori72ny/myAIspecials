@@ -367,6 +367,17 @@ describe("originResearchRouter", () => {
       sourceCount: 2,
       providerRetried: true,
       providerRetryRoute: 2,
+      // Round-6 measure 6-1a: the successful retry joins the attempt
+      // record (the bare result's routing evidence plus the measured
+      // duration — 0 under this suite's fixed clock). The initial
+      // error carried no diagnostic, so it contributes no entry.
+      attempts: [{
+        providerId: "cloudflare-workers-ai-free",
+        modelId: "google/gemma-4-31b-it:free",
+        outcome: "succeeded",
+        transportRequestCount: 1,
+        durationMs: 0,
+      }],
     });
   });
 

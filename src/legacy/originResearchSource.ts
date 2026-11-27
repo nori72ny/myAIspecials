@@ -122,9 +122,15 @@ export interface OriginResearchGroundingOfficialRetry {
  */
 export interface OriginResearchGroundingIssuedQuery {
   provider: string;
-  kind: "ordinary" | "official" | "official-retry" | "stable-fallback";
+  kind: "ordinary" | "official" | "official-retry" | "stable-fallback" | "official-release-page";
   query: string;
   includeDomains?: readonly string[];
+  /**
+   * The fetched URL (measure 5-3c): present on official-release-page
+   * records only, whose "query" is the URL itself — a direct page
+   * fetch has no query text.
+   */
+  url?: string;
 }
 
 export interface OriginResearchGroundingMetadata {

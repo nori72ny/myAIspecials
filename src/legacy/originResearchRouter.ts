@@ -19,7 +19,7 @@ import { isRefinementOfPreviousAnswer, originClientPolicy, screenConversationFor
 import { isSelfContainedCodeTaskRequest, resolveOriginCodeTaskRoutingMode } from "./originChatResponsePolicy.js";
 import { buildResearchReport } from "./originResearchReport.js";
 import { researchCurrentInformation, type OriginResearchResult, type OriginResearchSource } from "./originResearchSource.js";
-import { buildOriginProviderFailureDiagnostic, OriginProviderError, type OriginProviderAttemptDiagnostic, type OriginProviderExecutionRequest, type OriginProviderExecutionResult } from "./originProviderClient.js";
+import { buildOriginProviderFailureDiagnostic, OriginProviderError, summarizeOriginProviderAttempts, type OriginProviderAttemptDiagnostic, type OriginProviderExecutionRequest, type OriginProviderExecutionResult } from "./originProviderClient.js";
 import { ORIGIN_CLOUDFLARE_WORKERS_AI_FREE_PROVIDER_ID, ORIGIN_GROQ_FREE_PROVIDER_ID } from "../lib/orchestration/OriginExecutionPolicy.js";
 import { ORIGIN_CLOUDFLARE_FREE_MODEL } from "../lib/orchestration/OriginCloudflareFreeModelCatalog.js";
 import { ORIGIN_GROQ_FREE_MODEL_ID } from "../lib/orchestration/OriginGroqFreeModelCatalog.js";
@@ -497,6 +497,13 @@ export function createOriginResearchRouter(options: OriginResearchRouterOptions 
             startedAtMs: handlerStartedAt,
             now: catalogNow,
           });
+          // Round-6 measure 6-1a: same records-path attempt record
+          // as the chat router — the outcome's consumed execution
+          // result carries the attempts (success durations included)
+          // that were previously attributable nowhere.
+          if (recordsOutcome.attempted && synthesisProviderAttempts.length === 0) {
+            synthesisProviderAttempts = summarizeOriginProviderAttempts(recordsOutcome.result?.attempts);
+          }
           if (recordsOutcome.attempted) {
             recordsSettled = true;
             if (recordsOutcome.adopted === true && recordsOutcome.text !== undefined && recordsOutcome.result !== undefined) {
@@ -541,6 +548,7 @@ export function createOriginResearchRouter(options: OriginResearchRouterOptions 
                     path: "records",
                     sourceCount: recordsOutcome.usedSourceIds.length,
                     ...(recordsOutcome.partial ? { partial: true } : {}),
+                    ...(synthesisProviderAttempts.length > 0 ? { attempts: synthesisProviderAttempts } : {}),
                   },
                 },
               });
@@ -651,6 +659,7 @@ export function createOriginResearchRouter(options: OriginResearchRouterOptions 
                 : [];
             synthesisProviderAttempts = initialAttempts;
             let retryOutcome: GroundedResearchSynthesisProviderRetryOutcome | null = null;
+            const providerRetryStartedAt = catalogNow();
             try {
               retryOutcome = await synthesisProviderRetryExecutor(
                 synthesisRequest,
@@ -659,6 +668,28 @@ export function createOriginResearchRouter(options: OriginResearchRouterOptions 
               );
               if (retryOutcome.kind === "executed") {
                 assertGroundedResearchRecordsZeroCost(retryOutcome.result, synthesisPlan.plan.modelId);
+                // Round-6 measure 6-1a: a SUCCESSFUL provider retry
+                // joins the attempt record too (same construction as
+                // the chat router: the bare result's routing evidence
+                // plus the measured executor duration, or the
+                // composite result's own attempts when it carries
+                // them).
+                const retryAttemptSummaries = summarizeOriginProviderAttempts(retryOutcome.result.attempts);
+                synthesisProviderAttempts = [
+                  ...synthesisProviderAttempts,
+                  ...(retryAttemptSummaries.length > 0
+                    ? retryAttemptSummaries
+                    : summarizeOriginProviderAttempts([{
+                        providerId: retryOutcome.route === 2
+                          ? ORIGIN_CLOUDFLARE_WORKERS_AI_FREE_PROVIDER_ID
+                          : ORIGIN_GROQ_FREE_PROVIDER_ID,
+                        modelId: retryOutcome.result.routingEvidence?.servedModel
+                          ?? (retryOutcome.route === 2 ? ORIGIN_CLOUDFLARE_FREE_MODEL : ORIGIN_GROQ_FREE_MODEL_ID),
+                        outcome: "succeeded",
+                        transportRequestCount: retryOutcome.result.transportRequestCount,
+                        durationMs: Math.max(0, catalogNow() - providerRetryStartedAt),
+                      }])),
+                ];
               }
             } catch {
               retryOutcome = null;
@@ -755,6 +786,22 @@ export function createOriginResearchRouter(options: OriginResearchRouterOptions 
           // retry's when a retry ran and was adopted, otherwise the
           // initial one.
           const synthesisResult = retryOutcome.result;
+          // Round-6 measure 6-1a: record the successful executions'
+          // attempts — durations included — exactly as the chat
+          // router does, so this router's success-duration
+          // distribution is measurable from the response too.
+          if (synthesisProviderAttempts.length === 0) {
+            const successAttempts = summarizeOriginProviderAttempts(initialSynthesisResult.attempts);
+            if (retryOutcome.retryResult && retryOutcome.retryResult !== initialSynthesisResult) {
+              successAttempts.push(...summarizeOriginProviderAttempts(retryOutcome.retryResult.attempts));
+            }
+            if (successAttempts.length > 0) synthesisProviderAttempts = successAttempts;
+          } else if (retryOutcome.retryResult && retryOutcome.retryResult !== initialSynthesisResult) {
+            synthesisProviderAttempts = [
+              ...synthesisProviderAttempts,
+              ...summarizeOriginProviderAttempts(retryOutcome.retryResult.attempts),
+            ];
+          }
           if (adoption.adopted === true) {
             const synthesizedContent = adoption.text;
             const synthesizedReason = retryOutcome.retried
@@ -814,6 +861,7 @@ export function createOriginResearchRouter(options: OriginResearchRouterOptions 
                   ...(adoption.salvaged ? { salvaged: true, salvageRemovedUnits: adoption.removedUnits } : {}),
                   ...(retryOutcome.retried ? { retried: true } : {}),
                   ...(synthesisProviderRetryRoute ? { providerRetried: true, providerRetryRoute: synthesisProviderRetryRoute } : {}),
+                  ...(synthesisProviderAttempts.length > 0 ? { attempts: synthesisProviderAttempts } : {}),
                 },
               },
             });

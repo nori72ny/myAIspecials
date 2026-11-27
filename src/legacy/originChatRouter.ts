@@ -16,8 +16,8 @@ import { applyOriginPublicationGate, publicationGateFiringKinds } from "../lib/o
 import { applyOriginDateWeekdayVerificationGate } from "../lib/orchestration/OriginDateWeekdayVerification.js";
 import { resolveOriginAgentWorkPlan, type OriginResolvedWorkPlan } from "../lib/orchestration/OriginServiceRegistry.js";
 import { generateOriginSupervisorArtifactsV2, ORIGIN_SUPERVISOR_VERSION_V2 } from "../lib/orchestration/OriginSupervisorV2.js";
-import { buildOriginProviderFailureDiagnostic, OriginProviderError, type OriginProviderAttemptDiagnostic, type OriginProviderExecutionRequest, type OriginProviderExecutionResult } from "./originProviderClient.js";
-import { assertOriginZeroCostExecutionResultWithFailover, executeOriginProviderWithFailover } from "./originProviderFailover.js";
+import { buildOriginProviderFailureDiagnostic, OriginProviderError, summarizeOriginProviderAttempts, type OriginProviderAttemptDiagnostic, type OriginProviderExecutionRequest, type OriginProviderExecutionResult } from "./originProviderClient.js";
+import { assertOriginZeroCostExecutionResultWithFailover, executeOriginProviderWithFailover, executeOriginSynthesisWithFailover } from "./originProviderFailover.js";
 import { ORIGIN_CLOUDFLARE_FREE_MODEL } from "../lib/orchestration/OriginCloudflareFreeModelCatalog.js";
 import { ORIGIN_GROQ_FREE_MODEL_ID } from "../lib/orchestration/OriginGroqFreeModelCatalog.js";
 import { assertGroundedResearchRecordsZeroCost, createGroundedResearchRecordsRetryExecutorWithDetail, createGroundedResearchSynthesisProviderRetryExecutor, type GroundedResearchSynthesisProviderRetryExecutor, type GroundedResearchSynthesisProviderRetryOutcome } from "./originRecordsRetryRoute.js";
@@ -245,6 +245,7 @@ function groundingObservationForResponse(
       kind: issued.kind,
       query: issued.query,
       ...(issued.includeDomains ? { includeDomains: issued.includeDomains } : {}),
+      ...(issued.url ? { url: issued.url } : {}),
     })),
     freshness: {
       verifiedFreshCount: grounding.verifiedFreshSourceCount,
@@ -271,7 +272,7 @@ function firstAnswerBlock(content: string): string { const firstBlock = content.
 function answerEnvelope(content: string, language: "ja" | "en", verificationStatus: OriginAnswerVerificationStatus, verificationSummary: string, evidence: readonly OriginAnswerEvidenceItem[] = [], limitations: readonly string[] = [], nextActions: readonly string[] = [], richOutputs: readonly OriginAnswerRichOutput[] = []): OriginAnswerEnvelope { const result = createOriginAnswerEnvelope({ language, conclusion: firstAnswerBlock(content), answer: content, evidence, verification: { status: verificationStatus, independentReviewPerformed: verificationStatus === "passed", summary: verificationSummary }, limitations, nextActions, richOutputs }); if (result.ok === false) throw new Error(result.code); return result.value; }
 
 export function createOriginChatRouter(options: OriginChatRouterOptions = {}) {
-  const router = Router(); const env = options.env ?? process.env; const now = options.now ?? Date.now; const catalogNow = options.catalogNow ?? Date.now; const contextPolicy = options.contextPolicy ?? DEFAULT_ORIGIN_CONTEXT_POLICY; const createRequestId = options.createRequestId ?? (() => `origin-${now()}-${randomUUID()}`); const execute = options.execute ?? ((request: OriginProviderExecutionRequest) => executeOriginProviderWithFailover(request, env)); const searchGroundingDeps: OriginSearchGroundingDeps = { env, ...(options.searchGrounding ?? {}) }; const research = options.research ?? createDefaultOriginResearchExecutor(searchGroundingDeps, (query: string) => researchCurrentInformation(query)); const researchSynthesis = options.researchSynthesis === null ? null : options.researchSynthesis ?? execute;
+  const router = Router(); const env = options.env ?? process.env; const now = options.now ?? Date.now; const catalogNow = options.catalogNow ?? Date.now; const contextPolicy = options.contextPolicy ?? DEFAULT_ORIGIN_CONTEXT_POLICY; const createRequestId = options.createRequestId ?? (() => `origin-${now()}-${randomUUID()}`); const execute = options.execute ?? ((request: OriginProviderExecutionRequest) => executeOriginProviderWithFailover(request, env)); const searchGroundingDeps: OriginSearchGroundingDeps = { env, ...(options.searchGrounding ?? {}) }; const research = options.research ?? createDefaultOriginResearchExecutor(searchGroundingDeps, (query: string) => researchCurrentInformation(query)); const researchSynthesis = options.researchSynthesis === null ? null : options.researchSynthesis ?? (options.execute ? execute : (request: OriginProviderExecutionRequest) => executeOriginSynthesisWithFailover(request, env));
   router.post("/api/chat", async (req, res) => {
     const wantsStreaming = String(req.headers.accept ?? "").toLowerCase().includes("text/event-stream");
     // Phased streaming (origin-phased-sse-v1): when the client asked for an
@@ -887,6 +888,17 @@ export function createOriginChatRouter(options: OriginChatRouterOptions = {}) {
                 startedAtMs: groundedStartedAt,
                 now,
               });
+              // Round-6 measure 6-1a: the records path's executions
+              // join the same attempt record. The outcome carries the
+              // consumed execution result whenever an execution
+              // happened (adopted or not), and its attempts — success
+              // durations included — were previously attributable
+              // nowhere: the round-6 B1 records rejection
+              // (INSUFFICIENT_SOURCE_COVERAGE) could not be attributed
+              // to a route or model at all (diagnosis §1.3).
+              if (recordsOutcome.attempted && synthesisProviderAttempts.length === 0) {
+                synthesisProviderAttempts = summarizeOriginProviderAttempts(recordsOutcome.result?.attempts);
+              }
               if (recordsOutcome.attempted) {
                 recordsSettled = true;
                 if (recordsOutcome.adopted === true && recordsOutcome.text !== undefined && recordsOutcome.result !== undefined) {
@@ -1023,6 +1035,7 @@ export function createOriginChatRouter(options: OriginChatRouterOptions = {}) {
                       usage: recordsResult.usage,
                       providerAttempts: providerAttemptCount(recordsResult),
                       ...(recordsResult.attempts ? { providerRouteAttempts: recordsResult.attempts } : {}),
+                      ...(synthesisProviderAttempts.length > 0 ? { synthesisProviderAttempts } : {}),
                       requestedOutputs: researchRequestedOutputs,
                       supervisorMode: researchRequestedOutputs.length > 0 ? ORIGIN_SUPERVISOR_VERSION_V2 : "research-only",
                       supervisorStatus: supervisorArtifacts.status,
@@ -1154,6 +1167,7 @@ export function createOriginChatRouter(options: OriginChatRouterOptions = {}) {
                   : [];
               synthesisProviderAttempts = initialAttempts;
               let retryOutcome: GroundedResearchSynthesisProviderRetryOutcome | null = null;
+              const providerRetryStartedAt = now();
               try {
                 retryOutcome = await synthesisProviderRetryExecutor(
                   synthesisRequest,
@@ -1165,6 +1179,30 @@ export function createOriginChatRouter(options: OriginChatRouterOptions = {}) {
                   // verified by the records assertion, which
                   // dispatches per result shape (R-PR-5).
                   assertGroundedResearchRecordsZeroCost(retryOutcome.result, synthesisPlan.plan.modelId);
+                  // Round-6 measure 6-1a: a SUCCESSFUL provider retry
+                  // joins the attempt record too. The bare route
+                  // result carries no attempts array of its own, so
+                  // the entry is built from its routing evidence and
+                  // the executor call's measured duration — the same
+                  // whitelist reduction as every other entry — while
+                  // a composite retry result (which does carry
+                  // attempts) is summarized from those instead.
+                  const retryAttemptSummaries = summarizeOriginProviderAttempts(retryOutcome.result.attempts);
+                  synthesisProviderAttempts = [
+                    ...synthesisProviderAttempts,
+                    ...(retryAttemptSummaries.length > 0
+                      ? retryAttemptSummaries
+                      : summarizeOriginProviderAttempts([{
+                          providerId: retryOutcome.route === 2
+                            ? ORIGIN_CLOUDFLARE_WORKERS_AI_FREE_PROVIDER_ID
+                            : ORIGIN_GROQ_FREE_PROVIDER_ID,
+                          modelId: retryOutcome.result.routingEvidence?.servedModel
+                            ?? (retryOutcome.route === 2 ? ORIGIN_CLOUDFLARE_FREE_MODEL : ORIGIN_GROQ_FREE_MODEL_ID),
+                          outcome: "succeeded",
+                          transportRequestCount: retryOutcome.result.transportRequestCount,
+                          durationMs: Math.max(0, now() - providerRetryStartedAt),
+                        }])),
+                  ];
                 }
               } catch {
                 retryOutcome = null;
@@ -1285,6 +1323,27 @@ export function createOriginChatRouter(options: OriginChatRouterOptions = {}) {
             const synthesisResult = retryOutcome.result;
             synthesisExecutionResult = synthesisResult;
             synthesisExecutionPlan = synthesisRequest.plan;
+            // Round-6 measure 6-1a: record the successful executions'
+            // attempts — durations included — so the success-duration
+            // distribution is measurable from the response, not only
+            // the failure breakdown. On the pure-success path the
+            // record is built from every execution in order (initial
+            // dispatch, then the feedback retry's when one executed);
+            // when a provider failure already populated it (the
+            // provider-retry success above), only the feedback
+            // retry's attempts are still missing and are appended.
+            if (synthesisProviderAttempts.length === 0) {
+              const successAttempts = summarizeOriginProviderAttempts(initialSynthesisResult.attempts);
+              if (retryOutcome.retryResult && retryOutcome.retryResult !== initialSynthesisResult) {
+                successAttempts.push(...summarizeOriginProviderAttempts(retryOutcome.retryResult.attempts));
+              }
+              if (successAttempts.length > 0) synthesisProviderAttempts = successAttempts;
+            } else if (retryOutcome.retryResult && retryOutcome.retryResult !== initialSynthesisResult) {
+              synthesisProviderAttempts = [
+                ...synthesisProviderAttempts,
+                ...summarizeOriginProviderAttempts(retryOutcome.retryResult.attempts),
+              ];
+            }
             if (adoption.adopted === true) {
               const verificationReason = grounded.language === "en"
                 ? "Citation structure was checked against the retrieved source information; factual truth and publisher authority were not independently verified."
@@ -1485,6 +1544,7 @@ export function createOriginChatRouter(options: OriginChatRouterOptions = {}) {
                   usage: synthesisResult.usage,
                   providerAttempts: providerAttemptCount(synthesisResult),
                   ...(synthesisResult.attempts ? { providerRouteAttempts: synthesisResult.attempts } : {}),
+                  ...(synthesisProviderAttempts.length > 0 ? { synthesisProviderAttempts } : {}),
                   requestedOutputs: researchRequestedOutputs,
                   supervisorMode: researchRequestedOutputs.length > 0 ? ORIGIN_SUPERVISOR_VERSION_V2 : "research-only",
                   supervisorStatus: supervisorArtifacts.status,
