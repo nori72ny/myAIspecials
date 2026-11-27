@@ -9,7 +9,7 @@ import {
   VOICE_CONVERSATION_TONE_STORAGE_KEY,
   voiceConversationToneProfile,
 } from './voiceConversationTone';
-import type { VoiceStorageLike } from './voiceSpeech';
+import { VOICE_OUTPUT_RATE_STORAGE_KEY, type VoiceStorageLike } from './voiceSpeech';
 
 function memoryStorage(): VoiceStorageLike & { map: Map<string, string> } {
   const map = new Map<string, string>();
@@ -57,6 +57,31 @@ describe('voice conversation tones', () => {
     expect(resolveStoredVoiceConversationStyle()).toEqual({ pitch: 1.05 });
     setStoredVoiceConversationTone('gentle');
     expect(resolveStoredVoiceConversationStyle()).toEqual({ rate: 0.95, pitch: 1.1 });
+    window.localStorage.clear();
+  });
+
+  it('composes the tone factor onto the stored speaking rate （声の速さ）', () => {
+    window.localStorage.clear();
+    // はやい step stored as its plain rate; the gentle factor (0.95)
+    // applies on top of it instead of replacing it.
+    window.localStorage.setItem(VOICE_OUTPUT_RATE_STORAGE_KEY, '1.25');
+    setStoredVoiceConversationTone('gentle');
+    const gentle = resolveStoredVoiceConversationStyle();
+    expect(gentle.rate).toBeCloseTo(1.25 * 0.95);
+    expect(gentle.pitch).toBe(1.1);
+    // The everyday tone names no factor: the profile keeps its
+    // historical shape and the stored rate applies via the speech
+    // controller's fallback — the conversation still follows the step.
+    setStoredVoiceConversationTone('everyday');
+    expect(resolveStoredVoiceConversationStyle()).toEqual({ pitch: 1.05 });
+    window.localStorage.clear();
+  });
+
+  it('keeps the historical absolutes at the default ふつう step', () => {
+    window.localStorage.clear();
+    window.localStorage.setItem(VOICE_OUTPUT_RATE_STORAGE_KEY, '1');
+    setStoredVoiceConversationTone('strong');
+    expect(resolveStoredVoiceConversationStyle()).toEqual({ rate: 1.05, pitch: 0.95 });
     window.localStorage.clear();
   });
 });

@@ -1,3 +1,4 @@
+import { clampSpeechRate, readStoredSpeechRate } from './voiceSpeech';
 import type { SpeechStyleOptions, VoiceStorageLike } from './voiceSpeech';
 
 /**
@@ -11,9 +12,13 @@ import type { SpeechStyleOptions, VoiceStorageLike } from './voiceSpeech';
  * speech controller. It never changes the words — what Orin says is
  * the gated final answer's summary, whatever the tone. (A tone of
  * WORD CHOICE would belong to answer generation, not to this
- * layer.) Presets that name a rate override the stored read-aloud
- * rate for conversation playback only; the stored rate itself is
- * never rewritten.
+ * layer.) A preset's rate is a factor on the owner's stored
+ * speaking rate — the 声の速さ step (VOICE_RATE_DESIGN
+ * 2026-11-27): at the default step the composed conversation
+ * rates equal the presets' historical absolutes, and when the
+ * owner picks a faster or slower step the conversation follows
+ * it, keeping each tone's character. The stored rate itself is
+ * never rewritten here.
  *
  * The choice is stored on the device only (a settings value — no
  * content). Default: everyday.
@@ -78,8 +83,18 @@ export function setStoredVoiceConversationTone(
 }
 
 /** The style resolver the app-wide conversation controller uses:
- * reads the stored tone at each playback, so changing the tone in
- * settings takes effect from the next thing Orin says. */
+ * reads the stored tone and the stored speaking rate at each
+ * playback, so changing either in settings takes effect from the
+ * next thing Orin says. The tone's rate factor is composed onto
+ * the stored rate; when the composition lands exactly on the
+ * stored rate (the everyday tone names no factor) the profile is
+ * returned as-is and the speech controller's own fallback to the
+ * stored rate applies — the same playback, with the profile shape
+ * the tone has always resolved to. */
 export function resolveStoredVoiceConversationStyle(): SpeechStyleOptions {
-  return voiceConversationToneProfile(getStoredVoiceConversationTone());
+  const profile = voiceConversationToneProfile(getStoredVoiceConversationTone());
+  const storedRate = readStoredSpeechRate(defaultStorage());
+  const composed = clampSpeechRate(storedRate * (profile.rate ?? 1));
+  if (composed === storedRate) return profile;
+  return { ...profile, rate: composed };
 }

@@ -9,7 +9,9 @@ import {
 import {
   voiceSpeech,
   VOICE_PREVIEW_PLAYBACK_ID,
+  VOICE_SPEECH_RATE_STEPS,
   type OrinVoiceOption,
+  type VoiceSpeechRateStep,
 } from '../voice/voiceSpeech';
 import {
   getStoredVoiceConversationTone,
@@ -33,6 +35,11 @@ interface Props {
  * on the device only. The whole section renders nothing while the
  * server switch is off or unproven — same fail-closed shape as the
  * rest of the read-aloud surface.
+ *
+ * The section also carries the speaking-speed steps （声の速さ，
+ * VOICE_RATE_DESIGN 2026-11-27): five steps written through the
+ * stored rate, applying to read-aloud, preview and conversation
+ * alike, next to the conversation-tone patterns.
  */
 export default function VoiceOutputSettings({ language }: Props) {
   const ja = language === 'ja';
@@ -49,10 +56,16 @@ export default function VoiceOutputSettings({ language }: Props) {
   const [voices, setVoices] = useState<OrinVoiceOption[]>(() => voiceSpeech.listJapaneseVoices());
   const [selectedURI, setSelectedURI] = useState<string | null>(() => voiceSpeech.getSelectedVoiceURI());
   const [tone, setTone] = useState<VoiceConversationTone>(() => getStoredVoiceConversationTone());
+  const [rateStep, setRateStep] = useState<VoiceSpeechRateStep>(() => voiceSpeech.getRateStep());
 
   const selectTone = (next: VoiceConversationTone) => {
     setStoredVoiceConversationTone(next);
     setTone(next);
+  };
+
+  const selectRateStep = (next: VoiceSpeechRateStep) => {
+    voiceSpeech.setRateStep(next);
+    setRateStep(next);
   };
 
   // Device voice catalogues often arrive after first paint
@@ -149,6 +162,37 @@ export default function VoiceOutputSettings({ language }: Props) {
           </button>
         </>
       )}
+      <div>
+        <h4 id="orin-voice-speed-heading" className="text-sm font-bold">
+          {ja ? '声の速さ' : 'Speaking speed'}
+        </h4>
+        <p className="origin-muted mt-1 text-[13px] leading-5">
+          {ja
+            ? '読み上げと会話で、オリンが話す速さを選べます。'
+            : 'Choose how fast Orin speaks, for reading aloud and for conversation.'}
+        </p>
+        <div role="radiogroup" aria-labelledby="orin-voice-speed-heading" className="mt-2 flex flex-wrap gap-2">
+          {VOICE_SPEECH_RATE_STEPS.map((option) => {
+            const selected = option.id === rateStep;
+            return (
+              <button
+                type="button"
+                key={option.id}
+                role="radio"
+                aria-checked={selected}
+                data-testid={`orin-voice-speed-${option.id}`}
+                onClick={() => selectRateStep(option.id)}
+                className={cn(
+                  'inline-flex min-h-11 items-center rounded-full border px-3 text-sm font-semibold transition',
+                  selected ? 'origin-primary-button border-transparent' : 'origin-secondary-button',
+                )}
+              >
+                {ja ? option.labelJa : option.labelEn}
+              </button>
+            );
+          })}
+        </div>
+      </div>
       <div>
         <h4 id="orin-voice-tone-heading" className="text-sm font-bold">
           {ja ? '会話の口調' : 'Conversation tone'}

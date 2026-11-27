@@ -97,6 +97,73 @@ export const DEFAULT_SPEECH_RATE = 1.0;
 export const MIN_SPEECH_RATE = 0.5;
 export const MAX_SPEECH_RATE = 2.0;
 
+export function clampSpeechRate(rate: number): number {
+  if (!Number.isFinite(rate)) return DEFAULT_SPEECH_RATE;
+  return Math.min(MAX_SPEECH_RATE, Math.max(MIN_SPEECH_RATE, rate));
+}
+
+/**
+ * The stored read-aloud rate from a storage handle: the plain rate
+ * number under VOICE_OUTPUT_RATE_STORAGE_KEY, defaulted and clamped.
+ * The controller's getRate() and the conversation-tone resolver both
+ * read through here so the parsing rule lives in exactly one place.
+ */
+export function readStoredSpeechRate(storage: VoiceStorageLike | null): number {
+  const raw = storage?.getItem(VOICE_OUTPUT_RATE_STORAGE_KEY);
+  const parsed = raw === null || raw === undefined ? Number.NaN : Number.parseFloat(raw);
+  if (!Number.isFinite(parsed)) return DEFAULT_SPEECH_RATE;
+  return clampSpeechRate(parsed);
+}
+
+/**
+ * The owner's speaking-speed steps (owner instruction 2026-11-27,
+ * VOICE_RATE_DESIGN 2026-11-27): five plain-language steps around
+ * normal = 1.0, spaced by roughly equal ratios so each step feels
+ * like the same size of change, and kept well inside the range
+ * where Japanese speech stays easy to follow. A step is only a
+ * named face on the stored rate: picking one writes its rate
+ * through the existing rate setting, so the saved shape never
+ * changes and nothing new is stored or sent anywhere.
+ */
+export type VoiceSpeechRateStep = 'slow' | 'slightly-slow' | 'normal' | 'slightly-fast' | 'fast';
+
+export interface VoiceSpeechRateStepOption {
+  id: VoiceSpeechRateStep;
+  labelJa: string;
+  labelEn: string;
+  rate: number;
+}
+
+export const VOICE_SPEECH_RATE_STEPS: readonly VoiceSpeechRateStepOption[] = [
+  { id: 'slow', labelJa: 'ゆっくり', labelEn: 'Slow', rate: 0.8 },
+  { id: 'slightly-slow', labelJa: 'ややゆっくり', labelEn: 'A bit slow', rate: 0.9 },
+  { id: 'normal', labelJa: 'ふつう', labelEn: 'Normal', rate: DEFAULT_SPEECH_RATE },
+  { id: 'slightly-fast', labelJa: 'ややはやい', labelEn: 'A bit fast', rate: 1.1 },
+  { id: 'fast', labelJa: 'はやい', labelEn: 'Fast', rate: 1.25 },
+] as const;
+
+export const DEFAULT_VOICE_SPEECH_RATE_STEP: VoiceSpeechRateStep = 'normal';
+
+export function voiceSpeechRateForStep(step: VoiceSpeechRateStep): number {
+  return VOICE_SPEECH_RATE_STEPS.find((option) => option.id === step)?.rate ?? DEFAULT_SPEECH_RATE;
+}
+
+/**
+ * The step a rate belongs to: the nearest step's rate wins (ties go
+ * to the slower step). A stored value that is not exactly a step —
+ * possible from before the steps existed — still displays as the
+ * step it is closest to, and picking a step then writes an exact
+ * step rate.
+ */
+export function resolveVoiceSpeechRateStep(rate: number): VoiceSpeechRateStep {
+  const clamped = clampSpeechRate(rate);
+  let nearest = VOICE_SPEECH_RATE_STEPS[0]!;
+  for (const option of VOICE_SPEECH_RATE_STEPS) {
+    if (Math.abs(option.rate - clamped) < Math.abs(nearest.rate - clamped)) nearest = option;
+  }
+  return nearest.id;
+}
+
 /** Spoken when the owner previews a voice in settings. */
 export const ORIN_VOICE_PREVIEW_TEXT = 'こんにちは、オリンです。この声でお話ししますね。';
 
@@ -380,10 +447,7 @@ export class VoiceSpeechController {
   }
 
   getRate(): number {
-    const raw = this.storage()?.getItem(VOICE_OUTPUT_RATE_STORAGE_KEY);
-    const parsed = raw === null || raw === undefined ? Number.NaN : Number.parseFloat(raw);
-    if (!Number.isFinite(parsed)) return DEFAULT_SPEECH_RATE;
-    return Math.min(MAX_SPEECH_RATE, Math.max(MIN_SPEECH_RATE, parsed));
+    return readStoredSpeechRate(this.storage());
   }
 
   setRate(rate: number): void {
@@ -392,6 +456,19 @@ export class VoiceSpeechController {
     try {
       this.storage()?.setItem(VOICE_OUTPUT_RATE_STORAGE_KEY, String(clamped));
     } catch { /* best-effort, as above */ }
+  }
+
+  /** The stored rate expressed as one of the five speed steps
+   * (settings: 声の速さ). A stored value that is not exactly a step
+   * reads as the nearest step. */
+  getRateStep(): VoiceSpeechRateStep {
+    return resolveVoiceSpeechRateStep(this.getRate());
+  }
+
+  /** Stores a speed step through the existing rate setting, so the
+   * saved value stays the plain rate number it has always been. */
+  setRateStep(step: VoiceSpeechRateStep): void {
+    this.setRate(voiceSpeechRateForStep(step));
   }
 
   // -- Playback ---------------------------------------------------------
