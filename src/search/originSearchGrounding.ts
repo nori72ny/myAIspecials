@@ -39,11 +39,13 @@ import {
   type OriginSearchUsageCounter,
 } from "./originSearchProviderCatalog.js";
 import {
+  classifyOriginDomainTier,
   composeOriginMarketText,
   composeOriginWeatherText,
   extractTavilyPages,
   fetchOpenMeteoWeather,
   fetchStooqMarketQuotes,
+  originDomainOf,
   ORIGIN_TIER_WEIGHT,
   searchGdeltHeadlines,
   searchTavilySources,
@@ -132,9 +134,17 @@ export interface OriginSearchGroundingFreshnessStats {
  */
 export interface OriginSearchIssuedQuery {
   provider: OriginSearchProviderId;
-  kind: "ordinary" | "official" | "official-retry" | "stable-fallback";
+  kind: "ordinary" | "official" | "official-retry" | "stable-fallback" | "official-release-page";
   query: string;
   includeDomains?: readonly string[];
+  /**
+   * The fetched URL (measure 5-3c): present on official-release-page
+   * records only, whose "query" is the URL itself — a direct page
+   * fetch has no query text. The record exists so a re-measurement
+   * can attribute "the deterministic candidate entered the pool /
+   * was adopted" from the response side (design memo §2.4).
+   */
+  url?: string;
 }
 
 /**
@@ -1068,6 +1078,62 @@ async function runGdeltRoute(deps: ResolvedDeps, query: string, timeoutMs: numbe
   );
 }
 
+/**
+ * One planned release-page fetch (measure 5-3c): a URL from the
+ * topic table plus the title its candidate carries — the topic's
+ * release (publication) name, the same string the official queries
+ * name the release by. Tavily extract returns body text only (no
+ * page title), and the publication name is the truthful label for
+ * the publisher's own release page; nothing per-edition is ever
+ * written into it.
+ */
+interface OfficialReleasePageTarget {
+  url: string;
+  title: string;
+}
+
+/**
+ * Fetch the planned topics' release pages directly (measure 5-3c,
+ * design memo §2.3) and shape the extracted texts as ordinary
+ * candidates: same fields, same tier classification by domain, no
+ * provider date (extract reports none — the freshness gate judges
+ * the page by the date its own text states, or as official-undated,
+ * exactly like an undated search candidate). Fail-open by contract:
+ * any failure — HTTP, extraction, an empty page — resolves to no
+ * candidates, never to an error of the whole grounding.
+ */
+async function fetchOfficialReleasePageCandidates(
+  deps: ResolvedDeps,
+  targets: readonly OfficialReleasePageTarget[],
+  timeoutMs: number,
+): Promise<OriginSearchSource[]> {
+  try {
+    const extract = await extractTavilyPages(
+      targets.map((target) => target.url),
+      { fetchImpl: deps.fetchImpl, timeoutMs, apiKey: tavilyApiKey(deps) },
+    );
+    if (extract.creditsUsed > 0) deps.counter.record("tavily", extract.creditsUsed, deps.now());
+    const sources: OriginSearchSource[] = [];
+    for (const target of targets) {
+      const text = extract.pages.get(target.url);
+      if (!text) continue;
+      const domain = originDomainOf(target.url);
+      sources.push({
+        title: target.title,
+        url: target.url,
+        excerpt: text,
+        providerId: "tavily",
+        domain,
+        authorityTier: classifyOriginDomainTier(domain),
+        evidenceLevel: "extracted",
+      });
+    }
+    return sources;
+  } catch {
+    return [];
+  }
+}
+
 async function runWikipediaRoute(deps: ResolvedDeps, query: string, timeoutMs: number): Promise<RouteResult> {
   let screenedOutCount = 0;
   let screenedOutDomainCounts: Readonly<Record<string, number>> | undefined;
@@ -1207,8 +1273,29 @@ export async function executeOriginSearchGrounding(
   const officialPlan = officialRoutingEnabled
     ? planOriginOfficialSourceQueries(message, deps.now())
     : null;
+  // Measure 5-3c: the planned topics' release pages, in plan order,
+  // deduped by URL (two planned topics could in principle name the
+  // same page). Their batched extract costs one credit, charged to
+  // the access check below alongside the searches, so the monthly
+  // self cap is still charged honestly for every credit this
+  // request may spend.
+  const releasePageTargets: OfficialReleasePageTarget[] = [];
+  if (officialPlan) {
+    const seenReleaseUrls = new Set<string>();
+    for (const plannedQuery of officialPlan.queries) {
+      for (const url of plannedQuery.releasePageUrls ?? []) {
+        if (seenReleaseUrls.has(url)) continue;
+        seenReleaseUrls.add(url);
+        releasePageTargets.push({ url, title: plannedQuery.releaseTerms ?? "公式公表ページ" });
+      }
+    }
+  }
 
-  const tavilyAccess = providerAccess("tavily", deps, 1 + (officialPlan?.queries.length ?? 0));
+  const tavilyAccess = providerAccess(
+    "tavily",
+    deps,
+    1 + (officialPlan?.queries.length ?? 0) + (releasePageTargets.length > 0 ? 1 : 0),
+  );
   const gdeltAccess = providerAccess("gdelt", deps, 0);
   const wikipediaAccess = providerAccess("wikipedia", deps, 0);
   const tavilyEnabled = tavilyAccess.enabled && tavilyApiKey(deps).length > 0;
@@ -1296,6 +1383,35 @@ export async function executeOriginSearchGrounding(
     }
   }
 
+  // Measure 5-3c (design memo §2.3): in parallel with the searches
+  // above, fetch the planned topics' release pages directly. The
+  // fetch is attempted only inside the same disciplines as every
+  // other Tavily spend — the monthly self cap (checked for this one
+  // batched extract) and the remaining latency budget — and any
+  // failure resolves to no candidates (fail-open), never to an
+  // error of the whole grounding. The issued records are written
+  // only when the fetch is actually attempted, in the same
+  // discipline as the search records above.
+  let releasePageCandidates: Promise<OriginSearchSource[]> = Promise.resolve([]);
+  if (releasePageTargets.length > 0 && tavilyEnabled && remainingMs() >= 1_000) {
+    const releaseAccess = providerAccess("tavily", deps, 1);
+    if (releaseAccess.enabled) {
+      for (const target of releasePageTargets) {
+        queriesIssued.push({
+          provider: "tavily",
+          kind: "official-release-page",
+          query: target.url,
+          url: target.url,
+        });
+      }
+      releasePageCandidates = fetchOfficialReleasePageCandidates(
+        deps,
+        releasePageTargets,
+        searchTimeoutMs(),
+      );
+    }
+  }
+
   if (routes.length === 0) {
     if (capReached) return { kind: "unavailable", questionType, reason: "monthly-cap-reached", freshness: emptyStats };
     return { kind: "not-applicable", reason: "no-route-enabled" };
@@ -1316,6 +1432,24 @@ export async function executeOriginSearchGrounding(
     queriesIssued.push({ provider: "tavily", kind: "stable-fallback", query });
     if (fallback.sources.length > 0) providersUsed.push("tavily");
     candidates = fallback.sources;
+  }
+
+  // Measure 5-3c: the deterministic release-page candidates join
+  // the same pool, behind the search candidates (packet selection
+  // re-orders by tier and the official sub-ranking, so pool order
+  // only breaks exact ties). From here they face the same pipeline
+  // as every search candidate — the freshness gate, the
+  // edition-keyed material assessment and its retry, packet
+  // selection, the extract stage — with no adoption guarantee. The
+  // one stage they do not pass is the relevance screen: that screen
+  // is internal to the search routes (it filters provider results
+  // against the query's terms), while a release page's aboutness is
+  // fixed by the topic match that fired the plan — the page IS the
+  // matched topic's own release page, fetched by its table URL.
+  const releaseSources = await releasePageCandidates;
+  if (releaseSources.length > 0) {
+    candidates = [...candidates, ...releaseSources];
+    if (!providersUsed.includes("tavily")) providersUsed.push("tavily");
   }
 
   let droppedByScreenCount = results.reduce((sum, result) => sum + (result.screenedOutCount ?? 0), 0);
@@ -1775,6 +1909,7 @@ function groundingMetadataFromOutcome(
             kind: issued.kind,
             query: issued.query,
             ...(issued.includeDomains ? { includeDomains: issued.includeDomains } : {}),
+            ...(issued.url ? { url: issued.url } : {}),
           })),
         }
       : {}),

@@ -354,6 +354,28 @@ const ORIGIN_PRIMARY_ROUTE_STOPPED = ORIGIN_OPENROUTER_ROUTE_DISPOSITION === "st
  * attempt stops costing the previous ~35s (remaining minus reserve).
  */
 export const ORIGIN_CLOUDFLARE_ATTEMPT_BUDGET_MS = 25_000;
+/**
+ * Attempt budget for the grounded research SYNTHESIS dispatch only
+ * (round-6 measure 6-1c, ANSWER_STATISTICS_ROUND6_DIAGNOSIS_2026-11-27
+ * §1/§5): the synthesis carries the long evidence packet, and in the
+ * round-6 production probes every provider failure was the same pair —
+ * the main route (Cloudflare gemma-4-26b) hitting the general 25s
+ * attempt budget at 25,002–25,003ms while the Groq pool was exhausted
+ * (0/15 adoptions). Synthesis dispatches therefore get 32s of the
+ * standing 45s total budget. The arithmetic stays inside every
+ * enclosing bound: the slice formula (remaining − Groq reserve 10s)
+ * caps the slice at 35s, so 32s leaves the third route its guaranteed
+ * reserve untouched; 32s is below the 52s route/client caps
+ * (ORIGIN_CLOUDFLARE_ROUTE_TIMEOUT_MS and the routers' plan timeout
+ * cap) and far below the 120s Vercel function limit (vercel.json
+ * maxDuration for api/index.ts). Every other dispatch kind keeps the
+ * general 25s budget unchanged, so this raise is attributable to the
+ * synthesis stage alone in re-measurement. Revisit once the round-6
+ * measure 6-1a success-duration record has produced a distribution:
+ * if successful synthesis durations sit well below 25s, the timeout
+ * was input size (measure 6-1b) and this headroom can shrink back.
+ */
+export const ORIGIN_SYNTHESIS_CLOUDFLARE_ATTEMPT_BUDGET_MS = 32_000;
 /** Consecutive counted availability failures of the second route that open its circuit breaker. */
 export const ORIGIN_CLOUDFLARE_CIRCUIT_FAILURE_THRESHOLD = 2;
 /** How long the second route is skipped after its circuit breaker opens. */
@@ -2025,6 +2047,28 @@ async function failOverFromRouteStopped(
     return failOverFromGroqRoute(request, env, fetchImpl, options, primaryAttempt, () => primaryRouteStoppedError());
   }
   return failOverFromCloudflareRoute(request, env, fetchImpl, options, primaryAttempt, () => primaryRouteStoppedError());
+}
+
+/**
+ * The synthesis stage's dispatch entry (round-6 measure 6-1c): the
+ * general failover dispatch with the synthesis attempt budget
+ * (ORIGIN_SYNTHESIS_CLOUDFLARE_ATTEMPT_BUDGET_MS) applied to the
+ * Cloudflare slice. Both routers' production synthesis executors go
+ * through here so the raise covers exactly the synthesis stage —
+ * records and text paths alike, since both consume the same
+ * executor — and nothing else. Caller options are honored after the
+ * synthesis default (tests shrink the budget through them).
+ */
+export async function executeOriginSynthesisWithFailover(
+  providerRequest: OriginProviderExecutionRequest,
+  env: NodeJS.ProcessEnv = process.env,
+  fetchImpl: OriginFetch = fetch,
+  options: OriginProviderFailoverOptions = {},
+): Promise<OriginProviderExecutionResult> {
+  return executeOriginProviderWithFailover(providerRequest, env, fetchImpl, {
+    cloudflareAttemptBudgetMs: ORIGIN_SYNTHESIS_CLOUDFLARE_ATTEMPT_BUDGET_MS,
+    ...options,
+  });
 }
 
 export async function executeOriginProviderWithFailover(

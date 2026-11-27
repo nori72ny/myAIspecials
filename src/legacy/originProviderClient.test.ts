@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { assertOriginZeroCostExecutionResult, buildOriginProviderFailureDiagnostic, executeOriginProvider, originCompletionTokenBudget, OriginProviderError, resetOriginProviderCooldownForTests, safeOriginFinishReason, safeOriginUpstreamErrorCode, type OriginFetch } from "./originProviderClient";
+import { assertOriginZeroCostExecutionResult, buildOriginProviderFailureDiagnostic, executeOriginProvider, originCompletionTokenBudget, OriginProviderError, resetOriginProviderCooldownForTests, safeOriginFinishReason, safeOriginUpstreamErrorCode, summarizeOriginProviderAttempts, type OriginFetch } from "./originProviderClient";
 import { ORIGIN_OPENROUTER_FREE_MODEL, type OriginExecutionPlan } from "../lib/orchestration/OriginExecutionPolicy";
 
 const plan: OriginExecutionPlan = {
@@ -227,6 +227,26 @@ describe("executeOriginProvider", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
+});
+
+describe("summarizeOriginProviderAttempts (round-6 measure 6-1a)", () => {
+  it("summarizes a successful execution's attempts with durations, through the same whitelist", () => {
+    expect(summarizeOriginProviderAttempts([
+      { providerId: "openrouter-free", modelId: "google/gemma-4-31b-it:free", outcome: "skipped", skipReason: "route-stopped", transportRequestCount: 0 },
+      { providerId: "cloudflare-workers-ai-free", modelId: "@cf/google/gemma-4-26b-a4b-it", outcome: "succeeded", transportRequestCount: 2, durationMs: 16_600 },
+    ])).toEqual([
+      { providerId: "openrouter-free", modelId: "google/gemma-4-31b-it:free", outcome: "skipped", skipReason: "route-stopped", transportRequestCount: 0 },
+      { providerId: "cloudflare-workers-ai-free", modelId: "@cf/google/gemma-4-26b-a4b-it", outcome: "succeeded", transportRequestCount: 2, durationMs: 16_600 },
+    ]);
+  });
+
+  it("returns an empty record for absent or malformed attempt lists", () => {
+    expect(summarizeOriginProviderAttempts(undefined)).toEqual([]);
+    expect(summarizeOriginProviderAttempts([])).toEqual([]);
+    expect(summarizeOriginProviderAttempts([
+      { providerId: "not a route id!", modelId: "x", outcome: "succeeded" },
+    ] as never)).toEqual([]);
+  });
 });
 
 describe("buildOriginProviderFailureDiagnostic", () => {

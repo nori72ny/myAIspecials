@@ -372,6 +372,33 @@ function summarizeOriginProviderAttempt(attempt: OriginProviderAttemptEvidence):
 }
 
 /**
+ * Whitelisted summaries of a SUCCESSFUL execution's recorded attempts
+ * (round-6 measure 6-1a, ANSWER_STATISTICS_ROUND6_DIAGNOSIS_2026-11-27
+ * §5 item 1(a)): the same reduction the failure diagnostic applies,
+ * reused for results that did not throw. Before this existed, the
+ * synthesis attempt record (synthesisProviderAttempts) was populated
+ * only from failure diagnostics, so a synthesis that succeeded — the
+ * population whose route/model/duration distribution decides the
+ * attempt-budget calibration — left no record at all: the round-6
+ * probes could measure the 25s timeouts but not a single successful
+ * Cloudflare duration. Callers record these summaries for every
+ * synthesis execution, adopted or not, so the success-duration
+ * distribution is measurable from responses exactly like the failure
+ * breakdown is.
+ */
+export function summarizeOriginProviderAttempts(
+  attempts: readonly OriginProviderAttemptEvidence[] | undefined,
+): OriginProviderAttemptDiagnostic[] {
+  if (!Array.isArray(attempts)) return [];
+  const summaries: OriginProviderAttemptDiagnostic[] = [];
+  for (const attempt of attempts) {
+    const summarized = summarizeOriginProviderAttempt(attempt);
+    if (summarized) summaries.push(summarized);
+  }
+  return summaries;
+}
+
+/**
  * Builds the surfaced failure diagnostic for one provider error: the surfaced
  * error's own upstream metadata plus every recorded failover attempt, each
  * reduced to the whitelist above. The result is plain JSON-safe data, so the
