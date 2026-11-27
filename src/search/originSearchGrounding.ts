@@ -42,6 +42,7 @@ import {
   classifyOriginDomainTier,
   composeOriginMarketText,
   composeOriginWeatherText,
+  defaultOriginSearchFetch,
   extractTavilyPages,
   fetchOpenMeteoWeather,
   fetchStooqMarketQuotes,
@@ -64,6 +65,7 @@ import {
   buildOfficialSourceQueryText,
   planOriginOfficialSourceQueries,
   resolveOriginOfficialSourceRoutingEnabled,
+  resolveOriginReleaseIndexLink,
   type OriginOfficialSourcePlan,
 } from "./originOfficialSourceRouting.js";
 import {
@@ -1093,6 +1095,86 @@ interface OfficialReleasePageTarget {
 }
 
 /**
+ * One planned release-INDEX fetch (measure 5-3c, link-follow
+ * variant): the topic's persistent index page, the anchor text to
+ * follow, the domains the followed target must stay inside, and
+ * the title the followed candidate carries (the topic's release
+ * name, as for a direct release page).
+ */
+interface OfficialReleaseIndexTarget {
+  url: string;
+  linkText: string;
+  domains: readonly string[];
+  title: string;
+}
+
+/**
+ * The index page's raw HTML, capped: the link sits in the page's
+ * body, and the cap only bounds a pathological page — the anchor
+ * scan needs the document, not an extract (Tavily's text format
+ * drops hrefs, so the extract route cannot resolve links).
+ */
+const MAX_RELEASE_INDEX_HTML_CHARS = 512_000;
+
+/**
+ * Fetch a release index page's HTML directly (keyless GET of a
+ * fixed curated URL — no user text is ever sent). Fail-soft by
+ * contract: any failure resolves to null.
+ */
+async function fetchReleaseIndexHtml(
+  deps: ResolvedDeps,
+  url: string,
+  timeoutMs: number,
+): Promise<string | null> {
+  const fetchImpl = deps.fetchImpl ?? defaultOriginSearchFetch;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), Math.max(1, timeoutMs));
+  try {
+    const response = await fetchImpl(url, { signal: controller.signal });
+    if (!response.ok) return null;
+    const html = await response.text();
+    return html.trim() ? html.slice(0, MAX_RELEASE_INDEX_HTML_CHARS) : null;
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/**
+ * The link-follow variant of the release-page fetch (measure
+ * 5-3c): for each index target, fetch the index page, resolve its
+ * named link one hop (resolveOriginReleaseIndexLink), and fetch
+ * the followed pages through the same extract path as direct
+ * release pages, so the candidates are shaped identically. Any
+ * failure — index unreachable, link absent, target outside the
+ * topic's domains, extract failure — resolves to no candidates
+ * for that target, never to an error (fail soft: the pool keeps
+ * exactly what the searches brought). `onFollowAttempted` fires
+ * once per followed page whose extract is about to be attempted,
+ * so the caller writes the issued record in the same discipline
+ * as the direct fetch.
+ */
+async function fetchFollowedReleasePageCandidates(
+  deps: ResolvedDeps,
+  targets: readonly OfficialReleaseIndexTarget[],
+  timeoutMs: number,
+  onFollowAttempted: (url: string) => void,
+): Promise<OriginSearchSource[]> {
+  const followedTargets: OfficialReleasePageTarget[] = [];
+  for (const target of targets) {
+    const html = await fetchReleaseIndexHtml(deps, target.url, timeoutMs);
+    if (!html) continue;
+    const followed = resolveOriginReleaseIndexLink(html, target.url, target.linkText, target.domains);
+    if (!followed) continue;
+    followedTargets.push({ url: followed, title: target.title });
+  }
+  if (followedTargets.length === 0) return [];
+  for (const target of followedTargets) onFollowAttempted(target.url);
+  return fetchOfficialReleasePageCandidates(deps, followedTargets, timeoutMs);
+}
+
+/**
  * Fetch the planned topics' release pages directly (measure 5-3c,
  * design memo §2.3) and shape the extracted texts as ordinary
  * candidates: same fields, same tier classification by domain, no
@@ -1290,11 +1372,35 @@ export async function executeOriginSearchGrounding(
       }
     }
   }
+  // Measure 5-3c, link-follow variant: the planned topics' release
+  // index pages, in plan order, deduped by URL. The followed page's
+  // extract is a second batched extract call, so the access check
+  // below charges for it alongside the direct pages' — the monthly
+  // self cap is still charged honestly for every credit this
+  // request may spend. The index page's own fetch is a keyless GET
+  // of a fixed URL and costs no credit.
+  const releaseIndexTargets: OfficialReleaseIndexTarget[] = [];
+  if (officialPlan) {
+    const seenIndexUrls = new Set<string>();
+    for (const plannedQuery of officialPlan.queries) {
+      const indexPage = plannedQuery.releaseIndexPage;
+      if (!indexPage || seenIndexUrls.has(indexPage.url)) continue;
+      seenIndexUrls.add(indexPage.url);
+      releaseIndexTargets.push({
+        url: indexPage.url,
+        linkText: indexPage.linkText,
+        domains: plannedQuery.domains,
+        title: plannedQuery.releaseTerms ?? "公式公表ページ",
+      });
+    }
+  }
 
   const tavilyAccess = providerAccess(
     "tavily",
     deps,
-    1 + (officialPlan?.queries.length ?? 0) + (releasePageTargets.length > 0 ? 1 : 0),
+    1 + (officialPlan?.queries.length ?? 0)
+      + (releasePageTargets.length > 0 ? 1 : 0)
+      + (releaseIndexTargets.length > 0 ? 1 : 0),
   );
   const gdeltAccess = providerAccess("gdelt", deps, 0);
   const wikipediaAccess = providerAccess("wikipedia", deps, 0);
@@ -1412,6 +1518,37 @@ export async function executeOriginSearchGrounding(
     }
   }
 
+  // Measure 5-3c, link-follow variant: in parallel with the
+  // searches, resolve the planned topics' release index pages and
+  // fetch the followed release pages. The same disciplines gate
+  // the attempt — the monthly self cap (checked for the followed
+  // pages' one batched extract) and the remaining latency budget —
+  // and the issued record is written per followed page when its
+  // extract is actually attempted, naming the followed URL: the
+  // record's meaning stays "this page was fetched as the topic's
+  // deterministic release-page candidate", whichever of the two
+  // forms produced it. An unresolved index writes no record — no
+  // page was fetched — and contributes no candidates.
+  let followedReleasePageCandidates: Promise<OriginSearchSource[]> = Promise.resolve([]);
+  if (releaseIndexTargets.length > 0 && tavilyEnabled && remainingMs() >= 1_000) {
+    const followAccess = providerAccess("tavily", deps, 1);
+    if (followAccess.enabled) {
+      followedReleasePageCandidates = fetchFollowedReleasePageCandidates(
+        deps,
+        releaseIndexTargets,
+        searchTimeoutMs(),
+        (url) => {
+          queriesIssued.push({
+            provider: "tavily",
+            kind: "official-release-page",
+            query: url,
+            url,
+          });
+        },
+      );
+    }
+  }
+
   if (routes.length === 0) {
     if (capReached) return { kind: "unavailable", questionType, reason: "monthly-cap-reached", freshness: emptyStats };
     return { kind: "not-applicable", reason: "no-route-enabled" };
@@ -1449,6 +1586,16 @@ export async function executeOriginSearchGrounding(
   const releaseSources = await releasePageCandidates;
   if (releaseSources.length > 0) {
     candidates = [...candidates, ...releaseSources];
+    if (!providersUsed.includes("tavily")) providersUsed.push("tavily");
+  }
+
+  // The link-follow variant's candidates join at the same point
+  // and on the same terms: candidacy is deterministic (the index
+  // link is the publisher's own pointer at the current release),
+  // adoption is not — every downstream gate applies unchanged.
+  const followedSources = await followedReleasePageCandidates;
+  if (followedSources.length > 0) {
+    candidates = [...candidates, ...followedSources];
     if (!providersUsed.includes("tavily")) providersUsed.push("tavily");
   }
 

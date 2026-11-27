@@ -66,6 +66,23 @@
  *    document form round-6 §2 showed carries no quotable value
  *    sentence); the ESRI menu page is a dashboard fragment, not the
  *    release's value sentence (round-6 diagnosis §5, measure 6-3).
+ *  - 5-3c link-follow variant (B1 regression follow-up,
+ *    ANSWER_B1_ROUND7_REGRESSION_DIAGNOSIS_2026-11-27): a topic
+ *    whose publisher keeps NO value sentence under a persistent
+ *    URL cannot use releasePageUrls. MHLW is that shape — the
+ *    monthly job-offers release lives only at an edition-named
+ *    newpage URL, replaced every month. What IS persistent is the
+ *    statistics index page (toukei/list/114-1.html), whose
+ *    「結果の概要」 link the ministry repoints at the current
+ *    month's release page with every publication. Such a topic
+ *    carries releaseIndexPage instead: the grounding layer fetches
+ *    the index page, follows that one named link a single hop, and
+ *    the followed page enters the pool through the exact same
+ *    deterministic-candidate path as a releasePageUrls page. The
+ *    month therefore turns over on its own — nothing in the table
+ *    names an edition — and a failed follow (index unreachable,
+ *    link absent, target outside the topic's domains) resolves to
+ *    no candidate, leaving the search pool exactly as it was.
  *
  * The domain map is a small curated table, one entry per topic —
  * never per question. Every domain was confirmed against the primary
@@ -165,6 +182,22 @@ const STATISTICAL_ANSWER_TYPES: ReadonlySet<RecoveryAnswerType> = new Set([
   "person_name",
 ]);
 
+/**
+ * A topic's release INDEX page (measure 5-3c, link-follow variant):
+ * a persistent publisher page that does not state the value itself
+ * but links to the current release under a stable anchor text. The
+ * grounding layer fetches this page, follows the named link one
+ * hop — only when the resolved target stays inside the topic's
+ * official domains — and fetches the followed page as the topic's
+ * deterministic release-page candidate.
+ */
+export interface OriginOfficialReleaseIndexPage {
+  /** The persistent index (list) page URL on the publisher's site. */
+  url: string;
+  /** The anchor text of the link to the current release, exactly as printed. */
+  linkText: string;
+}
+
 export interface OriginOfficialSourceTopic {
   id: string;
   pattern: RegExp;
@@ -219,6 +252,17 @@ export interface OriginOfficialSourceTopic {
    * as an ordinary sentence.
    */
   releasePageUrls?: readonly string[];
+  /**
+   * The topic's release index page (measure 5-3c, link-follow
+   * variant): for publishers whose value sentence exists only
+   * under an edition-named URL, so no releasePageUrls entry can
+   * ever be written. The index page itself is persistent and
+   * edition-free; only its link target changes monthly. A topic
+   * carries this OR releasePageUrls, not both — the direct form
+   * is preferred wherever a persistent value page exists, because
+   * it needs no resolution step that can fail.
+   */
+  releaseIndexPage?: OriginOfficialReleaseIndexPage;
 }
 
 /**
@@ -269,6 +313,25 @@ export const ORIGIN_OFFICIAL_SOURCE_TOPICS: readonly OriginOfficialSourceTopic[]
     domains: ["mhlw.go.jp"],
     releaseTerms: "一般職業紹介状況",
     edition: { cycle: "monthly", lagMonths: 2 },
+    // Release index page (measure 5-3c, link-follow variant),
+    // confirmed on mhlw.go.jp on 2026-11-27: the statistics index
+    // page for 一般職業紹介状況 carries exactly one 「結果の概要」
+    // link (under 集計結果）, repointed at each month's release
+    // page — at confirmation time the September 2026 （令和8年9月分）
+    // release (stf/newpage_76960.html), which states the value as
+    // an ordinary sentence （令和8年9月の有効求人倍率は1.19倍で…）.
+    // MHLW publishes the value sentence ONLY under such
+    // edition-named newpage URLs — no persistent value page exists
+    // (prerequisite check, ANSWER_B1_ROUND7_REGRESSION_DIAGNOSIS_
+    // 2026-11-27 §4) — so the direct releasePageUrls form cannot
+    // apply to this topic; the grounding layer follows the index
+    // page's named link one hop instead. The index URL names no
+    // edition, and the followed target is re-resolved on every
+    // fetch, so the month turns over without a table change.
+    releaseIndexPage: {
+      url: "https://www.mhlw.go.jp/toukei/list/114-1.html",
+      linkText: "結果の概要",
+    },
   },
   {
     id: "gdp-and-economy",
@@ -320,6 +383,14 @@ export interface OriginOfficialSourceQuery {
    * fetches these URLs directly into the candidate pool.
    */
   releasePageUrls?: readonly string[];
+  /**
+   * The topic's release index page (measure 5-3c, link-follow
+   * variant), carried from the topic table: when this query is
+   * planned, the grounding layer fetches the index page, follows
+   * its named link one hop, and fetches the followed page into
+   * the candidate pool as the topic's release-page candidate.
+   */
+  releaseIndexPage?: OriginOfficialReleaseIndexPage;
 }
 
 export interface OriginOfficialSourcePlan {
@@ -417,6 +488,7 @@ export function planOriginOfficialSourceQueries(
         ? { expectedEdition, editionTerms: originOfficialEditionQueryTerms(expectedEdition) }
         : {}),
       ...(topic.releasePageUrls ? { releasePageUrls: topic.releasePageUrls } : {}),
+      ...(topic.releaseIndexPage ? { releaseIndexPage: topic.releaseIndexPage } : {}),
     });
   }
   if (queries.length === 0) return null;
@@ -497,6 +569,94 @@ export function buildOfficialRetryQueryText(
   editionTerms?: readonly string[],
 ): string {
   return buildOfficialReleaseQueryText(releaseTerms, editionTerms);
+}
+
+/* ------------------------------------------------------------------ */
+/* Release index link resolution (measure 5-3c, link-follow variant)   */
+/* ------------------------------------------------------------------ */
+
+/**
+ * The visible text of an anchor, reduced to the shape a reader
+ * sees: inner tags removed, the common entities decoded,
+ * whitespace collapsed, NFKC-normalized. The link condition is an
+ * EXACT match against the topic table's linkText — a looser match
+ * (prefix / contains) could follow a different release's link on
+ * a page that lists several, and a failed follow is fail-soft by
+ * design, so strictness costs nothing when the publisher renames
+ * the link: the topic simply falls back to the search pool until
+ * the table is updated.
+ */
+function normalizeReleaseIndexAnchorText(htmlFragment: string): string {
+  return htmlFragment
+    .replace(/<[^>]+>/g, " ")
+    .replace(/&(?:amp|quot|#39|apos|lt|gt|nbsp);/g, (entity) => {
+      switch (entity) {
+        case "&amp;": return "&";
+        case "&quot;": return '"';
+        case "&#39;": case "&apos;": return "'";
+        case "&lt;": return "<";
+        case "&gt;": return ">";
+        default: return " ";
+      }
+    })
+    .replace(/\s+/g, " ")
+    .trim()
+    .normalize("NFKC");
+}
+
+/** Host containment, mirroring classifyOriginDomainTier's rule:
+ * the host is a listed domain or a dot-boundary subdomain of one. */
+function releaseIndexHostWithinDomains(hostname: string, domains: readonly string[]): boolean {
+  const host = hostname.toLowerCase().replace(/^www\./, "");
+  return domains.some((domain) => {
+    const normalized = domain.toLowerCase().replace(/^www\./, "");
+    return host === normalized || host.endsWith(`.${normalized}`);
+  });
+}
+
+/**
+ * Resolve the current release page from a release index page's
+ * HTML (measure 5-3c, link-follow variant): the FIRST anchor in
+ * document order whose visible text is exactly the topic's
+ * linkText and whose target — resolved against the index URL —
+ * is an https URL inside the topic's official domains. Index
+ * pages list the current release first (the publisher's own
+ * ordering), so the first match is the current month's page; the
+ * month turns over with no table change. Returns null when no
+ * anchor qualifies — the caller treats that as "no deterministic
+ * candidate this time" and proceeds with the search pool alone
+ * (fail soft, exactly the pre-variant behaviour).
+ */
+export function resolveOriginReleaseIndexLink(
+  indexHtml: string,
+  indexUrl: string,
+  linkText: string,
+  domains: readonly string[],
+): string | null {
+  const wanted = linkText.normalize("NFKC").replace(/\s+/g, " ").trim();
+  if (!wanted || !indexHtml) return null;
+  let base: URL;
+  try {
+    base = new URL(indexUrl);
+  } catch {
+    return null;
+  }
+  const anchorPattern = /<a\b[^>]*?\bhref\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'=<>`]+))[^>]*>([\s\S]*?)<\/a\s*>/gi;
+  for (const match of indexHtml.matchAll(anchorPattern)) {
+    const href = (match[1] ?? match[2] ?? match[3] ?? "").trim();
+    if (!href) continue;
+    if (normalizeReleaseIndexAnchorText(match[4] ?? "") !== wanted) continue;
+    let resolved: URL;
+    try {
+      resolved = new URL(href, base);
+    } catch {
+      continue;
+    }
+    if (resolved.protocol !== "https:") continue;
+    if (!releaseIndexHostWithinDomains(resolved.hostname, domains)) continue;
+    return resolved.toString();
+  }
+  return null;
 }
 
 /* ------------------------------------------------------------------ */

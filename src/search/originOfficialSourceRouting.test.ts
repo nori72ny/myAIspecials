@@ -23,6 +23,7 @@ import {
   MAX_OFFICIAL_SOURCE_QUERIES,
   planOriginOfficialSourceQueries,
   resolveOriginOfficialSourceRoutingEnabled,
+  resolveOriginReleaseIndexLink,
 } from "./originOfficialSourceRouting";
 import type { OriginOfficialEdition } from "./originOfficialEdition";
 import {
@@ -1807,12 +1808,22 @@ describe("planOriginOfficialSourceQueries — release pages (measure 5-3c)", () 
     const plan = planOriginOfficialSourceQueries(F06_QUESTION, NOW);
     expect(plan?.queries[0]?.topic).toBe("labour-force-statistics");
     expect(plan?.queries[0]?.releasePageUrls).toEqual([RELEASE_PAGE_HTML_URL, RELEASE_PAGE_PDF_URL]);
+    // The direct form only: B3's route carries no index page and
+    // is untouched by the link-follow variant.
+    expect(plan?.queries[0]?.releaseIndexPage).toBeUndefined();
   });
 
-  it("topics without confirmed release pages carry none (B1 and GDP unchanged)", () => {
+  it("topics without confirmed release pages carry none (GDP unchanged; B1 carries the index page instead)", () => {
     const b1 = planOriginOfficialSourceQueries("最新の有効求人倍率を教えてください。いつの分ですか？", NOW);
     expect(b1?.queries[0]?.topic).toBe("employment-and-pension");
     expect(b1?.queries[0]?.releasePageUrls).toBeUndefined();
+    // B1's value sentence exists only under edition-named MHLW
+    // URLs, so the topic carries the link-follow variant instead
+    // (pinned in the link-follow describe below).
+    expect(b1?.queries[0]?.releaseIndexPage).toEqual({
+      url: "https://www.mhlw.go.jp/toukei/list/114-1.html",
+      linkText: "結果の概要",
+    });
     // GDP was checked and deliberately left out (round-6 diagnosis
     // §5, measure 6-3): the release summary exists only as an
     // edition-named PDF (a per-edition URL, which the field
@@ -1824,6 +1835,7 @@ describe("planOriginOfficialSourceQueries — release pages (measure 5-3c)", () 
     const gdp = planOriginOfficialSourceQueries("実質GDPの最新値を教えてください", NOW);
     expect(gdp?.queries[0]?.topic).toBe("gdp-and-economy");
     expect(gdp?.queries[0]?.releasePageUrls).toBeUndefined();
+    expect(gdp?.queries[0]?.releaseIndexPage).toBeUndefined();
   });
 });
 
@@ -1937,7 +1949,13 @@ describe("executeOriginSearchGrounding — measure 5-3c (deterministic release-p
     expect(calls.every((call) => !(call.init?.body ?? "").includes("sokuhou/tsuki"))).toBe(true);
   });
 
-  it("a topic without release pages (B1) never fetches one, even with the switch on", async () => {
+  it("B1's follow attempt fails soft when the index page is unreachable: no release-page candidate, no record", async () => {
+    // B1 carries a release INDEX page (link-follow variant), not
+    // releasePageUrls. officialAwareFetch throws for the index
+    // URL, so the follow resolves to nothing — the pool is exactly
+    // what the searches brought, and no official-release-page
+    // record is written (no page was fetched). The successful
+    // follow is pinned in the link-follow describe below.
     const { fetchImpl, calls } = officialAwareFetch();
     const deps = makeDeps({
       fetchImpl,
@@ -1949,5 +1967,308 @@ describe("executeOriginSearchGrounding — measure 5-3c (deterministic release-p
     const issued = outcome.kind === "not-applicable" ? [] : (outcome.queriesIssued ?? []);
     expect(issued.some((entry) => entry.kind === "official-release-page")).toBe(false);
     expect(calls.every((call) => !(call.init?.body ?? "").includes("sokuhou/tsuki"))).toBe(true);
+  });
+});
+
+/* ------------------------------------------------------------------ */
+/* Measure 5-3c, link-follow variant (B1 regression follow-up,        */
+/* ANSWER_B1_ROUND7_REGRESSION_DIAGNOSIS_2026-11-27): MHLW states     */
+/* the job-offers value ONLY under an edition-named newpage URL, so   */
+/* no persistent releasePageUrls entry can exist for the topic. The   */
+/* persistent page is the statistics index (toukei/list/114-1.html),  */
+/* whose 「結果の概要」 link the ministry repoints at the current      */
+/* month's release page with every publication. The grounding layer   */
+/* fetches the index, follows that one named link a single hop, and   */
+/* the followed page joins the pool as the topic's deterministic      */
+/* release-page candidate — the same kind, tier and gates as B3's     */
+/* direct pages. The fixtures below reproduce the index page's shape  */
+/* and the September 2026 release as confirmed on mhlw.go.jp at       */
+/* implementation time.                                               */
+/* ------------------------------------------------------------------ */
+
+const RELEASE_INDEX_URL = "https://www.mhlw.go.jp/toukei/list/114-1.html";
+const FOLLOWED_RELEASE_URL = "https://www.mhlw.go.jp/stf/newpage_76960.html";
+const B1_QUESTION = "最新の有効求人倍率を教えてください。いつの分ですか？";
+
+// The index page's shape (confirmed 2026-11-27): a 統計の概要 list,
+// then 集計結果 with exactly one 「結果の概要」 link — the current
+// month's release page — among other links that must NOT be
+// followed (a guidance page on the same domain, an e-Stat link off
+// it).
+const RELEASE_INDEX_HTML = `<!DOCTYPE html>
+<html lang="ja">
+<head><meta charset="utf-8"><title>一般職業紹介状況(職業安定業務統計)｜厚生労働省</title></head>
+<body>
+<header><a href="https://www.mhlw.go.jp/">ホーム</a></header>
+<main>
+<h1>一般職業紹介状況(職業安定業務統計)</h1>
+<h2>統計の概要</h2>
+<ul>
+<li><a href="https://www.mhlw.go.jp/toukei/list/114-1a.html">統計の目的</a></li>
+<li>統計の作成方法</li>
+</ul>
+<h2>集計結果</h2>
+<ul>
+<li><a href="${FOLLOWED_RELEASE_URL}">結果の概要</a></li>
+<li><a href="https://www.mhlw.go.jp/toukei/list/114-1b.html">利用上の注意</a></li>
+<li><a href="https://www.e-stat.go.jp/stat-search/files?page=1&amp;toukei=0024130121">統計表一覧</a></li>
+</ul>
+<h2>問い合わせ先</h2>
+<p>職業安定局雇用政策課調査係</p>
+</main>
+</body>
+</html>`;
+
+// The followed page as Tavily extract returns it: the value as an
+// ordinary sentence, and the publication date in the text (the
+// extract route reports no provider date).
+const FOLLOWED_RELEASE_TEXT =
+  "一般職業紹介状況（令和8年9月分）について。令和8年9月の有効求人倍率は1.19倍で、"
+  + "前月と比べて0.01ポイント上昇。新規求人倍率は2.19倍でした。2026年10月30日に公表しました。";
+
+describe("resolveOriginReleaseIndexLink (measure 5-3c, link-follow variant)", () => {
+  it("resolves the named link to the current month's release page", () => {
+    expect(resolveOriginReleaseIndexLink(RELEASE_INDEX_HTML, RELEASE_INDEX_URL, "結果の概要", ["mhlw.go.jp"]))
+      .toBe(FOLLOWED_RELEASE_URL);
+  });
+
+  it("resolves a root-relative href against the index URL", () => {
+    const html = `<a href="/stf/newpage_76960.html">結果の概要</a>`;
+    expect(resolveOriginReleaseIndexLink(html, RELEASE_INDEX_URL, "結果の概要", ["mhlw.go.jp"]))
+      .toBe(FOLLOWED_RELEASE_URL);
+  });
+
+  it("turns over with the month: the target is whatever the link points at now", () => {
+    // Next month's index repoints the same anchor at a new
+    // edition-named page; nothing in the topic table changes.
+    const nextMonth = RELEASE_INDEX_HTML.replace("newpage_76960", "newpage_77512");
+    expect(resolveOriginReleaseIndexLink(nextMonth, RELEASE_INDEX_URL, "結果の概要", ["mhlw.go.jp"]))
+      .toBe("https://www.mhlw.go.jp/stf/newpage_77512.html");
+  });
+
+  it("takes the first matching anchor in document order", () => {
+    const html = `<a href="https://www.mhlw.go.jp/stf/newpage_11111.html">結果の概要</a>`
+      + `<a href="https://www.mhlw.go.jp/stf/newpage_22222.html">結果の概要</a>`;
+    expect(resolveOriginReleaseIndexLink(html, RELEASE_INDEX_URL, "結果の概要", ["mhlw.go.jp"]))
+      .toBe("https://www.mhlw.go.jp/stf/newpage_11111.html");
+  });
+
+  it("matches anchor text across nested markup and whitespace", () => {
+    const html = `<a href="/stf/newpage_76960.html"><span class="x">\n  結果の概要\n</span></a>`;
+    expect(resolveOriginReleaseIndexLink(html, RELEASE_INDEX_URL, "結果の概要", ["mhlw.go.jp"]))
+      .toBe(FOLLOWED_RELEASE_URL);
+  });
+
+  it("rejects a named link whose target leaves the topic's domains", () => {
+    const html = `<a href="https://www.e-stat.go.jp/stat-search/files?page=1">結果の概要</a>`;
+    expect(resolveOriginReleaseIndexLink(html, RELEASE_INDEX_URL, "結果の概要", ["mhlw.go.jp"]))
+      .toBeNull();
+  });
+
+  it("accepts a subdomain of a listed domain (jsite.mhlw.go.jp)", () => {
+    const html = `<a href="https://jsite.mhlw.go.jp/stf/newpage_76960.html">結果の概要</a>`;
+    expect(resolveOriginReleaseIndexLink(html, RELEASE_INDEX_URL, "結果の概要", ["mhlw.go.jp"]))
+      .toBe("https://jsite.mhlw.go.jp/stf/newpage_76960.html");
+  });
+
+  it("rejects a non-https target and an absent or renamed link", () => {
+    expect(resolveOriginReleaseIndexLink(
+      `<a href="http://www.mhlw.go.jp/stf/newpage_76960.html">結果の概要</a>`,
+      RELEASE_INDEX_URL, "結果の概要", ["mhlw.go.jp"],
+    )).toBeNull();
+    // A renamed link (the publisher adds a suffix) does not match
+    // the exact-text condition: the follow fails soft rather than
+    // guessing.
+    expect(resolveOriginReleaseIndexLink(
+      `<a href="/stf/newpage_76960.html">結果の概要（PDF）</a>`,
+      RELEASE_INDEX_URL, "結果の概要", ["mhlw.go.jp"],
+    )).toBeNull();
+    expect(resolveOriginReleaseIndexLink(
+      `<p>リンクはありません</p>`, RELEASE_INDEX_URL, "結果の概要", ["mhlw.go.jp"],
+    )).toBeNull();
+  });
+});
+
+describe("executeOriginSearchGrounding — measure 5-3c link-follow variant (B1)", () => {
+  const B1_BLOG_RESULT = {
+    title: "有効求人倍率とは？意味と見方を分かりやすく解説",
+    url: "https://blog.example.com/job-offers-ratio",
+    content: "これは十分な長さの抜粋テキストです。有効求人倍率について説明します。".repeat(30),
+    score: 0.8,
+    published_date: "2026-11-18T00:00:00.000Z",
+  };
+  const JSITE_GUIDANCE_RESULT = {
+    title: "一般職業紹介状況のご案内 茨城労働局",
+    url: "https://jsite.mhlw.go.jp/ibaraki-roudoukyoku/roudoukyoku/antei/kyujin.html",
+    // A guidance page on the ministry's subdomain (the round-6
+    // Pool A S2 shape): it names the release and the edition, so
+    // it passes the relevance screen, but its excerpt is guidance
+    // text — no quotable value sentence.
+    content: "一般職業紹介状況の令和8年9月分の集計結果は、結果の概要のリンク先をご覧ください。統計の概要と問い合わせ先の案内ページです。",
+    score: 0.7,
+  };
+
+  function linkFollowAwareFetch(options?: {
+    indexHtml?: string;
+    indexStatus?: number;
+    failFollowedExtract?: boolean;
+  }) {
+    const calls: RecordedCall[] = [];
+    const fetchImpl: OriginSearchFetch = async (url, init) => {
+      calls.push({ url, init });
+      if (url === RELEASE_INDEX_URL) {
+        const status = options?.indexStatus ?? 200;
+        return {
+          ok: status >= 200 && status < 300,
+          status,
+          text: async () => options?.indexHtml ?? RELEASE_INDEX_HTML,
+        };
+      }
+      if (url.includes("api.tavily.com/search")) {
+        const body = JSON.parse(init?.body ?? "{}") as { include_domains?: string[] };
+        // NEITHER search returns the release page — the ordinary
+        // route brings a dated explainer blog, the restricted
+        // route a value-less guidance page on the ministry's
+        // subdomain. Without the follow, the pool holds no
+        // quotable national value (the round-7 regression shape).
+        if (body.include_domains?.includes("mhlw.go.jp")) return jsonResponse({ results: [JSITE_GUIDANCE_RESULT] });
+        return jsonResponse({ results: [B1_BLOG_RESULT] });
+      }
+      if (url.includes("api.tavily.com/extract")) {
+        if (options?.failFollowedExtract) throw new Error("extract unavailable");
+        const body = JSON.parse(init?.body ?? "{}") as { urls?: string[] };
+        const results = (body.urls ?? [])
+          .filter((target) => target === FOLLOWED_RELEASE_URL)
+          .map((target) => ({ url: target, raw_content: FOLLOWED_RELEASE_TEXT }));
+        return jsonResponse({ results, failed_results: [] });
+      }
+      const host = new URL(url).hostname;
+      if (host === "wikipedia.org" || host.endsWith(".wikipedia.org")) return jsonResponse({ pages: [] });
+      throw new Error(`unexpected URL: ${url}`);
+    };
+    return { fetchImpl, calls };
+  }
+
+  it("the followed release page enters the pool deterministically and is adopted, though no search returned it", async () => {
+    const { fetchImpl, calls } = linkFollowAwareFetch();
+    const deps = makeDeps({
+      fetchImpl,
+      env: { TAVILY_API_KEY: "tvly-test-key", ORIGIN_OFFICIAL_SOURCE_ROUTING_MODE: "true" },
+    });
+    const outcome = groundedOf(await executeOriginSearchGrounding(B1_QUESTION, deps));
+    // The index page itself was fetched (a keyless GET, no body).
+    expect(calls.some((call) => call.url === RELEASE_INDEX_URL && !call.init?.body)).toBe(true);
+    // The followed page was adopted with its official tier and the
+    // extracted body; its title is the publication name — the same
+    // shaping as B3's direct release pages.
+    const followed = outcome.sources.find((source) => source.url === FOLLOWED_RELEASE_URL);
+    expect(followed).toBeDefined();
+    expect(followed?.authorityTier).toBe("official");
+    expect(followed?.evidenceLevel).toBe("extracted");
+    expect(followed?.title).toBe("一般職業紹介状況");
+    expect(followed?.excerpt).toContain("有効求人倍率は1.19倍");
+    expect(followed?.dateVerified).toBe(true);
+    // Candidacy: the followed page is the pool's only mhlw.go.jp
+    // candidate — the searches brought the blog and the subdomain
+    // guidance page, never the release page itself.
+    expect(outcome.candidateStats?.domainCounts["mhlw.go.jp"]).toBe(1);
+    // The followed page's edition cannot be read from its title
+    // or URL (an edition-named newpage URL states no 月分）, so
+    // the edition-keyed assessment stays cautious and the
+    // insufficiency retry still fires — the deterministic
+    // candidate passes through the same gates as every search
+    // candidate, exactly like B3's direct release pages.
+    expect(outcome.candidateStats?.officialRetry).toMatchObject({ reason: "stale-edition", fired: true });
+    // The fetch is recorded once, naming the FOLLOWED page — the
+    // page that actually entered the pool as the deterministic
+    // candidate (design memo §2.4 attribution, link-follow form).
+    const releaseIssued = (outcome.queriesIssued ?? []).filter((issued) => issued.kind === "official-release-page");
+    expect(releaseIssued).toEqual([
+      { provider: "tavily", kind: "official-release-page", query: FOLLOWED_RELEASE_URL, url: FOLLOWED_RELEASE_URL },
+    ]);
+    const result = originSearchGroundingToResearchResult(outcome);
+    expect(result.grounding?.queriesIssued?.filter((issued) => issued.kind === "official-release-page"))
+      .toHaveLength(1);
+  });
+
+  it("month turnover end to end: a repointed link brings the new month's page, with no table change", async () => {
+    const nextMonthHtml = RELEASE_INDEX_HTML.replace("newpage_76960", "newpage_77512");
+    const nextMonthUrl = "https://www.mhlw.go.jp/stf/newpage_77512.html";
+    const { fetchImpl: baseFetch } = linkFollowAwareFetch({ indexHtml: nextMonthHtml });
+    const fetchImpl: OriginSearchFetch = async (url, init) => {
+      if (url.includes("api.tavily.com/extract")) {
+        const body = JSON.parse(init?.body ?? "{}") as { urls?: string[] };
+        const results = (body.urls ?? [])
+          .filter((target) => target === nextMonthUrl)
+          .map((target) => ({
+            url: target,
+            raw_content: FOLLOWED_RELEASE_TEXT.replace("令和8年9月分", "令和8年10月分")
+              .replace("令和8年9月の", "令和8年10月の"),
+          }));
+        return jsonResponse({ results, failed_results: [] });
+      }
+      return baseFetch(url, init);
+    };
+    const deps = makeDeps({
+      fetchImpl,
+      env: { TAVILY_API_KEY: "tvly-test-key", ORIGIN_OFFICIAL_SOURCE_ROUTING_MODE: "true" },
+    });
+    const outcome = groundedOf(await executeOriginSearchGrounding(B1_QUESTION, deps));
+    const followed = outcome.sources.find((source) => source.url === nextMonthUrl);
+    expect(followed).toBeDefined();
+    expect(followed?.excerpt).toContain("有効求人倍率は1.19倍");
+    expect((outcome.queriesIssued ?? []).filter((issued) => issued.kind === "official-release-page"))
+      .toEqual([
+        { provider: "tavily", kind: "official-release-page", query: nextMonthUrl, url: nextMonthUrl },
+      ]);
+  });
+
+  it("no named link on the index page: no candidate, no record, the search pool grounds exactly as before", async () => {
+    const { fetchImpl } = linkFollowAwareFetch({
+      indexHtml: RELEASE_INDEX_HTML.replace("結果の概要", "公表資料"),
+    });
+    const deps = makeDeps({
+      fetchImpl,
+      env: { TAVILY_API_KEY: "tvly-test-key", ORIGIN_OFFICIAL_SOURCE_ROUTING_MODE: "true" },
+    });
+    const outcome = groundedOf(await executeOriginSearchGrounding(B1_QUESTION, deps));
+    expect(outcome.sources.some((source) => source.url === FOLLOWED_RELEASE_URL)).toBe(false);
+    expect((outcome.queriesIssued ?? []).some((issued) => issued.kind === "official-release-page")).toBe(false);
+    expect(outcome.sources.some((source) => source.domain === "blog.example.com")).toBe(true);
+  });
+
+  it("an index fetch failure (HTTP 500) is fail-soft: no candidate, no record", async () => {
+    const { fetchImpl } = linkFollowAwareFetch({ indexStatus: 500 });
+    const deps = makeDeps({
+      fetchImpl,
+      env: { TAVILY_API_KEY: "tvly-test-key", ORIGIN_OFFICIAL_SOURCE_ROUTING_MODE: "true" },
+    });
+    const outcome = groundedOf(await executeOriginSearchGrounding(B1_QUESTION, deps));
+    expect(outcome.sources.some((source) => source.url === FOLLOWED_RELEASE_URL)).toBe(false);
+    expect((outcome.queriesIssued ?? []).some((issued) => issued.kind === "official-release-page")).toBe(false);
+  });
+
+  it("a failed followed-page extract is fail-open: the record stands, the pool grounds on the searches", async () => {
+    const { fetchImpl } = linkFollowAwareFetch({ failFollowedExtract: true });
+    const deps = makeDeps({
+      fetchImpl,
+      env: { TAVILY_API_KEY: "tvly-test-key", ORIGIN_OFFICIAL_SOURCE_ROUTING_MODE: "true" },
+    });
+    const outcome = groundedOf(await executeOriginSearchGrounding(B1_QUESTION, deps));
+    expect(outcome.sources.some((source) => source.url === FOLLOWED_RELEASE_URL)).toBe(false);
+    expect(outcome.sources.some((source) => source.domain === "blog.example.com")).toBe(true);
+    // The follow WAS resolved and its extract attempted, so its
+    // record stands even though it produced no candidate — the
+    // same discipline as the direct release-page fetch.
+    expect((outcome.queriesIssued ?? []).filter((issued) => issued.kind === "official-release-page"))
+      .toHaveLength(1);
+  });
+
+  it("switch OFF: the index page is never fetched and no record is written", async () => {
+    const { fetchImpl, calls } = linkFollowAwareFetch();
+    const deps = makeDeps({ fetchImpl });
+    await executeOriginSearchGrounding(B1_QUESTION, deps);
+    expect(calls.some((call) => call.url === RELEASE_INDEX_URL && !call.init?.body)).toBe(false);
+    expect(calls.every((call) => !(call.init?.body ?? "").includes("newpage_76960"))).toBe(true);
   });
 });
