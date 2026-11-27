@@ -1,0 +1,43 @@
+{
+  "schemaVersion": "origin.self-evolution.experiment-policy.v2",
+  "executionAuthority": "EXTERNAL_ORCHESTRATOR_ONLY",
+  "defaults": {
+    "experimentType": "SOLUTION_FIT_DRY_RUN",
+    "workspaceMutationAllowed": true,
+    "repositoryMutationAllowed": false,
+    "productionAccess": false,
+    "secretAccess": false,
+    "environmentMutation": false,
+    "networkAccess": false,
+    "paidProvider": false,
+    "maxCostUsd": 0,
+    "maxPatchBytes": 131072,
+    "maxFilesChanged": 20,
+    "maxDurationMinutes": 20
+  },
+  "protectedPathPrefixes": [
+    ".github/",
+    ".vercel/",
+    "secrets/",
+    "credentials/"
+  ],
+  "protectedFileNames": [
+    ".env",
+    ".env.local",
+    ".env.production",
+    "vercel.json"
+  ],
+  "requiredUniversalGates": [
+    "exact-base-sha",
+    "clean-worktree-before",
+    "bounded-patch",
+    "no-protected-path-change",
+    "deterministic-tests",
+    "security-regression",
+    "accessibility-regression",
+    "performance-regression",
+    "measured-before-after",
+    "clean-worktree-after",
+    "rollback-plan"
+  ]
+}

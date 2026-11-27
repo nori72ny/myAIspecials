@@ -1,0 +1,115 @@
+{
+  "schemaVersion": "origin.self-evolution.capabilities.v2",
+  "categories": {
+    "ai-models": {
+      "axes": [
+        "answer-quality",
+        "reasoning",
+        "research",
+        "multimodal"
+      ],
+      "requiredGates": [
+        "exact-sha",
+        "answer-quality",
+        "security",
+        "latency",
+        "cost-zero"
+      ]
+    },
+    "agents-coding": {
+      "axes": [
+        "general-agent",
+        "coding",
+        "tool-use",
+        "recovery"
+      ],
+      "requiredGates": [
+        "exact-sha",
+        "unit",
+        "e2e",
+        "coding-non-held-out",
+        "agent-non-held-out",
+        "security"
+      ]
+    },
+    "image-multimodal": {
+      "axes": [
+        "image-generation",
+        "image-editing",
+        "multimodal"
+      ],
+      "requiredGates": [
+        "exact-sha",
+        "visual-quality",
+        "safety",
+        "preserve-change",
+        "cost-zero"
+      ]
+    },
+    "security": {
+      "axes": [
+        "security",
+        "privacy",
+        "supply-chain",
+        "abuse-resistance"
+      ],
+      "requiredGates": [
+        "exact-sha",
+        "codeql",
+        "dependency-review",
+        "openssf",
+        "secret-scanning",
+        "fail-closed"
+      ]
+    },
+    "platform-runtime": {
+      "axes": [
+        "runtime",
+        "server",
+        "database",
+        "network",
+        "reliability",
+        "performance"
+      ],
+      "requiredGates": [
+        "exact-sha",
+        "build",
+        "unit",
+        "e2e",
+        "lighthouse",
+        "runtime-errors"
+      ]
+    },
+    "design-ux-a11y": {
+      "axes": [
+        "ui",
+        "ux",
+        "accessibility",
+        "typography",
+        "interaction"
+      ],
+      "requiredGates": [
+        "exact-sha",
+        "e2e",
+        "lighthouse",
+        "touch-targets",
+        "visual-regression"
+      ]
+    },
+    "standards-web": {
+      "axes": [
+        "web-platform",
+        "browser",
+        "builder",
+        "artifact-isolation"
+      ],
+      "requiredGates": [
+        "exact-sha",
+        "cross-browser",
+        "artifact-isolation",
+        "security",
+        "build"
+      ]
+    }
+  }
+}
