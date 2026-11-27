@@ -10,7 +10,13 @@ type MockAppProps = Record<string, unknown> & {
 };
 
 const appProps = vi.fn();
-vi.mock('../CodingWorkspaceV31', () => ({ default: ({ initialGoal }: { initialGoal?: string }) => <section aria-label="Coding Job Workspace">Coding test workspace{initialGoal ? `: ${initialGoal}` : ''}</section> }));
+const codingProps = vi.fn();
+vi.mock('../CodingWorkspaceV31', () => ({
+  default: (props: { initialGoal?: string; onGoalChange?: (goal: string) => void }) => {
+    codingProps(props);
+    return <section aria-label="Coding Job Workspace">Coding test workspace{props.initialGoal ? `: ${props.initialGoal}` : ''}<button type="button" onClick={() => props.onGoalChange?.('編集した依頼文')}>下書きを書き戻す</button></section>;
+  },
+}));
 vi.mock('../../CreativePanelV15', () => ({ default: ({ initialRequest, onClose }: { initialRequest?: string; onClose: () => void }) => <aside aria-label="Creative Panel">Creative test panel{initialRequest ? `: ${initialRequest}` : ''}<button type="button" onClick={onClose}>会話に戻る</button></aside> }));
 vi.mock('../../AgentWorkspaceView', () => ({ default: () => <section aria-label="Agent Workspace">Agent test workspace</section> }));
 
@@ -93,6 +99,47 @@ describe('PersonalEditionApp single-surface wrapper', () => {
 
     const coding = await screen.findByRole('region', { name: 'Coding Job Workspace' });
     expect(coding.textContent).toContain(goal);
+    expect(window.location.search).toBe('?workspace=coding');
+  });
+
+  // コード画面の未送信の依頼文は、チャットの未送信下書きと同じく
+  // 画面を離れて戻っても消えない（UIUX 状態保持 2026-11-27）。画面側が
+  // 離脱時に onGoalChange で書き戻した内容が、シェルの保持として
+  // 次に開いたときの initialGoal になることを固定する。
+  it('keeps the coding draft across leaving and returning to the Code workspace (UIUX state retention, 2026-11-27)', async () => {
+    render(<PersonalEditionApp />);
+    const goal = 'ログイン画面の入力チェックを修正して';
+
+    act(() => latestAppProps().onOpenCoding?.(goal));
+    expect((await screen.findByRole('region', { name: 'Coding Job Workspace' })).textContent).toContain(goal);
+
+    // コード画面で依頼文を編集し、離脱時にシェルへ書き戻された状態を再現する。
+    fireEvent.click(screen.getByRole('button', { name: '下書きを書き戻す' }));
+
+    fireEvent.click(screen.getByTestId('sidebar-nav-chat'));
+    expect(screen.queryByRole('region', { name: 'Coding Job Workspace' })).toBeNull();
+
+    fireEvent.click(screen.getByTestId('sidebar-nav-coding'));
+    const coding = await screen.findByRole('region', { name: 'Coding Job Workspace' });
+    expect(coding.textContent).toContain('編集した依頼文');
+    expect(coding.textContent).not.toContain(goal);
+    expect(window.location.search).toBe('?workspace=coding');
+  });
+
+  // 引数なしでコード画面を開く（+メニューやパネル経由の画面遷移）では、
+  // 保持中の下書きを消さない。新しい引き継ぎ文が来たときだけ置き換わる。
+  it('does not wipe the retained coding draft when Code is opened without a new goal', async () => {
+    render(<PersonalEditionApp />);
+
+    act(() => latestAppProps().onOpenCoding?.('最初の依頼文'));
+    expect((await screen.findByRole('region', { name: 'Coding Job Workspace' })).textContent).toContain('最初の依頼文');
+
+    fireEvent.click(screen.getByTestId('sidebar-nav-chat'));
+    expect(screen.queryByRole('region', { name: 'Coding Job Workspace' })).toBeNull();
+
+    runAppAction('onOpenCoding');
+    const coding = await screen.findByRole('region', { name: 'Coding Job Workspace' });
+    expect(coding.textContent).toContain('最初の依頼文');
     expect(window.location.search).toBe('?workspace=coding');
   });
 
