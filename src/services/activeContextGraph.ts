@@ -4,6 +4,12 @@ import {
   checkPersonalMemoryTexts,
   type PersonalMemoryBlockCategory,
 } from './personalMemoryGuard.js';
+import {
+  ALTER_EGO_CONTEXT_HEADER,
+  ALTER_EGO_FIELD_KEYS,
+  ALTER_EGO_FIELD_LABELS,
+  type AlterEgoFieldKey,
+} from './alterEgoPersona.js';
 
 // ---------------------------------------------------------------------------
 // Personal memory storage foundation (Personalization Stage 1, PR P1-1).
@@ -109,6 +115,7 @@ interface PersonalMemoryStore {
   proposals: OriginProposal[];
   blockNotices: OriginBlockNotice[];
   styleTraits: OriginStyleTrait[];
+  alterEgo?: AlterEgoProfile;
 }
 
 // --- Block notices (design §5.3) --------------------------------------------
@@ -186,6 +193,30 @@ export interface OriginStyleTrait {
   customSummary?: string;
   sendToModel: boolean;
   createdAt: number;
+  updatedAt: number;
+}
+
+// --- Alter-ego profile (owner instruction 2026-11-27) -----------------------
+//
+// The alter-ego mode's owner data: a fixed set of fields the owner fills
+// in for his alter ego 【ノリ】 — what to call him, his work and life,
+// likes, values, goal, how he decides, speech samples, and a memory
+// memo. The field STRUCTURE lives in alterEgoPersona.ts; the VALUES live
+// only here, inside the same encrypted payload as every other personal
+// record, never in code. Each field carries its own sendToModel flag —
+// the same "do not use for answers" switch as profile and memory items —
+// and every field passes the §9.2 pre-save guard on write, so a card
+// number or password typed into a field is refused at save time like
+// anywhere else. The record is optional in the payload: stores written
+// before this layer simply have no alter-ego profile yet.
+
+export interface AlterEgoField {
+  text: string;
+  sendToModel: boolean;
+}
+
+export interface AlterEgoProfile {
+  fields: Record<AlterEgoFieldKey, AlterEgoField>;
   updatedAt: number;
 }
 
@@ -466,6 +497,25 @@ function emptyStore(): PersonalMemoryStore {
   return { version: 1, profile: [], memory: [], proposals: [], blockNotices: [], styleTraits: [] };
 }
 
+export function emptyAlterEgoProfile(): AlterEgoProfile {
+  const fields = {} as Record<AlterEgoFieldKey, AlterEgoField>;
+  for (const key of ALTER_EGO_FIELD_KEYS) fields[key] = { text: '', sendToModel: true };
+  return { fields, updatedAt: 0 };
+}
+
+function isAlterEgoProfile(value: unknown): value is AlterEgoProfile {
+  if (!value || typeof value !== 'object') return false;
+  const profile = value as Partial<AlterEgoProfile>;
+  if (!profile.fields || typeof profile.fields !== 'object' || Array.isArray(profile.fields)) return false;
+  for (const key of ALTER_EGO_FIELD_KEYS) {
+    const field = (profile.fields as Record<string, unknown>)[key];
+    if (!field || typeof field !== 'object') return false;
+    const candidate = field as Partial<AlterEgoField>;
+    if (typeof candidate.text !== 'string' || typeof candidate.sendToModel !== 'boolean') return false;
+  }
+  return typeof profile.updatedAt === 'number';
+}
+
 async function decryptStore(payload: EncryptedPayload): Promise<PersonalMemoryStore> {
   const parsed: unknown = JSON.parse(await decryptText(payload));
   if (!parsed || typeof parsed !== "object") throw new Error("Invalid personal memory payload.");
@@ -483,6 +533,9 @@ async function decryptStore(payload: EncryptedPayload): Promise<PersonalMemorySt
     // Payloads written before the speaking-style layer have no
     // styleTraits field; they simply have no traits yet.
     styleTraits: Array.isArray(store.styleTraits) ? store.styleTraits.filter(isStyleTrait) : [],
+    // Payloads written before the alter-ego layer have no alterEgo
+    // record; the mode simply has no profile yet.
+    ...(isAlterEgoProfile(store.alterEgo) ? { alterEgo: store.alterEgo } : {}),
   };
 }
 
@@ -706,6 +759,28 @@ export async function deleteMemoryItem(userId: string, itemId: string): Promise<
   return true;
 }
 
+// --- Alter-ego profile CRUD ---------------------------------------------------
+
+export async function getAlterEgoProfile(userId: string): Promise<AlterEgoProfile> {
+  const store = await readStore(sanitizeUserId(userId));
+  return store.alterEgo ?? emptyAlterEgoProfile();
+}
+
+export async function setAlterEgoProfile(userId: string, profile: AlterEgoProfile): Promise<UpsertResult> {
+  const safeUserId = sanitizeUserId(userId);
+  if (!isAlterEgoProfile(profile)) throw new Error("Invalid alter-ego profile.");
+  const store = await readStore(safeUserId);
+  // Pre-save guard (§9.2): every field text passes the same deterministic
+  // check as profile and memory items — a credential, card number or
+  // similar value in any field keeps the whole record out of the store.
+  if (checkPersonalMemoryTexts(ALTER_EGO_FIELD_KEYS.map((key) => profile.fields[key].text)).blocked) {
+    return { saved: false, reason: 'blocked-sensitive-content', usage: computeUsage(store) };
+  }
+  store.alterEgo = profile;
+  await writeStore(safeUserId, store);
+  return { saved: true, usage: computeUsage(store) };
+}
+
 export async function clearAll(userId: string, scope: 'memory' | 'all' = 'memory'): Promise<void> {
   const safeUserId = sanitizeUserId(userId);
   const store = await readStore(safeUserId);
@@ -720,7 +795,12 @@ export async function clearAll(userId: string, scope: 'memory' | 'all' = 'memory
   // Style traits are distilled from the remembered conversations, so
   // they are cleared with the memory in both scopes as well.
   store.styleTraits = [];
-  if (scope === 'all') store.profile = [];
+  if (scope === 'all') {
+    store.profile = [];
+    // The alter-ego profile is owner-written standing data like the
+    // profile items, so it is cleared in the 'all' scope only.
+    delete store.alterEgo;
+  }
   await writeStore(safeUserId, store);
 }
 
@@ -1313,6 +1393,12 @@ const MAX_PROFILE_CONTEXT_CHARS = 800;
 // context for every answer (and the only manner ground for proxy and
 // spoken answers), while memories remain relevance-gated below.
 const MAX_STYLE_CONTEXT_CHARS = 320;
+// The alter-ego section (mode on only) gets its own allocation inside
+// the same total budget, taken before the profile: it states who the
+// companion is speaking as and with, which the persona instruction
+// grounds itself in. With the mode off it contributes nothing and the
+// assembly is exactly as before.
+const MAX_ALTER_EGO_CONTEXT_CHARS = 600;
 const MAX_MEMORY_CONTEXT_ITEMS = 5;
 export const MAX_PROPOSAL_MEMORY_ITEMS = 3;
 // Relevance gate (§6.1): a memory needs at least two character 2-grams
@@ -1526,7 +1612,7 @@ function approvedProposalItemOrder(proposals: OriginProposal[]): Map<string, num
  */
 export async function retrieveRelevantContext(
   currentPrompt: string,
-  options: { language?: PersonalContextLanguage; now?: number } = {},
+  options: { language?: PersonalContextLanguage; now?: number; alterEgo?: boolean } = {},
 ): Promise<string> {
   ensureBrowser();
   if (!activeUserId) return "";
@@ -1535,6 +1621,26 @@ export async function retrieveRelevantContext(
   const store = await readStore(activeUserId);
   const prompt = currentPrompt.trim();
   const promptGrams = characterBigrams(prompt);
+
+  // (0) Alter-ego profile (alter-ego mode only): the owner's own
+  // alter-ego fields, sendToModel ones only, in the fixed field order.
+  // Standing context like the profile — not relevance-gated — inside
+  // its own allocation of the same total budget. Without the option
+  // (the default for every other caller) this contributes nothing and
+  // the assembled block is exactly as before.
+  const alterEgoHeader = ALTER_EGO_CONTEXT_HEADER[language];
+  const alterEgoLines: string[] = [];
+  let alterEgoChars = alterEgoHeader.length + 1;
+  if (options.alterEgo === true && store.alterEgo) {
+    for (const key of ALTER_EGO_FIELD_KEYS) {
+      const field = store.alterEgo.fields[key];
+      if (!field || !field.sendToModel || !field.text.trim()) continue;
+      const line = formatContextLine(ALTER_EGO_FIELD_LABELS[language][key], field.text, store.alterEgo.updatedAt, language);
+      if (alterEgoChars + line.length + 1 > MAX_ALTER_EGO_CONTEXT_CHARS) continue;
+      alterEgoLines.push(line);
+      alterEgoChars += line.length + 1;
+    }
+  }
 
   // (1) Profile: every sendToModel item, in category order, fitted into the
   // profile allocation. An item that does not fit is skipped whole, never
@@ -1610,7 +1716,8 @@ export async function retrieveRelevantContext(
 
   const memoryHeader = language === 'ja' ? 'ORIGINが覚えていること:' : 'What ORIGIN remembers:';
   const memoryLines: string[] = [];
-  let totalChars = profileLines.length ? profileChars : 0;
+  let totalChars = alterEgoLines.length ? alterEgoChars : 0;
+  if (profileLines.length) totalChars += profileChars;
   if (styleLines.length) totalChars += styleChars;
   if (ranked.length) totalChars += memoryHeader.length + 1;
   for (const { item } of ranked) {
@@ -1621,6 +1728,7 @@ export async function retrieveRelevantContext(
   }
 
   const sections: string[] = [];
+  if (alterEgoLines.length) sections.push([alterEgoHeader, ...alterEgoLines].join('\n'));
   if (profileLines.length) sections.push([profileHeader, ...profileLines].join('\n'));
   if (styleLines.length) sections.push([styleHeader, ...styleLines].join('\n'));
   if (memoryLines.length) sections.push([memoryHeader, ...memoryLines].join('\n'));

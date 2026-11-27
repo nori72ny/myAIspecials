@@ -15,6 +15,7 @@ import {
   deleteProfileItem,
   deleteStyleTrait,
   describeStyleTrait,
+  getAlterEgoProfile,
   getPersonalMemoryMigrationNotice,
   getPersonalMemoryUsage,
   listBlockNotices,
@@ -22,10 +23,13 @@ import {
   listProposals,
   listStyleTraits,
   resolveActiveContextUserId,
+  setAlterEgoProfile,
   setProposalStatus,
   upsertMemoryItem,
   upsertProfileItem,
   upsertStyleTrait,
+  type AlterEgoField,
+  type AlterEgoProfile,
   type OriginBlockNotice,
   type OriginMemoryItem,
   type OriginMemoryKind,
@@ -35,6 +39,7 @@ import {
   type OriginStyleTrait,
   type PersonalMemoryUsage,
 } from '../services/activeContextGraph';
+import { ALTER_EGO_FIELD_KEYS, ALTER_EGO_FIELD_LABELS, type AlterEgoFieldKey } from '../services/alterEgoPersona';
 
 // ---------------------------------------------------------------------------
 // "About you" settings section (Personalization Stage 1, PR P1-3).
@@ -56,6 +61,9 @@ interface Props {
   language: OriginLanguage;
   enabled: boolean;
   onToggleEnabled: (enabled: boolean) => void;
+  /** Alter-ego mode 【ノリ】: Orin's personality switch (default OFF). */
+  alterEgoEnabled?: boolean;
+  onToggleAlterEgo?: (enabled: boolean) => void;
   /** Ids of saved conversation sessions that still exist (for source links). */
   sourceSessionIds?: ReadonlySet<string>;
   /** Opens the conversation a memory item came from, when it still exists. */
@@ -87,7 +95,7 @@ function ToggleSwitch({ checked, onChange, ariaLabel }: { checked: boolean; onCh
   );
 }
 
-export default function PersonalizationSettings({ language, enabled, onToggleEnabled, sourceSessionIds, onOpenSourceSession }: Props) {
+export default function PersonalizationSettings({ language, enabled, onToggleEnabled, alterEgoEnabled = false, onToggleAlterEgo = () => undefined, sourceSessionIds, onOpenSourceSession }: Props) {
   const p = getTranslations(language).personal;
   const userIdRef = useRef<string | null>(null);
   const [profileItems, setProfileItems] = useState<OriginProfileItem[]>([]);
@@ -110,6 +118,7 @@ export default function PersonalizationSettings({ language, enabled, onToggleEna
   const [passkeyConfigured, setPasskeyConfigured] = useState(false);
   const [passkeyBusy, setPasskeyBusy] = useState(false);
   const [passkeyMessage, setPasskeyMessage] = useState<string | null>(null);
+  const [alterEgoDraft, setAlterEgoDraft] = useState<Record<AlterEgoFieldKey, AlterEgoField> | null>(null);
 
   const userId = (): string => {
     if (!userIdRef.current) userIdRef.current = resolveActiveContextUserId();
@@ -118,13 +127,16 @@ export default function PersonalizationSettings({ language, enabled, onToggleEna
 
   const reload = useCallback(async () => {
     const id = userId();
-    const [items, nextUsage, nextProposals, nextBlockNotices, nextStyleTraits] = await Promise.all([listItems(id), getPersonalMemoryUsage(id), listProposals(id), listBlockNotices(id), listStyleTraits(id)]);
+    const [items, nextUsage, nextProposals, nextBlockNotices, nextStyleTraits, nextAlterEgo] = await Promise.all([listItems(id), getPersonalMemoryUsage(id), listProposals(id), listBlockNotices(id), listStyleTraits(id), getAlterEgoProfile(id)]);
     setProfileItems(items.profile);
     setMemoryItems(items.memory);
     setUsage(nextUsage);
     setProposals(nextProposals);
     setBlockNotices(nextBlockNotices);
     setStyleTraits(nextStyleTraits);
+    const draft = {} as Record<AlterEgoFieldKey, AlterEgoField>;
+    for (const key of ALTER_EGO_FIELD_KEYS) draft[key] = { ...nextAlterEgo.fields[key] };
+    setAlterEgoDraft(draft);
   }, []);
 
   useEffect(() => {
@@ -192,6 +204,34 @@ export default function PersonalizationSettings({ language, enabled, onToggleEna
       );
     } finally {
       setPasskeyBusy(false);
+    }
+  };
+
+  // --- Alter-ego profile actions --------------------------------------------
+  //
+  // The alter-ego fields are one record saved as a whole (unlike the
+  // item-level profile/memory CRUD): the owner edits the fixed field set
+  // and saves once. The store's §9.2 pre-save guard refuses the whole
+  // record when any field carries a credential-like value; the draft is
+  // kept so he can fix it, exactly like a blocked profile save.
+
+  const saveAlterEgoProfile = async () => {
+    if (!alterEgoDraft) return;
+    const fields = {} as Record<AlterEgoFieldKey, AlterEgoField>;
+    for (const key of ALTER_EGO_FIELD_KEYS) {
+      fields[key] = { text: alterEgoDraft[key].text.trim(), sendToModel: alterEgoDraft[key].sendToModel };
+    }
+    const profile: AlterEgoProfile = { fields, updatedAt: Date.now() };
+    try {
+      const result = await setAlterEgoProfile(userId(), profile);
+      if (!result.saved) {
+        setNotice({ kind: 'error', message: p.blockedSave });
+        return;
+      }
+      setNotice({ kind: 'info', message: p.alterEgoSaved });
+      await reload();
+    } catch {
+      setNotice({ kind: 'error', message: p.loadFailed });
     }
   };
 
@@ -557,6 +597,40 @@ export default function PersonalizationSettings({ language, enabled, onToggleEna
           {passkeyBusy ? p.passkeyWorking : passkeyConfigured ? p.passkeyUnlock : p.passkeySetup}
         </button>
         {passkeyMessage && <p role="status" className="origin-muted text-[13px] leading-5">{passkeyMessage}</p>}
+      </div>
+
+      <div className="space-y-3 pt-2" data-testid="alter-ego-settings">
+        <h4 className="text-sm font-bold">{p.alterEgoHeading}</h4>
+        <p className="origin-muted text-[13px] leading-5">{p.alterEgoDescription}</p>
+        <div className="flex min-h-14 items-center justify-between gap-3">
+          <span className="text-sm font-semibold">{p.alterEgoToggleLabel}</span>
+          <ToggleSwitch checked={alterEgoEnabled} ariaLabel={p.alterEgoToggleLabel} onChange={onToggleAlterEgo} />
+        </div>
+        {!alterEgoEnabled && <p className="origin-muted text-[13px] leading-5">{p.alterEgoOffNote}</p>}
+        {!enabled && <p className="origin-muted text-[13px] leading-5">{p.alterEgoNeedsPersonalization}</p>}
+        <p className="origin-muted text-[13px] leading-5">{p.alterEgoFieldsIntro}</p>
+        {alterEgoDraft && ALTER_EGO_FIELD_KEYS.map((key) => (
+          <div key={key} className="origin-surface-muted space-y-2 rounded-xl border p-3">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-sm font-semibold">{ALTER_EGO_FIELD_LABELS[language][key]}</span>
+              <span className="origin-muted text-[13px]">{p.sendToModel}</span>
+              <ToggleSwitch
+                checked={alterEgoDraft[key].sendToModel}
+                ariaLabel={`${p.sendToModel}: ${ALTER_EGO_FIELD_LABELS[language][key]}`}
+                onChange={(next) => setAlterEgoDraft({ ...alterEgoDraft, [key]: { ...alterEgoDraft[key], sendToModel: next } })}
+              />
+            </div>
+            <textarea
+              aria-label={ALTER_EGO_FIELD_LABELS[language][key]}
+              value={alterEgoDraft[key].text}
+              rows={3}
+              onChange={(event) => setAlterEgoDraft({ ...alterEgoDraft, [key]: { ...alterEgoDraft[key], text: event.target.value } })}
+              className="w-full rounded-xl border bg-transparent px-3 py-2 text-sm leading-6"
+            />
+            {!alterEgoDraft[key].sendToModel && alterEgoDraft[key].text.trim() !== '' && <p className="origin-muted text-[13px] leading-5">{p.deviceOnlyNote}</p>}
+          </div>
+        ))}
+        <button type="button" onClick={(event) => { event.stopPropagation(); void saveAlterEgoProfile(); }} className="origin-primary-button min-h-11 rounded-xl px-3 text-sm font-semibold">{p.alterEgoSave}</button>
       </div>
 
       <div className="space-y-3 pt-2">

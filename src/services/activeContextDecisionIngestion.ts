@@ -10,7 +10,7 @@ import {
   checkPersonalMemoryTexts,
   type PersonalMemoryBlockCategory,
 } from './personalMemoryGuard';
-import { readPersonalizationEnabled } from '../hooks/usePersonalSettings';
+import { readAlterEgoEnabled, readPersonalizationEnabled } from '../hooks/usePersonalSettings';
 import { observeSpeakingStyle } from './activeContextStyle';
 
 // ---------------------------------------------------------------------------
@@ -194,6 +194,24 @@ function stripRememberPhrase(sentence: string, phrase: string | RegExp): string 
   return content.trim();
 }
 
+// Alter-ego mode only (owner instruction 2026-11-27): the bare 「覚えて」
+// command forms the owner's spec names — prefix ("覚えて：X" /
+// "覚えて、X"), suffix ("Xを覚えて") and standalone ("覚えて" alone, its
+// content being the adjacent sentence). Returns the content to remember
+// ('' for the standalone form), or null when the sentence is not a bare
+// remember command. Deliberately narrow: a question about memory
+// ("覚えてる？") and inflected forms ("覚えていない") never match — the
+// prefix form requires a delimiter and the suffix form the
+// sentence-final "を覚えて".
+function extractBareRememberContent(sentence: string): string | null {
+  const prefix = sentence.match(/^覚えて\s*[、，：:・]\s*(.+)$/u);
+  if (prefix) return prefix[1].trim();
+  if (/^覚えて[。．]?\s*$/u.test(sentence)) return '';
+  const suffix = sentence.match(/^(.+?)を覚えて[。．]?\s*$/u);
+  if (suffix) return suffix[1].trim();
+  return null;
+}
+
 function substantiveLength(text: string): number {
   return text.replace(/[。．.!！?？\s]/g, '').length;
 }
@@ -352,10 +370,41 @@ function extractCommitmentCandidates(answerText: string, now: number, guardBlock
 
 // --- User-side extraction (A-1 + B) ----------------------------------------------
 
-function extractUserCandidates(userText: string, guardBlocks?: GuardBlock[], explicitBlocks?: GuardBlock[]): MemoryCandidate[] {
+function extractUserCandidates(
+  userText: string,
+  guardBlocks?: GuardBlock[],
+  explicitBlocks?: GuardBlock[],
+  options?: { alterEgoRemember?: boolean },
+): MemoryCandidate[] {
   const sentences = splitSentences(userText);
   const used = new Set<number>();
   const candidates: MemoryCandidate[] = [];
+
+  // Resolves the content of an explicit remember instruction whose own
+  // sentence carries no substance ("覚えておいてください" standing
+  // alone): the adjacent sentence, per §4.2 (その文、または直前の文脈文).
+  // Returns null when there is no usable neighbor — a question, a
+  // one-off instruction (K-24), or a guard-blocked sentence (noted for
+  // §5.3 before yielding null) — and the candidate is dropped.
+  const resolveNeighborContent = (index: number): { content: string; sourceIndex: number } | null => {
+    const neighborIndex = index > 0 && !used.has(index - 1) ? index - 1
+      : index < sentences.length - 1 && !used.has(index + 1) ? index + 1
+        : -1;
+    if (neighborIndex < 0) return null;
+    const neighbor = sentences[neighborIndex];
+    if (isQuestion(neighbor)) return null;
+    // K-24: the pointed-at sentence is not an attribute either when it
+    // is itself a one-off instruction ("この表をまとめて。
+    // 覚えておいてください").
+    if (isImperativeRequestForm(neighbor)) return null;
+    if (isBlockedSentence(neighbor)) {
+      noteGuardBlock(guardBlocks, neighbor, classifyKind(neighbor) ?? undefined);
+      noteExplicitBlock(explicitBlocks, neighbor, classifyKind(neighbor) ?? undefined);
+      return null;
+    }
+    used.add(neighborIndex);
+    return { content: neighbor, sourceIndex: neighborIndex };
+  };
 
   // A-1: explicit phrasing. The marked sentence wins over any B match.
   sentences.forEach((sentence, index) => {
@@ -364,7 +413,13 @@ function extractUserCandidates(userText: string, guardBlocks?: GuardBlock[], exp
       ?? REMEMBER_PATTERNS_EN.find((pattern) => pattern.test(sentence));
     const continuationPhrase = CONTINUATION_PHRASES.find((phrase) => sentence.includes(phrase))
       ?? CONTINUATION_PATTERNS_EN.find((pattern) => pattern.test(sentence));
-    if (!rememberPhrase && !continuationPhrase) return;
+    // Alter-ego mode only: the bare 「覚えて」 forms count as explicit
+    // phrasing too. With the mode off this is always null and the
+    // extraction below is exactly as before.
+    const bareRememberContent = !rememberPhrase && !continuationPhrase && options?.alterEgoRemember
+      ? extractBareRememberContent(sentence)
+      : null;
+    if (!rememberPhrase && !continuationPhrase && bareRememberContent === null) return;
     used.add(index);
     if (isBlockedSentence(sentence)) {
       // The owner explicitly asked for this to be remembered and the
@@ -385,26 +440,20 @@ function extractUserCandidates(userText: string, guardBlocks?: GuardBlock[], exp
       content = stripRememberPhrase(sentence, rememberPhrase);
       if (substantiveLength(content) < 4) {
         // The instruction stands alone ("覚えておいてください"); the
-        // content is the adjacent sentence (2026-11-09 §4.2: その文、
-        // または直前の文脈文).
-        const neighborIndex = index > 0 && !used.has(index - 1) ? index - 1
-          : index < sentences.length - 1 && !used.has(index + 1) ? index + 1
-            : -1;
-        if (neighborIndex < 0) return;
-        const neighbor = sentences[neighborIndex];
-        if (isQuestion(neighbor)) return;
-        // K-24: the pointed-at sentence is not an attribute either when
-        // it is itself a one-off instruction ("この表をまとめて。
-        // 覚えておいてください").
-        if (isImperativeRequestForm(neighbor)) return;
-        if (isBlockedSentence(neighbor)) {
-          noteGuardBlock(guardBlocks, neighbor, classifyKind(neighbor) ?? undefined);
-          noteExplicitBlock(explicitBlocks, neighbor, classifyKind(neighbor) ?? undefined);
-          return;
-        }
-        content = neighbor;
-        sourceIndex = neighborIndex;
-        used.add(neighborIndex);
+        // content is the adjacent sentence.
+        const neighbor = resolveNeighborContent(index);
+        if (!neighbor) return;
+        content = neighbor.content;
+        sourceIndex = neighbor.sourceIndex;
+      }
+    } else if (bareRememberContent !== null) {
+      content = bareRememberContent;
+      if (substantiveLength(content) < 4) {
+        // The standalone "覚えて" form: same adjacent-sentence rule.
+        const neighbor = resolveNeighborContent(index);
+        if (!neighbor) return;
+        content = neighbor.content;
+        sourceIndex = neighbor.sourceIndex;
       }
     } else {
       if (GRATITUDE_ONLY.test(sentence)) return;
@@ -421,9 +470,9 @@ function extractUserCandidates(userText: string, guardBlocks?: GuardBlock[], exp
     // are unaffected: their content is the whole sentence, already
     // question-checked above, and the marker itself is the durability
     // signal A-1 exists to capture.
-    if (rememberPhrase && (isQuestion(content) || isImperativeRequestForm(content))) return;
+    if ((rememberPhrase || bareRememberContent !== null) && (isQuestion(content) || isImperativeRequestForm(content))) return;
 
-    const kind = classifyKind(content) ?? (rememberPhrase ? 'fact' : 'preference');
+    const kind = classifyKind(content) ?? (rememberPhrase || bareRememberContent !== null ? 'fact' : 'preference');
     candidates.push({
       kind,
       text: distill(content),
@@ -555,7 +604,7 @@ export async function ingestCompletedChatTurn(turn: CompletedChatTurn): Promise<
     const guardBlocks: GuardBlock[] = [];
     const explicitBlocks: GuardBlock[] = [];
     const candidates = [
-      ...(userText ? extractUserCandidates(userText, guardBlocks, explicitBlocks) : []),
+      ...(userText ? extractUserCandidates(userText, guardBlocks, explicitBlocks, { alterEgoRemember: readAlterEgoEnabled() }) : []),
       ...(answerText ? extractCommitmentCandidates(answerText, now, guardBlocks) : []),
     ];
     const savedCount = await saveCandidates(candidates, turn ?? {}, guardBlocks);

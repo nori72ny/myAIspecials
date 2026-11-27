@@ -15,6 +15,7 @@ export const DEFAULT_PERSONAL_SETTINGS: Settings = Object.freeze({
   selectedTheme: 'light',
   designTheme: 'minimal',
   personalizationEnabled: true,
+  alterEgoEnabled: false,
   maxCostCap: 0,
   retryCount: 0,
   timeoutSeconds: 45,
@@ -28,6 +29,11 @@ type StoredPersonalSettings = {
   // stored shape so settings saved before this field existed stay valid;
   // an absent field means the default (on).
   personalizationEnabled?: boolean;
+  // Alter-ego mode toggle (2026-11-27). Optional for the same reason;
+  // an absent field means the default (OFF — the owner turns the alter
+  // ego on deliberately, so the default is the opposite of the master
+  // toggle's).
+  alterEgoEnabled?: boolean;
 };
 
 function isStoredPersonalSettings(value: unknown): value is StoredPersonalSettings {
@@ -36,7 +42,8 @@ function isStoredPersonalSettings(value: unknown): value is StoredPersonalSettin
   return (candidate.language === 'ja' || candidate.language === 'en')
     && (candidate.selectedTheme === 'light' || candidate.selectedTheme === 'dark' || candidate.selectedTheme === 'system')
     && (candidate.designTheme === undefined || candidate.designTheme === 'minimal' || candidate.designTheme === 'luxury' || candidate.designTheme === 'glass')
-    && (candidate.personalizationEnabled === undefined || typeof candidate.personalizationEnabled === 'boolean');
+    && (candidate.personalizationEnabled === undefined || typeof candidate.personalizationEnabled === 'boolean')
+    && (candidate.alterEgoEnabled === undefined || typeof candidate.alterEgoEnabled === 'boolean');
 }
 
 function toPersonalSettings(value: StoredPersonalSettings | null): Settings {
@@ -56,6 +63,7 @@ function toStoredPersonalSettings(nextSettings: Settings): StoredPersonalSetting
       ? nextSettings.designTheme
       : 'minimal',
     personalizationEnabled: nextSettings.personalizationEnabled !== false,
+    alterEgoEnabled: nextSettings.alterEgoEnabled === true,
   };
 }
 
@@ -70,6 +78,20 @@ export function readPersonalizationEnabled(): boolean {
     isStoredPersonalSettings,
   );
   return stored?.personalizationEnabled !== false;
+}
+
+/**
+ * Reads the alter-ego mode toggle straight from the persisted settings,
+ * for non-React callers (the chat bridge and the memory ingestion).
+ * Defaults to OFF when nothing valid is stored — the opposite default
+ * of the personalization master toggle.
+ */
+export function readAlterEgoEnabled(): boolean {
+  const stored = SafeStorage.get<StoredPersonalSettings>(
+    PERSONAL_SETTINGS_STORAGE_KEY,
+    isStoredPersonalSettings,
+  );
+  return stored?.alterEgoEnabled === true;
 }
 
 /**
