@@ -331,195 +331,478 @@ export function decodeOriginPageHtml(bytes: Uint8Array, contentType?: string | n
 }
 
 /* ------------------------------------------------------------------ */
-/* Open-Meteo (weather, §1.2 / §2.3)                                   */
+/* JMA (weather, §1.2 / §2.3)                                          */
 /* ------------------------------------------------------------------ */
 
-const WMO_WEATHER_LABELS_JA: Readonly<Record<number, string>> = {
-  0: "晴れ", 1: "ほぼ晴れ", 2: "晴れ時々くもり", 3: "くもり",
-  45: "霧", 48: "霧",
-  51: "弱い霧雨", 53: "霧雨", 55: "霧雨",
-  56: "着氷性の霧雨", 57: "着氷性の霧雨",
-  61: "弱い雨", 63: "雨", 65: "強い雨",
-  66: "着氷性の雨", 67: "着氷性の雨",
-  71: "弱い雪", 73: "雪", 75: "強い雪", 77: "雪あられ",
-  80: "にわか雨", 81: "にわか雨", 82: "激しいにわか雨",
-  85: "にわか雪", 86: "にわか雪",
-  95: "雷雨", 96: "雹を伴う雷雨", 99: "雹を伴う雷雨",
-};
+/**
+ * Weather route: the Japan Meteorological Agency (気象庁) bosai
+ * forecast JSON, adopted 2026-11-27 by owner decision, replacing
+ * Open-Meteo. Places are resolved to JMA region codes from the
+ * official area table, so no coordinates ever leave the server —
+ * the structural defect of the previous route, whose request URLs
+ * embedded latitude/longitude while its terms documented 90-day
+ * retention of request logs and a non-commercial-only free tier.
+ * Keyless and free with no billing path; the data is published
+ * under the Public Data License with attribution to 気象庁.
+ *
+ * Japan only, deterministically: a place the area table cannot
+ * resolve to exactly one forecast area is NOT guessed — resolution
+ * returns null and the caller falls back to the generic search
+ * route (or answers honestly), never to an invented forecast.
+ */
 
-export function openMeteoWeatherLabelJa(code: number): string {
-  return WMO_WEATHER_LABELS_JA[code] ?? "不明";
+export const JMA_SOURCE_URL = "https://www.jma.go.jp/bosai/forecast/";
+const JMA_AREA_TABLE_URL = "https://www.jma.go.jp/bosai/common/const/area.json";
+
+function jmaForecastDataUrl(officeCode: string): string {
+  return `https://www.jma.go.jp/bosai/forecast/data/forecast/${officeCode}.json`;
+}
+
+function jmaOverviewDataUrl(officeCode: string): string {
+  return `https://www.jma.go.jp/bosai/forecast/data/overview_forecast/${officeCode}.json`;
+}
+
+/**
+ * Fallback labels for JMA weather codes, used only for the weekly
+ * element's days: the short-term element carries JMA's own weather
+ * text, the weekly element carries codes alone. The table follows
+ * JMA's code structure (hundreds = 晴れ/くもり/雨/雪 base, tens and
+ * units = 時々/一時/後 patterns); codes outside the standard set
+ * read 不明 rather than a guessed label.
+ */
+export function jmaWeatherCodeLabelJa(code: number): string {
+  const base = Math.floor(code / 100);
+  const suffix = code % 100;
+  const baseLabel = { 1: "晴れ", 2: "くもり", 3: "雨", 4: "雪" }[base];
+  if (!baseLabel) return "不明";
+  const later = (word: string) => `${baseLabel}後${word}`;
+  switch (suffix) {
+    case 0: return baseLabel;
+    case 1: return base === 1 ? "晴れ時々くもり" : `${baseLabel}時々晴れ`;
+    case 2: return base <= 2 ? `${baseLabel}一時雨` : `${baseLabel}一時晴れ`;
+    case 3: return base <= 2 ? `${baseLabel}時々雨` : `${baseLabel}時々晴れ`;
+    case 4: return base === 4 ? "雪一時雨" : `${baseLabel}一時雪`;
+    case 5: return base === 4 ? "雪時々雨" : `${baseLabel}時々雪`;
+    case 6: return base === 4 ? "雪一時雨" : `${baseLabel}一時雨か雪`;
+    case 7: return base === 4 ? "雪時々雨" : `${baseLabel}時々雨か雪`;
+    case 8: return base === 3 ? "雨一時雷雨" : base === 4 ? "雪一時雪か雷雨" : `${baseLabel}一時雨か雷雨`;
+    case 10: return base === 1 ? "晴れ後時々くもり" : later("時々晴れ");
+    case 11: return base === 1 ? "晴れ後くもり" : later("晴れ");
+    case 12: return base <= 2 ? later("一時雨") : later("一時晴れ");
+    case 13: return base <= 2 ? later("時々雨") : later("時々晴れ");
+    case 14: return base <= 2 ? later("雨") : later("晴れ");
+    case 15: return base === 4 ? later("一時雨") : later("一時雪");
+    case 16: return base === 4 ? later("時々雨") : later("時々雪");
+    case 17: return base === 4 ? later("雨") : later("雨か雪");
+    case 18: return base === 3 ? "雨後雷雨" : base === 4 ? "雪後雪か雷雨" : later("雨か雷雨");
+    default: return "不明";
+  }
 }
 
 export interface OriginWeatherDay {
   date: string;
   weatherCode: number;
   weatherLabel: string;
-  maxC: number;
-  minC: number;
+  maxC: number | null;
+  minC: number | null;
   precipitationProbabilityMaxPercent: number | null;
 }
 
 export interface OriginWeatherForecast {
   place: string;
   region?: string;
-  country?: string;
-  current: {
-    temperatureC: number;
-    apparentTemperatureC: number;
-    humidityPercent: number;
-    weatherCode: number;
-    weatherLabel: string;
-    observedAt: string;
-  };
+  publishingOffice: string;
+  reportDatetime: string;
+  overviewText?: string;
   days: OriginWeatherDay[];
   retrievedAt: string;
-  sourceUrl: "https://open-meteo.com/";
+  sourceUrl: "https://www.jma.go.jp/bosai/forecast/";
 }
 
-interface OpenMeteoGeocodingResponse {
-  results?: Array<{
-    name?: string;
-    admin1?: string;
-    country?: string;
-    latitude?: number;
-    longitude?: number;
-  }>;
+/* ------------------------- area table ------------------------- */
+
+export interface JmaAreaEntry {
+  name: string;
+  parent?: string;
+  children: string[];
 }
 
-interface OpenMeteoForecastResponse {
-  current?: {
-    time?: string;
-    temperature_2m?: number;
-    relative_humidity_2m?: number;
-    apparent_temperature?: number;
-    weather_code?: number;
+export interface JmaAreaTable {
+  offices: Readonly<Record<string, JmaAreaEntry>>;
+  class10s: Readonly<Record<string, JmaAreaEntry>>;
+  class15s: Readonly<Record<string, JmaAreaEntry>>;
+  class20s: Readonly<Record<string, JmaAreaEntry>>;
+}
+
+function parseJmaAreaEntries(value: unknown): Record<string, JmaAreaEntry> {
+  const entries: Record<string, JmaAreaEntry> = {};
+  if (!value || typeof value !== "object") return entries;
+  for (const [code, raw] of Object.entries(value as Record<string, unknown>)) {
+    if (!raw || typeof raw !== "object") continue;
+    const record = raw as Record<string, unknown>;
+    if (typeof record.name !== "string" || !record.name) continue;
+    entries[code] = {
+      name: record.name,
+      parent: typeof record.parent === "string" ? record.parent : undefined,
+      children: Array.isArray(record.children)
+        ? record.children.filter((child): child is string => typeof child === "string")
+        : [],
+    };
+  }
+  return entries;
+}
+
+export function parseJmaAreaTable(payload: unknown): JmaAreaTable | null {
+  if (!payload || typeof payload !== "object") return null;
+  const record = payload as Record<string, unknown>;
+  const table: JmaAreaTable = {
+    offices: parseJmaAreaEntries(record.offices),
+    class10s: parseJmaAreaEntries(record.class10s),
+    class15s: parseJmaAreaEntries(record.class15s),
+    class20s: parseJmaAreaEntries(record.class20s),
   };
-  daily?: {
-    time?: string[];
-    weather_code?: number[];
-    temperature_2m_max?: number[];
-    temperature_2m_min?: number[];
-    precipitation_probability_max?: Array<number | null>;
+  return Object.keys(table.offices).length > 0 && Object.keys(table.class10s).length > 0 ? table : null;
+}
+
+export async function fetchJmaAreaTable(
+  deps: OriginSearchProviderDeps,
+): Promise<JmaAreaTable> {
+  const payload = await requestJson<unknown>("jma", deps, JMA_AREA_TABLE_URL, {
+    headers: { "User-Agent": USER_AGENT },
+  });
+  const table = parseJmaAreaTable(payload);
+  if (!table) throw new OriginSearchProviderError("jma", "invalid-response");
+  return table;
+}
+
+const JMA_PLACE_SUFFIXES: readonly string[] = ["都", "府", "県", "市", "区", "町", "村"];
+
+/**
+ * The comparable core of a place or area name: a trailing 地方 and
+ * one trailing administrative suffix are dropped, but only when a
+ * real base name (2+ chars) precedes the suffix — 京都 ends in the
+ * character 都 as part of the proper name itself, so it keeps it,
+ * while 東京都→東京, 大阪府→大阪, 京都府→京都, 札幌市→札幌.
+ */
+export function jmaPlaceCore(name: string): string {
+  let core = (name ?? "").normalize("NFKC").trim();
+  if (core.endsWith("地方") && core.length - 2 >= 2) core = core.slice(0, -2);
+  for (const suffix of JMA_PLACE_SUFFIXES) {
+    if (core.endsWith(suffix) && core.length - suffix.length >= 2) {
+      core = core.slice(0, -suffix.length);
+      break;
+    }
+  }
+  return core;
+}
+
+export interface JmaResolvedArea {
+  /** The place name as the user phrased it (display). */
+  placeName: string;
+  officeCode: string;
+  officeName: string;
+  class10Code: string;
+  class10Name: string;
+  /** Index of the class10 within the office's class10 children; the
+   * bosai temps points follow the same order, as a fallback when no
+   * point name matches the place. */
+  class10Index: number;
+}
+
+function jmaOfficeClass10Codes(table: JmaAreaTable, officeCode: string): string[] {
+  const office = table.offices[officeCode];
+  if (!office) return [];
+  return office.children.filter((code) => table.class10s[code]);
+}
+
+function jmaResolveWithinOffice(
+  table: JmaAreaTable,
+  officeCode: string,
+  placeCore: string,
+  placeName: string,
+  preferredClass10Code?: string,
+): JmaResolvedArea | null {
+  const office = table.offices[officeCode];
+  if (!office) return null;
+  const class10Codes = jmaOfficeClass10Codes(table, officeCode);
+  if (class10Codes.length === 0) return null;
+  let class10Code = preferredClass10Code && class10Codes.includes(preferredClass10Code)
+    ? preferredClass10Code
+    : undefined;
+  if (!class10Code) {
+    class10Code = class10Codes.find((code) => jmaPlaceCore(table.class10s[code]!.name) === placeCore)
+      ?? class10Codes[0]!;
+  }
+  const class10 = table.class10s[class10Code]!;
+  return {
+    placeName,
+    officeCode,
+    officeName: office.name,
+    class10Code,
+    class10Name: class10.name,
+    class10Index: class10Codes.indexOf(class10Code),
   };
+}
+
+function jmaNameMatches(entryName: string, placeRaw: string, placeCore: string): boolean {
+  if (entryName === placeRaw) return true;
+  const entryCore = jmaPlaceCore(entryName);
+  if (entryCore === placeCore) return true;
+  // Prefix: 沖縄 resolves to the office named 沖縄本島地方. Kept
+  // unique-only by the caller, so a prefix can never pick between
+  // two different forecast areas.
+  return placeCore.length >= 2 && entryCore.startsWith(placeCore);
 }
 
 /**
- * Japanese administrative suffixes. With language=ja, the Open-Meteo
- * geocoding index often only carries the fully suffixed form of a place
- * (東京都, 大阪市, 札幌市, ...), so a bare name such as 東京 or 大阪 returns
- * zero results even though the place exists. When the original name yields
- * no result we retry with the most likely suffixes appended, in the order
- * 市 → 都 → 府 → 県 (measured 2026-11-07: 東京→東京都, 大阪→大阪市,
- * 京都→京都市, 札幌→札幌市 all resolve within one or two retries). Only
- * an empty geocoding result triggers a retry: transport/HTTP failures
- * propagate unchanged so a real outage is never masked by extra lookups.
- * The total number of geocoding requests stays bounded (original + 4).
+ * Deterministic place -> forecast-area resolution over the official
+ * area table. Steps, in order: the 北海道 special case (no office
+ * is named 北海道 — the island is split into seven offices, and
+ * Sapporo's office is the standing default), offices, primary
+ * subdivisions (class10), then municipalities and secondary
+ * subdivisions (class20/class15) walked up their parent chain.
+ * A step whose matches resolve to more than one distinct forecast
+ * area fails closed (null): an ambiguous place is not guessed.
  */
-const JAPANESE_ADMIN_SUFFIXES: readonly string[] = ["都", "府", "県", "市", "区", "町", "村"];
-const GEOCODING_SUFFIX_RETRY_ORDER: readonly string[] = ["市", "都", "府", "県"];
-const JAPANESE_TEXT_PATTERN = /[\u3040-\u30ff\u3400-\u9fff\uf900-\ufaff]/;
+export function resolveJmaArea(table: JmaAreaTable, place: string): JmaResolvedArea | null {
+  const placeRaw = (place ?? "").normalize("NFKC").trim();
+  if (!placeRaw) return null;
+  const placeCore = jmaPlaceCore(placeRaw);
 
-function geocodingNameCandidates(place: string): string[] {
-  const candidates = [place];
-  const isJapanesePlace = JAPANESE_TEXT_PATTERN.test(place);
-  // A trailing suffix only counts as an administrative suffix when a real
-  // base name (2+ chars) precedes it: 京都 ends in the character 都 as part
-  // of the proper name itself, so it must still earn suffix retries
-  // (京都→京都市), while 東京都 / 大阪市 skip them as intended.
-  const alreadySuffixed = JAPANESE_ADMIN_SUFFIXES.some(
-    (suffix) => place.endsWith(suffix) && place.length - suffix.length >= 2,
-  );
-  if (isJapanesePlace && !alreadySuffixed) {
-    for (const suffix of GEOCODING_SUFFIX_RETRY_ORDER) candidates.push(place + suffix);
+  if (placeCore === "北海道") {
+    return jmaResolveWithinOffice(table, "016000", placeCore, placeRaw, "016010");
   }
-  return candidates;
-}
 
-type OpenMeteoGeocodingResult = NonNullable<OpenMeteoGeocodingResponse["results"]>[number];
+  const officeMatches = Object.keys(table.offices).filter((code) =>
+    jmaNameMatches(table.offices[code]!.name, placeRaw, placeCore));
+  if (officeMatches.length > 0) {
+    const resolved = officeMatches
+      .map((code) => jmaResolveWithinOffice(table, code, placeCore, placeRaw))
+      .filter((candidate): candidate is JmaResolvedArea => candidate !== null);
+    const distinct = new Map(resolved.map((candidate) => [`${candidate.officeCode}:${candidate.class10Code}`, candidate]));
+    return distinct.size === 1 ? [...distinct.values()][0]! : null;
+  }
 
-async function geocodeOpenMeteoPlace(
-  place: string,
-  deps: OriginSearchProviderDeps,
-): Promise<OpenMeteoGeocodingResult | null> {
-  for (const name of geocodingNameCandidates(place)) {
-    const geocodingUrl = `https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(name)}&count=1&language=ja&format=json`;
-    const geo = await requestJson<OpenMeteoGeocodingResponse>("open-meteo", deps, geocodingUrl, {
-      headers: { "User-Agent": USER_AGENT },
-    });
-    const location = geo.results?.[0];
-    if (location && typeof location.latitude === "number" && typeof location.longitude === "number") {
-      return location;
+  const class10Matches = Object.keys(table.class10s).filter((code) =>
+    jmaNameMatches(table.class10s[code]!.name, placeRaw, placeCore));
+  if (class10Matches.length > 0) {
+    const resolved = class10Matches
+      .map((code) => {
+        const parent = table.class10s[code]!.parent;
+        return parent ? jmaResolveWithinOffice(table, parent, placeCore, placeRaw, code) : null;
+      })
+      .filter((candidate): candidate is JmaResolvedArea => candidate !== null);
+    const distinct = new Map(resolved.map((candidate) => [`${candidate.officeCode}:${candidate.class10Code}`, candidate]));
+    return distinct.size === 1 ? [...distinct.values()][0]! : null;
+  }
+
+  const leafMatches: Array<{ officeCode: string; class10Code: string }> = [];
+  const leafEntries = [...Object.entries(table.class20s), ...Object.entries(table.class15s)];
+  for (const [code, entry] of leafEntries) {
+    if (!jmaNameMatches(entry.name, placeRaw, placeCore)) continue;
+    let currentCode: string | undefined = code;
+    let class10Code: string | undefined;
+    const seen = new Set<string>();
+    while (currentCode && !seen.has(currentCode)) {
+      seen.add(currentCode);
+      if (table.class10s[currentCode]) class10Code = currentCode;
+      if (table.offices[currentCode]) break;
+      currentCode = table.class20s[currentCode]?.parent
+        ?? table.class15s[currentCode]?.parent
+        ?? table.class10s[currentCode]?.parent
+        ?? table.offices[currentCode]?.parent;
+    }
+    if (currentCode && table.offices[currentCode] && class10Code) {
+      leafMatches.push({ officeCode: currentCode, class10Code });
     }
   }
+  if (leafMatches.length > 0) {
+    const distinct = new Map(leafMatches.map((match) => [`${match.officeCode}:${match.class10Code}`, match]));
+    if (distinct.size !== 1) return null;
+    const only = [...distinct.values()][0]!;
+    return jmaResolveWithinOffice(table, only.officeCode, placeCore, placeRaw, only.class10Code);
+  }
+
   return null;
 }
 
-/**
- * Open-Meteo returns `current.time` as a wall-clock string in the requested
- * timezone (this client always requests Asia/Tokyo) with NO UTC offset,
- * e.g. "2026-11-07T14:15". Kept verbatim, `new Date(...)` parses it in the
- * server process timezone (UTC on Vercel) and the later Asia/Tokyo
- * formatting shifts the displayed label by +9h (measured 2026-11-07 in
- * production: a 14:15 JST observation was labelled 23:15). Anchor the wall
- * clock to Tokyo explicitly — Japan is always UTC+9, no DST — so
- * `observedAt` denotes the true instant. Strings that already carry an
- * offset or have an unexpected shape are returned unchanged.
- */
-function openMeteoTokyoWallClockToIso(time: string): string {
-  const match = time.match(/^(\d{4}-\d{2}-\d{2})T(\d{2}):(\d{2})(?::(\d{2}))?$/);
-  if (!match) return time;
-  return `${match[1]}T${match[2]}:${match[3]}:${match[4] ?? "00"}+09:00`;
+/* ------------------------- forecast ------------------------- */
+
+interface JmaForecastAreaSeries {
+  area?: { name?: string; code?: string };
+  weatherCodes?: string[];
+  weathers?: string[];
+  pops?: string[];
+  temps?: string[];
+  tempsMin?: string[];
+  tempsMax?: string[];
 }
 
-export async function fetchOpenMeteoWeather(
-  place: string,
+interface JmaTimeSeries {
+  timeDefines?: string[];
+  areas?: JmaForecastAreaSeries[];
+}
+
+interface JmaForecastElement {
+  publishingOffice?: string;
+  reportDatetime?: string;
+  timeSeries?: JmaTimeSeries[];
+}
+
+interface JmaOverviewResponse {
+  publishingOffice?: string;
+  reportDatetime?: string;
+  targetArea?: string;
+  headlineText?: string;
+  text?: string;
+}
+
+function jmaDatePart(isoDateTime: string): string {
+  return typeof isoDateTime === "string" ? isoDateTime.slice(0, 10) : "";
+}
+
+function parseJmaNumber(value: unknown): number | null {
+  if (typeof value === "number") return Number.isFinite(value) ? value : null;
+  if (typeof value !== "string" || value.trim() === "") return null;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function normalizeJmaWeatherText(text: string): string {
+  return text.replace(/[\s　]+/g, " ").trim();
+}
+
+export async function fetchJmaWeather(
+  area: JmaResolvedArea,
   deps: OriginSearchProviderDeps & { nowMs?: number } = {},
 ): Promise<OriginWeatherForecast> {
-  const location = await geocodeOpenMeteoPlace(place, deps);
-  if (!location) {
-    throw new OriginSearchProviderError("open-meteo", "no-results");
-  }
-  const forecastUrl = "https://api.open-meteo.com/v1/forecast"
-    + `?latitude=${location.latitude}&longitude=${location.longitude}`
-    + "&current=temperature_2m,relative_humidity_2m,apparent_temperature,weather_code"
-    + "&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max"
-    + "&timezone=Asia%2FTokyo&forecast_days=7";
-  const forecast = await requestJson<OpenMeteoForecastResponse>("open-meteo", deps, forecastUrl, {
+  const payload = await requestJson<unknown>("jma", deps, jmaForecastDataUrl(area.officeCode), {
     headers: { "User-Agent": USER_AGENT },
   });
-  const current = forecast.current;
-  if (!current || typeof current.temperature_2m !== "number" || typeof current.weather_code !== "number") {
-    throw new OriginSearchProviderError("open-meteo", "invalid-response");
+  const elements = Array.isArray(payload) ? (payload as JmaForecastElement[]) : [];
+  const shortTerm = elements[0];
+  if (!shortTerm || !Array.isArray(shortTerm.timeSeries) || typeof shortTerm.reportDatetime !== "string") {
+    throw new OriginSearchProviderError("jma", "invalid-response");
   }
-  const days: OriginWeatherDay[] = (forecast.daily?.time ?? []).slice(0, 7).map((date, index) => {
-    const code = forecast.daily?.weather_code?.[index] ?? -1;
-    return {
+  const weekly = elements[1];
+
+  // The overview text is enrichment only: its failure never fails
+  // the forecast itself.
+  let overview: JmaOverviewResponse | undefined;
+  try {
+    overview = await requestJson<JmaOverviewResponse>("jma", deps, jmaOverviewDataUrl(area.officeCode), {
+      headers: { "User-Agent": USER_AGENT },
+    });
+  } catch {
+    overview = undefined;
+  }
+
+  const weatherSeries = shortTerm.timeSeries[0];
+  const areaWeather = weatherSeries?.areas?.find((candidate) => candidate.area?.code === area.class10Code)
+    ?? weatherSeries?.areas?.[0];
+  if (!weatherSeries || !areaWeather || !Array.isArray(weatherSeries.timeDefines)) {
+    throw new OriginSearchProviderError("jma", "invalid-response");
+  }
+
+  // Precipitation probabilities: short-term 6-hour slots, max per day.
+  const popsByDate = new Map<string, number>();
+  const popsSeries = shortTerm.timeSeries[1];
+  const areaPops = popsSeries?.areas?.find((candidate) => candidate.area?.code === area.class10Code);
+  (popsSeries?.timeDefines ?? []).forEach((define, index) => {
+    const value = parseJmaNumber(areaPops?.pops?.[index]);
+    if (value === null) return;
+    const date = jmaDatePart(define);
+    const current = popsByDate.get(date);
+    if (current === undefined || value > current) popsByDate.set(date, value);
+  });
+
+  // Temperatures: the temps points follow the office's class10 order;
+  // a point whose name core matches the place wins, else the point at
+  // the class10's index, else the first point.
+  const tempsSeries = shortTerm.timeSeries[2];
+  const points = tempsSeries?.areas ?? [];
+  const placeCore = jmaPlaceCore(area.placeName);
+  const tempsPoint = points.find((candidate) => jmaPlaceCore(candidate.area?.name ?? "") === placeCore)
+    ?? points[area.class10Index]
+    ?? points[0];
+  const shortTermTempsByDate = new Map<string, { minC: number | null; maxC: number | null }>();
+  (tempsSeries?.timeDefines ?? []).forEach((define, index) => {
+    const value = parseJmaNumber(tempsPoint?.temps?.[index]);
+    if (value === null) return;
+    const date = jmaDatePart(define);
+    const entry = shortTermTempsByDate.get(date) ?? { minC: null, maxC: null };
+    // JMA publishes the day's low against the 00:00 define and the
+    // day's high against the 09:00 define.
+    if (define.slice(11, 13) === "00") entry.minC = value;
+    else if (define.slice(11, 13) === "09") entry.maxC = value;
+    shortTermTempsByDate.set(date, entry);
+  });
+
+  // Weekly element: codes/pops per day and min/max per temps point.
+  const weeklyWeatherSeries = weekly?.timeSeries?.[0];
+  const weeklyAreaWeather = weeklyWeatherSeries?.areas?.find((candidate) => candidate.area?.code === area.class10Code);
+  const weeklyByDate = new Map<string, { weatherCode: number | null; pop: number | null }>();
+  (weeklyWeatherSeries?.timeDefines ?? []).forEach((define, index) => {
+    weeklyByDate.set(jmaDatePart(define), {
+      weatherCode: parseJmaNumber(weeklyAreaWeather?.weatherCodes?.[index]),
+      pop: parseJmaNumber(weeklyAreaWeather?.pops?.[index]),
+    });
+  });
+  const weeklyTempsSeries = weekly?.timeSeries?.[1];
+  const weeklyTempsPoint = weeklyTempsSeries?.areas?.find((candidate) => candidate.area?.code === tempsPoint?.area?.code)
+    ?? weeklyTempsSeries?.areas?.find((candidate) => jmaPlaceCore(candidate.area?.name ?? "") === placeCore)
+    ?? weeklyTempsSeries?.areas?.[0];
+  const weeklyTempsByDate = new Map<string, { minC: number | null; maxC: number | null }>();
+  (weeklyTempsSeries?.timeDefines ?? []).forEach((define, index) => {
+    weeklyTempsByDate.set(jmaDatePart(define), {
+      minC: parseJmaNumber(weeklyTempsPoint?.tempsMin?.[index]),
+      maxC: parseJmaNumber(weeklyTempsPoint?.tempsMax?.[index]),
+    });
+  });
+
+  const shortTermDates = weatherSeries.timeDefines.map(jmaDatePart);
+  const dates = [...shortTermDates];
+  for (const date of weeklyByDate.keys()) {
+    if (!dates.includes(date)) dates.push(date);
+  }
+  const days: OriginWeatherDay[] = [];
+  for (const date of dates.slice(0, 7)) {
+    const shortIndex = shortTermDates.indexOf(date);
+    const weeklyEntry = weeklyByDate.get(date);
+    const weatherCode = (shortIndex >= 0 ? parseJmaNumber(areaWeather.weatherCodes?.[shortIndex]) : null)
+      ?? weeklyEntry?.weatherCode
+      ?? -1;
+    const weatherLabel = shortIndex >= 0 && typeof areaWeather.weathers?.[shortIndex] === "string"
+      ? normalizeJmaWeatherText(areaWeather.weathers[shortIndex]!)
+      : jmaWeatherCodeLabelJa(weatherCode);
+    if (!weatherLabel) continue;
+    const temps = shortTermTempsByDate.get(date) ?? weeklyTempsByDate.get(date);
+    days.push({
       date,
-      weatherCode: code,
-      weatherLabel: openMeteoWeatherLabelJa(code),
-      maxC: forecast.daily?.temperature_2m_max?.[index] ?? Number.NaN,
-      minC: forecast.daily?.temperature_2m_min?.[index] ?? Number.NaN,
-      precipitationProbabilityMaxPercent: forecast.daily?.precipitation_probability_max?.[index] ?? null,
-    };
-  }).filter((day) => Number.isFinite(day.maxC) && Number.isFinite(day.minC));
-  if (days.length === 0) throw new OriginSearchProviderError("open-meteo", "invalid-response");
+      weatherCode,
+      weatherLabel,
+      maxC: temps?.maxC ?? null,
+      minC: temps?.minC ?? null,
+      precipitationProbabilityMaxPercent: popsByDate.get(date) ?? weeklyEntry?.pop ?? null,
+    });
+  }
+  if (days.length === 0) throw new OriginSearchProviderError("jma", "invalid-response");
+
   const nowMs = deps.nowMs ?? Date.now();
+  const overviewText = typeof overview?.text === "string"
+    ? overview.text.replace(/\s+/g, " ").trim().slice(0, 400)
+    : "";
   return {
-    place: typeof location.name === "string" && location.name ? location.name : place,
-    region: typeof location.admin1 === "string" ? location.admin1 : undefined,
-    country: typeof location.country === "string" ? location.country : undefined,
-    current: {
-      temperatureC: current.temperature_2m,
-      apparentTemperatureC: typeof current.apparent_temperature === "number" ? current.apparent_temperature : current.temperature_2m,
-      humidityPercent: typeof current.relative_humidity_2m === "number" ? current.relative_humidity_2m : 0,
-      weatherCode: current.weather_code,
-      weatherLabel: openMeteoWeatherLabelJa(current.weather_code),
-      observedAt: typeof current.time === "string" ? openMeteoTokyoWallClockToIso(current.time) : new Date(nowMs).toISOString(),
-    },
+    place: area.placeName,
+    region: area.class10Name !== area.placeName ? area.class10Name : undefined,
+    publishingOffice: typeof shortTerm.publishingOffice === "string" && shortTerm.publishingOffice
+      ? shortTerm.publishingOffice
+      : "気象庁",
+    reportDatetime: shortTerm.reportDatetime,
+    ...(overviewText ? { overviewText } : {}),
     days,
     retrievedAt: new Date(nowMs).toISOString(),
-    sourceUrl: "https://open-meteo.com/",
+    sourceUrl: JMA_SOURCE_URL,
   };
 }
 
@@ -535,13 +818,26 @@ function formatTokyoDateTime(iso: string): string {
   }).format(date);
 }
 
-function formatDayLabel(date: string, index: number): string {
+function tokyoDateString(instantIso: string): string {
+  const date = new Date(instantIso);
+  if (Number.isNaN(date.getTime())) return instantIso.slice(0, 10);
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Tokyo",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(date);
+}
+
+function formatJmaDayLabel(date: string, todayDate: string): string {
   const parsed = new Date(`${date}T00:00:00+09:00`);
   const monthDay = Number.isNaN(parsed.getTime())
     ? date
     : new Intl.DateTimeFormat("ja-JP", { timeZone: "Asia/Tokyo", month: "numeric", day: "numeric" }).format(parsed);
-  if (index === 0) return `今日（${monthDay}）`;
-  if (index === 1) return `明日（${monthDay}）`;
+  if (date === todayDate) return `今日（${monthDay}）`;
+  const tomorrow = new Date(`${todayDate}T00:00:00Z`);
+  tomorrow.setUTCDate(tomorrow.getUTCDate() + 1);
+  if (date === tomorrow.toISOString().slice(0, 10)) return `明日（${monthDay}）`;
   return monthDay;
 }
 
@@ -549,16 +845,27 @@ export function composeOriginWeatherText(forecast: OriginWeatherForecast): strin
   const placeLabel = forecast.region && forecast.region !== forecast.place
     ? `${forecast.place}（${forecast.region}）`
     : forecast.place;
+  const today = tokyoDateString(forecast.retrievedAt);
   const lines = [
     `${placeLabel}の天気`,
-    `現在（${formatTokyoDateTime(forecast.current.observedAt)}時点）: ${forecast.current.weatherLabel}、気温 ${forecast.current.temperatureC}°C（体感 ${forecast.current.apparentTemperatureC}°C）、湿度 ${forecast.current.humidityPercent}%`,
+    `発表: ${forecast.publishingOffice} ${formatTokyoDateTime(forecast.reportDatetime)}発表`,
     ...forecast.days.slice(0, 2).map((day) => {
+      const temps = day.minC !== null && day.maxC !== null
+        ? `最高 ${day.maxC}°C / 最低 ${day.minC}°C`
+        : day.maxC !== null
+          ? `最高 ${day.maxC}°C`
+          : day.minC !== null
+            ? `最低 ${day.minC}°C`
+            : null;
       const probability = day.precipitationProbabilityMaxPercent === null
         ? "降水確率 不明"
         : `降水確率 最大${day.precipitationProbabilityMaxPercent}%`;
-      return `${formatDayLabel(day.date, forecast.days.indexOf(day))}: ${day.weatherLabel}、最高 ${day.maxC}°C / 最低 ${day.minC}°C、${probability}`;
+      return [ `${formatJmaDayLabel(day.date, today)}: ${day.weatherLabel}`, temps, probability ]
+        .filter((part): part is string => part !== null)
+        .join("、");
     }),
-    `出典: Open-Meteo（https://open-meteo.com/）の気象データ（CC BY 4.0）。取得日時: ${formatTokyoDateTime(forecast.retrievedAt)}`,
+    ...(forecast.overviewText ? [`概況: ${forecast.overviewText}`] : []),
+    `出典: 気象庁（https://www.jma.go.jp/bosai/forecast/）の気象データ。取得日時: ${formatTokyoDateTime(forecast.retrievedAt)}`,
   ];
   return lines.join("\n");
 }

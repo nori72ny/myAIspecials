@@ -6,8 +6,13 @@ import {
   decodeOriginPageHtml,
   extractOriginPageText,
   extractTavilyPages,
-  fetchOpenMeteoWeather,
+  fetchJmaAreaTable,
+  fetchJmaWeather,
   fetchStooqMarketQuotes,
+  jmaPlaceCore,
+  jmaWeatherCodeLabelJa,
+  parseJmaAreaTable,
+  resolveJmaArea,
   isSafeHttpsUrl,
   OriginSearchProviderError,
   parseGdeltSeenDate,
@@ -73,205 +78,316 @@ describe("isSafeHttpsUrl", () => {
   });
 });
 
-describe("fetchOpenMeteoWeather", () => {
-  const routes = [
+describe("JMA weather route", () => {
+  // Subset of the official area table (www.jma.go.jp/bosai/common/const/
+  // area.json), structurally faithful: offices -> class10s -> class15s
+  // -> class20s parent chains. The full table carries every prefecture.
+  const AREA_TABLE_PAYLOAD = {
+    offices: {
+      "016000": { name: "石狩・空知・後志地方", enName: "Ishikari Sorachi Shiribeshi", officeName: "札幌管区気象台", parent: "010100", children: ["016010", "016020", "016030"] },
+      "130000": { name: "東京都", enName: "Tokyo", officeName: "気象庁", parent: "010300", children: ["130010", "130020"] },
+      "140000": { name: "神奈川県", enName: "Kanagawa", officeName: "横浜地方気象台", parent: "010300", children: ["140010", "140020"] },
+      "270000": { name: "大阪府", enName: "Osaka", officeName: "大阪管区気象台", parent: "010600", children: ["270000"] },
+      "471000": { name: "沖縄本島地方", enName: "Okinawa Main Island", officeName: "沖縄気象台", parent: "011100", children: ["471010", "471020"] },
+    },
+    class10s: {
+      "016010": { name: "石狩地方", enName: "Ishikari Region", parent: "016000", children: ["016011"] },
+      "016020": { name: "空知地方", enName: "Sorachi Region", parent: "016000", children: ["016021"] },
+      "016030": { name: "後志地方", enName: "Shiribeshi Region", parent: "016000", children: ["016031"] },
+      "130010": { name: "東京地方", enName: "Tokyo Region", parent: "130000", children: ["130011", "130012"] },
+      "130020": { name: "伊豆諸島北部", enName: "Northern Izu Islands", parent: "130000", children: ["130021"] },
+      "140010": { name: "東部", enName: "Eastern Region", parent: "140000", children: ["140011"] },
+      "140020": { name: "西部", enName: "Western Region", parent: "140000", children: ["140021"] },
+      "270000": { name: "大阪府", enName: "Osaka", parent: "270000", children: ["270001"] },
+      "471010": { name: "本島中南部", enName: "Central and Southern Okinawa Island", parent: "471000", children: ["471011"] },
+      "471020": { name: "本島北部", enName: "Northern Okinawa Island", parent: "471000", children: ["471021"] },
+    },
+    class15s: {
+      "016011": { name: "札幌市周辺", parent: "016010", children: ["0160111"] },
+      "130011": { name: "２３区西部", parent: "130010", children: ["1300111"] },
+      "130012": { name: "２３区東部", parent: "130010", children: ["1300121"] },
+      "140011": { name: "横浜・川崎", parent: "140010", children: ["1400111"] },
+      "270001": { name: "大阪市周辺", parent: "270000", children: ["2700011"] },
+      "471011": { name: "那覇市周辺", parent: "471010", children: ["4710111"] },
+    },
+    class20s: {
+      "0160111": { name: "札幌市", parent: "016011" },
+      "1300111": { name: "新宿区", parent: "130011" },
+      "1300121": { name: "千代田区", parent: "130012" },
+      "1400111": { name: "横浜市", parent: "140011" },
+      "2700011": { name: "大阪市", parent: "270001" },
+      "4710111": { name: "那覇市", parent: "471011" },
+    },
+  };
+
+  // Trimmed from the live bosai payload for 東京都 (130000) published
+  // 2026-11-27 17:00 JST (real shape, captured 2026-11-27).
+  const TOKYO_FORECAST_PAYLOAD = [
     {
-      match: "geocoding-api.open-meteo.com",
-      respond: () => ({
-        results: [{ name: "東京", admin1: "東京都", country: "日本", latitude: 35.6895, longitude: 139.6917 }],
-      }),
+      publishingOffice: "気象庁",
+      reportDatetime: "2026-11-27T17:00:00+09:00",
+      timeSeries: [
+        {
+          timeDefines: ["2026-11-27T17:00:00+09:00", "2026-11-28T00:00:00+09:00", "2026-11-29T00:00:00+09:00"],
+          areas: [
+            { area: { name: "東京地方", code: "130010" }, weatherCodes: ["111", "313", "100"], weathers: ["晴れ　夜 くもり 所により 夜遅く 雨", "雨　昼前　から　くもり", "晴れ"], winds: ["南の風", "南の風", "西の風"], waves: ["０．５メートル", "０．５メートル", "１メートル"] },
+            { area: { name: "伊豆諸島北部", code: "130020" }, weatherCodes: ["114", "203", "101"], weathers: ["晴れ　後　くもり　夜遅く　雨", "くもり　時々　雨", "晴れ　時々　くもり"], winds: ["南西の風", "南の風", "西の風"], waves: ["２メートル", "２メートル", "３メートル"] },
+          ],
+        },
+        {
+          timeDefines: ["2026-11-27T18:00:00+09:00", "2026-11-28T00:00:00+09:00", "2026-11-28T06:00:00+09:00", "2026-11-28T12:00:00+09:00", "2026-11-28T18:00:00+09:00"],
+          areas: [
+            { area: { name: "東京地方", code: "130010" }, pops: ["20", "90", "60", "20", "10"] },
+            { area: { name: "伊豆諸島北部", code: "130020" }, pops: ["60", "100", "40", "50", "10"] },
+          ],
+        },
+        {
+          timeDefines: ["2026-11-28T00:00:00+09:00", "2026-11-28T09:00:00+09:00"],
+          areas: [
+            { area: { name: "東京", code: "44132" }, temps: ["10", "20"] },
+            { area: { name: "大島", code: "44172" }, temps: ["15", "20"] },
+          ],
+        },
+      ],
     },
     {
-      match: "api.open-meteo.com/v1/forecast",
-      respond: () => ({
-        current: {
-          time: "2026-11-07T12:00",
-          temperature_2m: 18.5,
-          relative_humidity_2m: 55,
-          apparent_temperature: 18.1,
-          weather_code: 1,
+      publishingOffice: "気象庁",
+      reportDatetime: "2026-11-27T17:00:00+09:00",
+      timeSeries: [
+        {
+          timeDefines: ["2026-11-28T00:00:00+09:00", "2026-11-29T00:00:00+09:00", "2026-11-30T00:00:00+09:00"],
+          areas: [
+            { area: { name: "東京地方", code: "130010" }, weatherCodes: ["313", "100", "101"], pops: ["", "10", "20"], reliabilities: ["", "", "A"] },
+          ],
         },
-        daily: {
-          time: ["2026-11-07", "2026-11-08"],
-          weather_code: [1, 61],
-          temperature_2m_max: [21.2, 17.4],
-          temperature_2m_min: [12.3, 10.1],
-          precipitation_probability_max: [20, 80],
+        {
+          timeDefines: ["2026-11-28T00:00:00+09:00", "2026-11-29T00:00:00+09:00", "2026-11-30T00:00:00+09:00"],
+          areas: [
+            { area: { name: "東京", code: "44132" }, tempsMin: ["", "7", "5"], tempsMinUpper: ["", "8", "6"], tempsMinLower: ["", "5", "3"], tempsMax: ["", "16", "16"], tempsMaxUpper: ["", "18", "18"], tempsMaxLower: ["", "14", "15"] },
+          ],
         },
-      }),
+      ],
     },
   ];
 
-  it("geocodes the place and parses the forecast", async () => {
-    const { fetchImpl, calls } = routedFetch(routes);
-    const forecast = await fetchOpenMeteoWeather("東京", { fetchImpl, nowMs: NOW });
-    expect(calls[0]?.url).toContain("name=%E6%9D%B1%E4%BA%AC");
-    expect(calls[1]?.url).toContain("latitude=35.6895");
-    expect(forecast.place).toBe("東京");
-    expect(forecast.current.temperatureC).toBe(18.5);
-    expect(forecast.current.weatherLabel).toBe("ほぼ晴れ");
-    expect(forecast.days).toHaveLength(2);
-    expect(forecast.days[1]?.precipitationProbabilityMaxPercent).toBe(80);
-  });
-
-  it("composes a deterministic answer text with CC BY attribution", async () => {
-    const { fetchImpl } = routedFetch(routes);
-    const forecast = await fetchOpenMeteoWeather("東京", { fetchImpl, nowMs: NOW });
-    const text = composeOriginWeatherText(forecast);
-    expect(text).toContain("東京");
-    expect(text).toContain("18.5");
-    expect(text).toContain("最高 21.2°C / 最低 12.3°C");
-    expect(text).toContain("降水確率 最大80%");
-    expect(text).toContain("Open-Meteo");
-    expect(text).toContain("CC BY 4.0");
-  });
-
-  it("anchors the offset-less current.time wall clock to Asia/Tokyo", async () => {
-    // Regression (production, 2026-11-07): the API returns current.time in
-    // the requested timezone with no offset ("2026-11-07T14:15"). Stored
-    // verbatim it was parsed as UTC on the server and the label rendered
-    // 9 hours late ("23:15時点"). These assertions hold under any process
-    // timezone (TZ=UTC included): the anchored offset makes observedAt an
-    // absolute instant and the formatter is pinned to Asia/Tokyo.
-    const { fetchImpl } = routedFetch([
-      routes[0] as (typeof routes)[number],
-      {
-        match: "api.open-meteo.com/v1/forecast",
-        respond: () => ({
-          current: {
-            time: "2026-11-07T14:15",
-            temperature_2m: 18.4,
-            relative_humidity_2m: 41,
-            apparent_temperature: 15.8,
-            weather_code: 0,
-          },
-          daily: {
-            time: ["2026-11-07", "2026-11-08"],
-            weather_code: [0, 1],
-            temperature_2m_max: [19.1, 16.9],
-            temperature_2m_min: [10.1, 9.1],
-            precipitation_probability_max: [45, 0],
-          },
-        }),
-      },
-    ]);
-    const forecast = await fetchOpenMeteoWeather("東京", { fetchImpl, nowMs: NOW });
-    expect(forecast.current.observedAt).toBe("2026-11-07T14:15:00+09:00");
-    expect(composeOriginWeatherText(forecast)).toContain("現在（11/7 14:15時点）");
-  });
-
-  it("fails with no-results when the place cannot be geocoded", async () => {
-    const { fetchImpl } = routedFetch([
-      { match: "geocoding-api.open-meteo.com", respond: () => ({ results: [] }) },
-    ]);
-    await expect(fetchOpenMeteoWeather("存在しない場所", { fetchImpl, nowMs: NOW })).rejects.toMatchObject({
-      name: "OriginSearchProviderError",
-      code: "no-results",
-    });
-  });
-
-  const tokyoResult = {
-    results: [{ name: "東京", admin1: "東京都", country: "日本", latitude: 35.6895, longitude: 139.6917 }],
+  const TOKYO_OVERVIEW_PAYLOAD = {
+    publishingOffice: "気象庁",
+    reportDatetime: "2026-11-27T16:38:00+09:00",
+    targetArea: "東京都",
+    headlineText: "",
+    text: " 関東甲信地方は、高気圧に緩やかに覆われています。\n\n 東京地方は、晴れています。",
   };
 
-  function isGeocodingApiUrl(rawUrl: string): boolean {
-    try {
-      return new URL(rawUrl).hostname === "geocoding-api.open-meteo.com";
-    } catch {
-      return false;
-    }
-  }
+  const NOW_JMA = Date.parse("2026-11-27T12:00:00.000Z");
+  const areaTable = () => {
+    const table = parseJmaAreaTable(AREA_TABLE_PAYLOAD);
+    if (!table) throw new Error("fixture area table must parse");
+    return table;
+  };
 
-  function geocodingByName(cities: Record<string, unknown>) {
-    return {
-      match: "geocoding-api.open-meteo.com",
-      respond: (call: RecordedCall) => {
-        const name = new URL(call.url).searchParams.get("name") ?? "";
-        return cities[name] ?? { results: [] };
-      },
-    };
-  }
-
-  function geocodingNamesOf(calls: RecordedCall[]): Array<string | null> {
-    return calls
-      .filter((call) => isGeocodingApiUrl(call.url))
-      .map((call) => new URL(call.url).searchParams.get("name"));
-  }
-
-  it("retries a bare Japanese name with administrative suffixes until one resolves", async () => {
-    // Mirrors the live behaviour (2026-11-07): name=東京 and name=東京市 return
-    // nothing, name=東京都 resolves.
-    const { fetchImpl, calls } = routedFetch([
-      geocodingByName({ "東京都": tokyoResult }),
-      routes[1] as (typeof routes)[number],
-    ]);
-    const forecast = await fetchOpenMeteoWeather("東京", { fetchImpl, nowMs: NOW });
-    expect(forecast.current.temperatureC).toBe(18.5);
-    expect(geocodingNamesOf(calls)).toEqual(["東京", "東京市", "東京都"]);
-  });
-
-  it("still retries for 京都, whose trailing 都 is part of the proper name", async () => {
-    const kyotoResult = {
-      results: [{ name: "京都市", admin1: "京都府", country: "日本", latitude: 35.02107, longitude: 135.75385 }],
-    };
-    const { fetchImpl, calls } = routedFetch([
-      geocodingByName({ "京都市": kyotoResult }),
-      routes[1] as (typeof routes)[number],
-    ]);
-    const forecast = await fetchOpenMeteoWeather("京都", { fetchImpl, nowMs: NOW });
-    expect(forecast.current.temperatureC).toBe(18.5);
-    expect(geocodingNamesOf(calls)).toEqual(["京都", "京都市"]);
-  });
-
-  it("does not retry when the name already carries an administrative suffix", async () => {
-    const { fetchImpl, calls } = routedFetch([
-      geocodingByName({ "東京都": tokyoResult }),
-      routes[1] as (typeof routes)[number],
-    ]);
-    const forecast = await fetchOpenMeteoWeather("東京都", { fetchImpl, nowMs: NOW });
-    expect(forecast.current.temperatureC).toBe(18.5);
-    expect(geocodingNamesOf(calls)).toEqual(["東京都"]);
-  });
-
-  it("tries every suffix candidate before failing with no-results", async () => {
-    const { fetchImpl, calls } = routedFetch([
-      geocodingByName({}),
-      routes[1] as (typeof routes)[number],
-    ]);
-    await expect(fetchOpenMeteoWeather("札幌", { fetchImpl, nowMs: NOW })).rejects.toMatchObject({
-      name: "OriginSearchProviderError",
-      code: "no-results",
+  describe("parseJmaAreaTable / fetchJmaAreaTable", () => {
+    it("parses the official area table shape", () => {
+      const table = areaTable();
+      expect(table.offices["130000"]?.name).toBe("東京都");
+      expect(table.class10s["130010"]?.parent).toBe("130000");
+      expect(table.class20s["1300111"]?.name).toBe("新宿区");
     });
-    expect(geocodingNamesOf(calls)).toEqual(["札幌", "札幌市", "札幌都", "札幌府", "札幌県"]);
+
+    it("rejects payloads without offices/class10s", () => {
+      expect(parseJmaAreaTable(null)).toBeNull();
+      expect(parseJmaAreaTable({})).toBeNull();
+      expect(parseJmaAreaTable({ offices: {}, class10s: {} })).toBeNull();
+    });
+
+    it("fetches and parses the area table from the official URL", async () => {
+      const { fetchImpl, calls } = routedFetch([
+        { match: "bosai/common/const/area.json", respond: () => AREA_TABLE_PAYLOAD },
+      ]);
+      const table = await fetchJmaAreaTable({ fetchImpl });
+      expect(calls[0]?.url).toBe("https://www.jma.go.jp/bosai/common/const/area.json");
+      expect(table.offices["270000"]?.name).toBe("大阪府");
+    });
   });
 
-  it("does not append suffixes for non-Japanese names", async () => {
-    const { fetchImpl, calls } = routedFetch([
-      geocodingByName({}),
-      routes[1] as (typeof routes)[number],
-    ]);
-    await expect(fetchOpenMeteoWeather("Tokyo", { fetchImpl, nowMs: NOW })).rejects.toMatchObject({
-      name: "OriginSearchProviderError",
-      code: "no-results",
+  describe("jmaPlaceCore", () => {
+    it("strips one administrative suffix or 地方 when a real base precedes it", () => {
+      expect(jmaPlaceCore("東京都")).toBe("東京");
+      expect(jmaPlaceCore("大阪府")).toBe("大阪");
+      expect(jmaPlaceCore("京都府")).toBe("京都");
+      expect(jmaPlaceCore("大阪市")).toBe("大阪");
+      expect(jmaPlaceCore("東京地方")).toBe("東京");
     });
-    expect(geocodingNamesOf(calls)).toEqual(["Tokyo"]);
+
+    it("keeps 京都 intact: its trailing 都 is part of the proper name", () => {
+      expect(jmaPlaceCore("京都")).toBe("京都");
+    });
   });
 
-  it("does not retry suffix candidates when geocoding itself fails", async () => {
-    let geocodingCalls = 0;
-    const fetchImpl: OriginSearchFetch = async (url) => {
-      if (isGeocodingApiUrl(url)) {
-        geocodingCalls += 1;
-        return jsonResponse({ reason: "upstream boom" }, 500);
-      }
-      throw new Error(`unexpected URL: ${url}`);
-    };
-    await expect(fetchOpenMeteoWeather("東京", { fetchImpl, nowMs: NOW })).rejects.toMatchObject({
-      name: "OriginSearchProviderError",
-      code: "http",
-      status: 500,
+  describe("resolveJmaArea", () => {
+    it("resolves prefecture names to their office and primary subdivision", () => {
+      const table = areaTable();
+      expect(resolveJmaArea(table, "東京")).toMatchObject({ officeCode: "130000", class10Code: "130010", class10Name: "東京地方" });
+      expect(resolveJmaArea(table, "東京都")).toMatchObject({ officeCode: "130000", class10Code: "130010" });
+      expect(resolveJmaArea(table, "大阪")).toMatchObject({ officeCode: "270000", class10Code: "270000" });
+      expect(resolveJmaArea(table, "大阪市")).toMatchObject({ officeCode: "270000", class10Code: "270000" });
     });
-    expect(geocodingCalls).toBe(1);
+
+    it("resolves city and ward names by walking the parent chain", () => {
+      const table = areaTable();
+      expect(resolveJmaArea(table, "札幌")).toMatchObject({ officeCode: "016000", class10Code: "016010", class10Name: "石狩地方" });
+      expect(resolveJmaArea(table, "横浜")).toMatchObject({ officeCode: "140000", class10Code: "140010" });
+      expect(resolveJmaArea(table, "新宿")).toMatchObject({ officeCode: "130000", class10Code: "130010" });
+      expect(resolveJmaArea(table, "那覇")).toMatchObject({ officeCode: "471000", class10Code: "471010" });
+    });
+
+    it("resolves 沖縄 by unique prefix and 北海道 to the Sapporo office", () => {
+      const table = areaTable();
+      expect(resolveJmaArea(table, "沖縄")).toMatchObject({ officeCode: "471000", class10Code: "471010" });
+      expect(resolveJmaArea(table, "北海道")).toMatchObject({ officeCode: "016000", class10Code: "016010" });
+    });
+
+    it("resolves subdivision names directly", () => {
+      const table = areaTable();
+      expect(resolveJmaArea(table, "石狩地方")).toMatchObject({ officeCode: "016000", class10Code: "016010" });
+      expect(resolveJmaArea(table, "東京地方")).toMatchObject({ officeCode: "130000", class10Code: "130010" });
+    });
+
+    it("returns null for non-Japanese and unknown places instead of guessing", () => {
+      const table = areaTable();
+      expect(resolveJmaArea(table, "ロンドン")).toBeNull();
+      expect(resolveJmaArea(table, "存在しない場所")).toBeNull();
+      expect(resolveJmaArea(table, "")).toBeNull();
+    });
+  });
+
+  describe("jmaWeatherCodeLabelJa", () => {
+    it("labels the standard code patterns and refuses unknown codes", () => {
+      expect(jmaWeatherCodeLabelJa(100)).toBe("晴れ");
+      expect(jmaWeatherCodeLabelJa(101)).toBe("晴れ時々くもり");
+      expect(jmaWeatherCodeLabelJa(111)).toBe("晴れ後くもり");
+      expect(jmaWeatherCodeLabelJa(200)).toBe("くもり");
+      expect(jmaWeatherCodeLabelJa(313)).toBe("雨後時々晴れ");
+      expect(jmaWeatherCodeLabelJa(402)).toBe("雪一時晴れ");
+      expect(jmaWeatherCodeLabelJa(999)).toBe("不明");
+    });
+  });
+
+  describe("fetchJmaWeather", () => {
+    const routes = [
+      { match: "bosai/forecast/data/forecast/130000.json", respond: () => TOKYO_FORECAST_PAYLOAD },
+      { match: "bosai/forecast/data/overview_forecast/130000.json", respond: () => TOKYO_OVERVIEW_PAYLOAD },
+    ];
+
+    it("parses the short-term and weekly elements into days", async () => {
+      const { fetchImpl, calls } = routedFetch(routes);
+      const area = resolveJmaArea(areaTable(), "東京");
+      if (!area) throw new Error("東京 must resolve");
+      const forecast = await fetchJmaWeather(area, { fetchImpl, nowMs: NOW_JMA });
+      expect(calls.map((call) => call.url)).toEqual([
+        "https://www.jma.go.jp/bosai/forecast/data/forecast/130000.json",
+        "https://www.jma.go.jp/bosai/forecast/data/overview_forecast/130000.json",
+      ]);
+      expect(forecast.place).toBe("東京");
+      expect(forecast.region).toBe("東京地方");
+      expect(forecast.publishingOffice).toBe("気象庁");
+      expect(forecast.reportDatetime).toBe("2026-11-27T17:00:00+09:00");
+      expect(forecast.sourceUrl).toBe("https://www.jma.go.jp/bosai/forecast/");
+      expect(forecast.days).toHaveLength(4);
+      // Today: JMA's own weather text (whitespace-normalized), the one
+      // 6-hour pop slot of the day, and no temperatures (the 17:00
+      // release publishes temps for tomorrow onward — not invented).
+      expect(forecast.days[0]).toMatchObject({
+        date: "2026-11-27",
+        weatherCode: 111,
+        weatherLabel: "晴れ 夜 くもり 所により 夜遅く 雨",
+        minC: null,
+        maxC: null,
+        precipitationProbabilityMaxPercent: 20,
+      });
+      // Tomorrow: short-term temps (00:00 define = low, 09:00 = high)
+      // and the max of the day's 6-hour pops.
+      expect(forecast.days[1]).toMatchObject({
+        date: "2026-11-28",
+        weatherCode: 313,
+        weatherLabel: "雨 昼前 から くもり",
+        minC: 10,
+        maxC: 20,
+        precipitationProbabilityMaxPercent: 90,
+      });
+      // Day after: weekly temps/pops take over.
+      expect(forecast.days[2]).toMatchObject({
+        date: "2026-11-29",
+        weatherCode: 100,
+        weatherLabel: "晴れ",
+        minC: 7,
+        maxC: 16,
+        precipitationProbabilityMaxPercent: 10,
+      });
+      // Weekly-only day: the label comes from the weather code table.
+      expect(forecast.days[3]).toMatchObject({
+        date: "2026-11-30",
+        weatherCode: 101,
+        weatherLabel: "晴れ時々くもり",
+        minC: 5,
+        maxC: 16,
+        precipitationProbabilityMaxPercent: 20,
+      });
+      expect(forecast.overviewText).toContain("東京地方は、晴れています。");
+    });
+
+    it("composes a deterministic answer text with JMA attribution", async () => {
+      const { fetchImpl } = routedFetch(routes);
+      const area = resolveJmaArea(areaTable(), "東京");
+      if (!area) throw new Error("東京 must resolve");
+      const forecast = await fetchJmaWeather(area, { fetchImpl, nowMs: NOW_JMA });
+      const text = composeOriginWeatherText(forecast);
+      expect(text).toContain("東京（東京地方）の天気");
+      expect(text).toContain("発表: 気象庁 11/27 17:00発表");
+      expect(text).toContain("今日（11/27）: 晴れ 夜 くもり 所により 夜遅く 雨、降水確率 最大20%");
+      expect(text).toContain("明日（11/28）: 雨 昼前 から くもり、最高 20°C / 最低 10°C、降水確率 最大90%");
+      expect(text).toContain("概況:");
+      expect(text).toContain("出典: 気象庁（https://www.jma.go.jp/bosai/forecast/）");
+      expect(text).not.toContain("Open-Meteo");
+    });
+
+    it("still serves the forecast when the overview fetch fails", async () => {
+      const { fetchImpl } = routedFetch([
+        routes[0] as (typeof routes)[number],
+        { match: "overview_forecast", respond: () => { throw new Error("boom"); } },
+      ]);
+      const area = resolveJmaArea(areaTable(), "東京");
+      if (!area) throw new Error("東京 must resolve");
+      const forecast = await fetchJmaWeather(area, { fetchImpl, nowMs: NOW_JMA });
+      expect(forecast.days).toHaveLength(4);
+      expect(forecast.overviewText).toBeUndefined();
+      expect(composeOriginWeatherText(forecast)).not.toContain("概況:");
+    });
+
+    it("fails with invalid-response on a malformed forecast payload", async () => {
+      const { fetchImpl } = routedFetch([
+        { match: "bosai/forecast/data/forecast/130000.json", respond: () => ({ unexpected: true }) },
+        { match: "overview_forecast", respond: () => TOKYO_OVERVIEW_PAYLOAD },
+      ]);
+      const area = resolveJmaArea(areaTable(), "東京");
+      if (!area) throw new Error("東京 must resolve");
+      await expect(fetchJmaWeather(area, { fetchImpl, nowMs: NOW_JMA })).rejects.toMatchObject({
+        name: "OriginSearchProviderError",
+        providerId: "jma",
+        code: "invalid-response",
+      });
+    });
+
+    it("propagates an HTTP failure of the forecast fetch", async () => {
+      const fetchImpl: OriginSearchFetch = async () => jsonResponse({ reason: "upstream boom" }, 500);
+      const area = resolveJmaArea(areaTable(), "東京");
+      if (!area) throw new Error("東京 must resolve");
+      await expect(fetchJmaWeather(area, { fetchImpl, nowMs: NOW_JMA })).rejects.toMatchObject({
+        name: "OriginSearchProviderError",
+        providerId: "jma",
+        code: "http",
+        status: 500,
+      });
+    });
   });
 });
 

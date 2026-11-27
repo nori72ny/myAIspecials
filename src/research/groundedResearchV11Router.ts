@@ -20,7 +20,7 @@ export function createGroundedResearchV11Router(options: GroundedResearchV11Rout
   // Source-layer wiring (same composition as createOriginResearchRouter):
   // when the app supplies env / search-grounding options (production does,
   // via createOriginApp), queries are served by the search-grounding pipeline
-  // (GDELT / Tavily / Wikipedia / Open-Meteo under the $0 evidence catalog) in
+  // (GDELT / Tavily / Wikipedia / JMA under the $0 evidence catalog) in
   // front of the legacy research function, which remains the fallback for
   // questions with no enabled grounding route. With no options the router
   // keeps its historical direct use of the legacy research function. Either

@@ -14,7 +14,7 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 describe("DEFAULT_ORIGIN_SEARCH_PROVIDER_CATALOG", () => {
   it("contains the design-approved providers with valid $0 evidence", () => {
     expect(DEFAULT_ORIGIN_SEARCH_PROVIDER_CATALOG.map((entry) => entry.providerId)).toEqual([
-      "open-meteo",
+      "jma",
       "gdelt",
       "wikipedia",
       "tavily",
@@ -36,10 +36,34 @@ describe("DEFAULT_ORIGIN_SEARCH_PROVIDER_CATALOG", () => {
 
   it("sets reviewAfter exactly 30 days after the 2026-11-07 verification", () => {
     for (const entry of DEFAULT_ORIGIN_SEARCH_PROVIDER_CATALOG) {
-      if (entry.providerId === "stooq") continue;
+      if (entry.providerId === "stooq" || entry.providerId === "jma") continue;
       expect(Date.parse(entry.verifiedAt)).toBe(Date.parse("2026-11-07T00:00:00.000Z"));
       expect(Date.parse(entry.reviewAfter) - Date.parse(entry.verifiedAt)).toBe(30 * DAY_MS);
     }
+  });
+
+  it("records JMA as keyless with the 2026-11-27 survey window (review on 2026-12-25)", () => {
+    const jma = DEFAULT_ORIGIN_SEARCH_PROVIDER_CATALOG.find((entry) => entry.providerId === "jma");
+    expect(jma?.requiresApiKey).toBe(false);
+    expect(jma?.freeCap).toBeNull();
+    expect(jma?.monthlySelfCapUnits).toBeNull();
+    expect(Date.parse(jma?.verifiedAt ?? "")).toBe(Date.parse("2026-11-27T00:00:00.000Z"));
+    expect(Date.parse(jma?.reviewAfter ?? "")).toBe(Date.parse("2026-12-25T00:00:00.000Z"));
+    // The route is live only inside the survey window and fails closed outside it.
+    expect(selectCurrentOriginSearchProviderEvidence(
+      DEFAULT_ORIGIN_SEARCH_PROVIDER_CATALOG, "jma", Date.parse("2026-11-27T12:00:00.000Z"),
+    )).not.toBeNull();
+    expect(selectCurrentOriginSearchProviderEvidence(
+      DEFAULT_ORIGIN_SEARCH_PROVIDER_CATALOG, "jma", Date.parse("2026-11-26T00:00:00.000Z"),
+    )).toBeNull();
+    expect(selectCurrentOriginSearchProviderEvidence(
+      DEFAULT_ORIGIN_SEARCH_PROVIDER_CATALOG, "jma", Date.parse("2026-12-26T00:00:00.000Z"),
+    )).toBeNull();
+    expect(evaluateOriginSearchProviderAccess("jma", {
+      env: {},
+      nowMs: Date.parse("2026-11-27T12:00:00.000Z"),
+      counter: new OriginSearchUsageCounter(),
+    }).enabled).toBe(true);
   });
 
   it("records Stooq as keyless with a deliberately short 14-day evidence fuse", () => {
@@ -88,7 +112,6 @@ describe("evaluateOriginSearchProviderAccess", () => {
       enabled: false,
       reason: "api-key-missing",
     });
-    expect(evaluateOriginSearchProviderAccess("open-meteo", { env: {}, nowMs: NOW, counter }).enabled).toBe(true);
     expect(evaluateOriginSearchProviderAccess("gdelt", { env: {}, nowMs: NOW, counter }).enabled).toBe(true);
     expect(evaluateOriginSearchProviderAccess("wikipedia", { env: {}, nowMs: NOW, counter }).enabled).toBe(true);
   });

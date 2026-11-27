@@ -101,7 +101,7 @@ describe("originResearchRouter with search grounding composition", () => {
     expect(researchMock).toHaveBeenCalledTimes(1);
   });
 
-  it("defers weather requests to the chat router's Open-Meteo branch (no duplicate weather route)", async () => {
+  it("defers weather requests to the chat router's JMA branch (no duplicate weather route)", async () => {
     const response = await request(createApp(gdeltFetch("20261107T103000Z")))
       .post("/api/chat")
       .send({ messages: [{ role: "user", content: "今日の東京の天気は？" }] });
