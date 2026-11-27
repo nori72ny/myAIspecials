@@ -49,7 +49,7 @@ describe("AQ V2 trusted workflow contract", () => {
     expect(workflow).toContain("AQ_V2_CANDIDATE_PR_NOT_OPEN_AT_EXECUTION");
     expect(workflow).toContain("AQ_V2_CANDIDATE_SHA_CHANGED_BEFORE_EXECUTION");
     expect(workflow).toContain("if [ \"$PR_NUMBER\" = '0' ]; then");
-    expect(workflow.match(/pr\?\.head\?\.sha!==process\.env\.CANDIDATE_SHA/g)?.length).toBe(2);
+    expect(workflow.match(/pr\?\.head\?\.sha!==process\.env\.CANDIDATE_SHA/g)?.length).toBe(3);
   });
 
   it("installs dependencies only in the trusted evaluator checkout", () => {
