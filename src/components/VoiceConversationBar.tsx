@@ -32,9 +32,10 @@ interface Props {
  * answer's summary is spoken, and the next listening turn opens on
  * its own. No button press stands between turns; the main button
  * follows the floor (finish / barge in / listen again), the status
- * line names whose turn it is in plain words, the stop button is
- * the only way the conversation ends, and the wake toggle arms the
- * 「ハイ、オリン」 waiting for when the conversation rests.
+ * line names whose turn it is in plain words, the conversation
+ * ends with the stop button or the owner's spoken 「バイバイ、
+ * オリン」, and the wake toggle arms the 「ハイ、オリン」 waiting
+ * for when the conversation rests.
  */
 export default function VoiceConversationBar({ language, controller = voiceConversation }: Props) {
   const availability = useSyncExternalStore(
@@ -158,6 +159,9 @@ export default function VoiceConversationBar({ language, controller = voiceConve
       </div>
       {phase === 'listening' && interimText && (
         <p data-testid="voice-conversation-interim" className="origin-muted m-0 mt-1 truncate text-sm">{interimText}</p>
+      )}
+      {phase === 'listening' && !interimText && (
+        <p className="origin-muted m-0 mt-1 text-sm">{ja ? '終わるときは「バイバイ、オリン」と言ってください' : 'Say "Bye-bye, Orin" to end'}</p>
       )}
       {noticeRow}
     </div>

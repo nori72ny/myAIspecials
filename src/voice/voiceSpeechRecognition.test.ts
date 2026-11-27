@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import {
   createBrowserSpeechRecognition,
+  END_PHRASE,
   extractTranscripts,
+  matchEndPhrase,
   matchWakePhrase,
   normalizeHeardText,
   speechRecognitionSupported,
@@ -69,6 +71,42 @@ describe('matchWakePhrase', () => {
   it('does not match unrelated speech', () => {
     expect(matchWakePhrase('今日はいい天気ですね').matched).toBe(false);
     expect(matchWakePhrase('はい、お願いします').matched).toBe(false);
+  });
+});
+
+describe('matchEndPhrase', () => {
+  it('is the owner-corrected phrase 「バイバイ、オリン」', () => {
+    expect(END_PHRASE).toBe('バイバイ、オリン');
+  });
+
+  it('matches the plain phrase and its spelling variants', () => {
+    expect(matchEndPhrase('バイバイ、オリン')).toBe(true);
+    expect(matchEndPhrase('バイバイ オリン')).toBe(true);
+    expect(matchEndPhrase('ばいばいおりん')).toBe(true);
+    expect(matchEndPhrase('バイバイ、オリン。')).toBe(true);
+  });
+
+  it('matches when one short farewell follows the phrase', () => {
+    expect(matchEndPhrase('バイバイ、オリン、ありがとう')).toBe(true);
+    expect(matchEndPhrase('バイバイ、オリン、またね')).toBe(true);
+    expect(matchEndPhrase('バイバイ、オリン、おやすみ')).toBe(true);
+  });
+
+  it('does not match the shorter 「バイ、オリン」 on its own', () => {
+    expect(matchEndPhrase('バイ、オリン')).toBe(false);
+    expect(matchEndPhrase('ばいおりん')).toBe(false);
+  });
+
+  it('does not match the phrase mentioned inside a sentence', () => {
+    expect(matchEndPhrase('バイバイ、オリンってどういう意味？')).toBe(false);
+    expect(matchEndPhrase('バイバイ、オリン、今日の天気は？')).toBe(false);
+    expect(matchEndPhrase('バイオリンの練習をした')).toBe(false);
+  });
+
+  it('does not match unrelated speech', () => {
+    expect(matchEndPhrase('ありがとう')).toBe(false);
+    expect(matchEndPhrase('またね')).toBe(false);
+    expect(matchEndPhrase('')).toBe(false);
   });
 });
 
