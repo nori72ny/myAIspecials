@@ -10,6 +10,8 @@ type StarterCard = {
 type StarterChip = {
   label: string;
   prompt: string;
+  /** ホームのチップ／カードのアイコン（デザイン是正バッチ8、D1）。 */
+  icon: 'news' | 'proposal' | 'image' | 'mail';
 };
 
 type Translation = {
@@ -355,10 +357,10 @@ export const TRANSLATIONS: Record<OriginLanguage, Translation> = {
       { title: '計画する', subtitle: 'データ構造化', description: '目的から、実行できる順序を組み立てる', prompt: '以下の目的を達成するための具体的実行計画を立ててください:\n' },
     ],
     starterChips: [
-      { label: 'ニュースを調べる', prompt: '今日の主なニュースを調べて、要点を教えてください' },
-      { label: '企画書を作る', prompt: '新しい企画の企画書のたたき台を作ってください' },
-      { label: '画像を描く', prompt: '緑の多い公園の風景イラストを描いてください' },
-      { label: 'メールの下書き', prompt: 'お礼のメールの下書きを作ってください' },
+      { label: 'ニュースを調べる', prompt: '今日の主なニュースを調べて、要点を教えてください', icon: 'news' },
+      { label: '企画書を作る', prompt: '新しい企画の企画書のたたき台を作ってください', icon: 'proposal' },
+      { label: '画像を描く', prompt: '緑の多い公園の風景イラストを描いてください', icon: 'image' },
+      { label: 'メールの下書き', prompt: 'お礼のメールの下書きを作ってください', icon: 'mail' },
     ],
     languageHeading: '表示言語',
     languageJapanese: '日本語',
@@ -601,10 +603,10 @@ export const TRANSLATIONS: Record<OriginLanguage, Translation> = {
       { title: 'Plan', subtitle: 'Build the roadmap', description: 'Translate the objective into owners, milestones, and next actions', prompt: 'Build an execution roadmap for the following objective, including priorities, owners, milestones, risks, and the immediate next action:\n' },
     ],
     starterChips: [
-      { label: 'Check the news', prompt: "Look into today's top news and tell me the key points" },
-      { label: 'Draft a proposal', prompt: 'Create a first draft of a proposal document for a new project' },
-      { label: 'Draw an image', prompt: 'Draw an illustration of a lush green park scene' },
-      { label: 'Draft an email', prompt: 'Draft a thank-you email' },
+      { label: 'Check the news', prompt: "Look into today's top news and tell me the key points", icon: 'news' },
+      { label: 'Draft a proposal', prompt: 'Create a first draft of a proposal document for a new project', icon: 'proposal' },
+      { label: 'Draw an image', prompt: 'Draw an illustration of a lush green park scene', icon: 'image' },
+      { label: 'Draft an email', prompt: 'Draft a thank-you email', icon: 'mail' },
     ],
     languageHeading: 'Language',
     languageJapanese: 'Japanese',

@@ -23,7 +23,8 @@ function workspaceLocation(): OriginWorkspaceModeV31 {
   return 'chat';
 }
 
-const WORKSPACE_TITLES: Record<Exclude<OriginWorkspaceModeV31, 'chat'>, { ja: string; en: string }> = {
+const WORKSPACE_TITLES: Record<OriginWorkspaceModeV31, { ja: string; en: string }> = {
+  chat: { ja: 'チャット', en: 'Chat' },
   agent: { ja: 'エージェント', en: 'Agent' },
   coding: { ja: 'コード', en: 'Code' },
   'ai-news': { ja: 'AIニュース', en: 'AI news' },
@@ -212,16 +213,18 @@ const PersonalEditionApp = React.memo(function PersonalEditionApp({
     <OriginSidebar open={sidebarOpen} workspace={workspace} isEn={isEn} onClose={() => setSidebarOpen(false)} onNavigate={handleSidebarNavigate} onNewConversation={handleSidebarNewConversation} onOpenSettings={onOpenSettings ? handleSidebarOpenSettings : undefined} onOpenImagePanel={handleSidebarOpenImage} imageUnavailableReason={imagePanelAvailability.reason} />
     <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
     {/* 統一ヘッダー（デザイン是正バッチ6、仕様A）：全画面でシェルが
-        1部品を描画する。構成は「開閉ボタン＋ロゴ＋（画面タイトル）」
-        と「履歴ボタン」で、画面ごとに変わるのはタイトルの有無と
-        文言だけ。ロゴはサイドバーが 1024px 以上で開いている間は
-        サイドバー最上部が担うため隠す（チャット側の現行規則を全画面
-        へ拡張）。履歴ドロワーはこのヘッダーを基準に開く。 */}
+        1部品を描画する。構成は「開閉ボタン＋ロゴ＋画面タイトル」
+        と「履歴ボタン」で、画面ごとに変わるのはタイトルの文言だけ
+        （デザイン是正バッチ8、D3：チャットにもタイトルを出すよう
+        統一し、タイトルの有無の差を無くした）。ロゴはサイドバーが
+        1024px 以上で開いている間はサイドバー最上部が担うため隠す
+        （チャット側の現行規則を全画面へ拡張）。履歴ドロワーはこの
+        ヘッダーを基準に開く。 */}
     <header data-testid="origin-shell-header" className="origin-header relative flex min-h-14 shrink-0 items-center border-b px-3 backdrop-blur-md sm:px-4">
       <div className="flex w-full items-center gap-2">
         <button type="button" data-testid="sidebar-toggle" aria-label={sidebarOpen ? (isEn ? 'Close sidebar' : 'サイドバーを閉じる') : (isEn ? 'Open sidebar' : 'サイドバーを開く')} aria-expanded={sidebarOpen} onClick={toggleSidebar} className="origin-secondary-button inline-flex h-11 min-h-11 w-11 min-w-11 shrink-0 items-center justify-center whitespace-nowrap px-0 text-sm font-semibold"><PanelLeft aria-hidden="true" size={18} strokeWidth={1.9} /></button>
         <span className={sidebarOpen ? 'lg:hidden' : undefined}><OriginBrandLockup /></span>
-        {workspace !== 'chat' && <span className="min-w-0 truncate text-sm font-bold">{isEn ? WORKSPACE_TITLES[workspace].en : WORKSPACE_TITLES[workspace].ja}</span>}
+        <span className="min-w-0 truncate text-sm font-bold">{isEn ? WORKSPACE_TITLES[workspace].en : WORKSPACE_TITLES[workspace].ja}</span>
         <div className="ml-auto flex items-center gap-1 whitespace-nowrap sm:gap-2">
           <HistoryDrawer sessions={effectiveSessions} currentMessages={messages} onRestoreSession={handleHeaderRestoreSession} />
         </div>

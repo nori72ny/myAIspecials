@@ -1881,3 +1881,59 @@ button.origin-orin-panel__feature-row {
 .origin-personal-shell:has([data-testid="history-drawer"]) .origin-orin-presence__name {
   visibility: hidden;
 }
+
+/* Home density at >=640px (デザイン是正バッチ8、D1、2026-11-27):
+   the 案B group (presence + heading + description + chips +
+   composer, centred as one unit) was structurally sound but
+   small against the viewport — measured on the previous base
+   at 1280x800 the group occupied ~46% of the screen height
+   (layout alone ~35%, the value the sixth blind re-evaluation
+   reported) and the heading sat at 44.1%. This block grows the
+   group's own substance instead of moving the void around:
+   the Orin disc goes 72px -> 96px in the home state only (the
+   JS size constants and the 84px row contract stay untouched —
+   the row simply grows inside the centred group, and the
+   mobile geometry contracts are all below 640px), the heading
+   goes 28px -> 34px, and the four starter chips become a 2x2
+   grid of icon cards (60px tall) so the first view shows what
+   ORIGIN can do as a capability grid, not a single row of
+   pills. The fixed 24px gaps of the 案B scale are unchanged,
+   and the group stays centred: the void still frames the
+   group symmetrically, it is just smaller. Mobile keeps the
+   batch-1 assembly exactly as before. */
+.origin-starter-chip__icon {
+  flex: none;
+  margin-right: 8px;
+}
+
+@media (min-width: 640px) {
+  .origin-app main > div.min-h-0.flex-1.overflow-y-auto.p-2:has(> .origin-home-layout) > .origin-orin-presence .origin-orin-presence__disc > *,
+  .origin-app main > div.min-h-0.flex-1.overflow-y-auto.p-4:has(> .origin-home-layout) > .origin-orin-presence .origin-orin-presence__disc > * {
+    width: 96px !important;
+    height: 96px !important;
+  }
+  .origin-app main .origin-home-intro h1 {
+    font-size: 34px !important;
+    line-height: 1.3 !important;
+  }
+  .origin-app main [data-testid="origin-starter-chips"] {
+    display: grid !important;
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    gap: 10px !important;
+    width: 100% !important;
+  }
+  .origin-app main [data-testid="origin-starter-chips"] > button {
+    /* 60px: the navigation E2E contract caps the description-to-
+       composer span (24px gap + cards + 24px gap) at 180px, so
+       2x60px cards + the 10px grid gap land at 178px. */
+    height: 60px !important;
+    min-height: 60px !important;
+    justify-content: flex-start !important;
+    border-radius: 16px !important;
+    padding-inline: 18px !important;
+    font-size: 15px !important;
+  }
+  .origin-app main [data-testid="origin-starter-chips"] .origin-starter-chip__icon {
+    margin-right: 10px;
+  }
+}
