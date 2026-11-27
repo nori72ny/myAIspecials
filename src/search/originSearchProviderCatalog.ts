@@ -12,7 +12,7 @@
  * billing path does not exist even if free terms change.
  */
 
-export type OriginSearchProviderId = "jma" | "gdelt" | "wikipedia" | "tavily" | "stooq";
+export type OriginSearchProviderId = "jma" | "gdelt" | "wikipedia" | "tavily" | "stooq" | "frankfurter";
 
 export interface OriginSearchProviderEvidence {
   providerId: OriginSearchProviderId;
@@ -95,6 +95,17 @@ export const DEFAULT_ORIGIN_SEARCH_PROVIDER_CATALOG: readonly OriginSearchProvid
     monthlySelfCapUnits: null,
     verifiedAt: "2026-11-08T00:00:00.000Z",
     reviewAfter: "2026-11-22T00:00:00.000Z",
+  },
+  {
+    providerId: "frankfurter",
+    termsUrl: "https://frankfurter.dev/",
+    freeCap: null,
+    freeCapNote: "Keyless public API (Frankfurter, open source, self-hostable): no API key, no published quota (abuse-prevention rate limiting only), and no billing path exists, so usage can never turn into a charge. The official FAQ states commercial use is allowed (including inside paid products), that the API does not collect or log personal data, IP addresses or request URLs, that request logs are not retained, and that caching the rates is explicitly allowed. Rates are blended reference rates sourced from the ECB and 112 other central banks / official sources (history back to 1948); they are daily reference values, not tradable market quotes, and every composed answer says so. Only currency codes and an optional date are ever sent — never user text. Surveyed 2026-11-27 (PUBLIC_APIS_SURVEY_2026-11-27) as the only newly adoptable candidate; adoption approved by the owner on 2026-11-28. Verified 2026-11-28.",
+    paymentMethodRequired: false,
+    requiresApiKey: false,
+    monthlySelfCapUnits: null,
+    verifiedAt: "2026-11-28T00:00:00.000Z",
+    reviewAfter: "2026-12-25T00:00:00.000Z",
   },
 ] as const;
 

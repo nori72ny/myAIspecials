@@ -19,6 +19,7 @@ describe("DEFAULT_ORIGIN_SEARCH_PROVIDER_CATALOG", () => {
       "wikipedia",
       "tavily",
       "stooq",
+      "frankfurter",
     ]);
     for (const entry of DEFAULT_ORIGIN_SEARCH_PROVIDER_CATALOG) {
       expect(isValidOriginSearchProviderEvidence(entry)).toBe(true);
@@ -36,7 +37,7 @@ describe("DEFAULT_ORIGIN_SEARCH_PROVIDER_CATALOG", () => {
 
   it("sets reviewAfter exactly 30 days after the 2026-11-07 verification", () => {
     for (const entry of DEFAULT_ORIGIN_SEARCH_PROVIDER_CATALOG) {
-      if (entry.providerId === "stooq" || entry.providerId === "jma") continue;
+      if (entry.providerId === "stooq" || entry.providerId === "jma" || entry.providerId === "frankfurter") continue;
       expect(Date.parse(entry.verifiedAt)).toBe(Date.parse("2026-11-07T00:00:00.000Z"));
       expect(Date.parse(entry.reviewAfter) - Date.parse(entry.verifiedAt)).toBe(30 * DAY_MS);
     }
@@ -62,6 +63,30 @@ describe("DEFAULT_ORIGIN_SEARCH_PROVIDER_CATALOG", () => {
     expect(evaluateOriginSearchProviderAccess("jma", {
       env: {},
       nowMs: Date.parse("2026-11-27T12:00:00.000Z"),
+      counter: new OriginSearchUsageCounter(),
+    }).enabled).toBe(true);
+  });
+
+  it("records Frankfurter as keyless with the 2026-11-28 survey window (review on 2026-12-25)", () => {
+    const frankfurter = DEFAULT_ORIGIN_SEARCH_PROVIDER_CATALOG.find((entry) => entry.providerId === "frankfurter");
+    expect(frankfurter?.requiresApiKey).toBe(false);
+    expect(frankfurter?.freeCap).toBeNull();
+    expect(frankfurter?.monthlySelfCapUnits).toBeNull();
+    expect(Date.parse(frankfurter?.verifiedAt ?? "")).toBe(Date.parse("2026-11-28T00:00:00.000Z"));
+    expect(Date.parse(frankfurter?.reviewAfter ?? "")).toBe(Date.parse("2026-12-25T00:00:00.000Z"));
+    // The route is live only inside the survey window and fails closed outside it.
+    expect(selectCurrentOriginSearchProviderEvidence(
+      DEFAULT_ORIGIN_SEARCH_PROVIDER_CATALOG, "frankfurter", Date.parse("2026-11-28T12:00:00.000Z"),
+    )).not.toBeNull();
+    expect(selectCurrentOriginSearchProviderEvidence(
+      DEFAULT_ORIGIN_SEARCH_PROVIDER_CATALOG, "frankfurter", Date.parse("2026-11-27T00:00:00.000Z"),
+    )).toBeNull();
+    expect(selectCurrentOriginSearchProviderEvidence(
+      DEFAULT_ORIGIN_SEARCH_PROVIDER_CATALOG, "frankfurter", Date.parse("2026-12-26T00:00:00.000Z"),
+    )).toBeNull();
+    expect(evaluateOriginSearchProviderAccess("frankfurter", {
+      env: {},
+      nowMs: Date.parse("2026-11-28T12:00:00.000Z"),
       counter: new OriginSearchUsageCounter(),
     }).enabled).toBe(true);
   });

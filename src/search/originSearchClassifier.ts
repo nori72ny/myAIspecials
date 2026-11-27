@@ -385,6 +385,16 @@ return done("stable", "historical-fact");
 if (WEATHER_SIGNAL.test(text) &&!hasConceptMarker) {
 return done("weather", "weather-signal", { place: extractOriginWeatherPlace(text)?? undefined});
 }
+// FX rate / conversion questions the market signal's fixed pair
+// vocabulary misses ("1ドル何円", "100ドルは日本円でいくら") are market
+// questions too when the deterministic FX parser resolves them to a
+// currency pair. Placed after the deterministic-calculation guard
+// above, so a question that SUPPLIES its rate ("1ドル=150円のとき…")
+// stays a no-search calculation, and after the weather route, whose
+// signal never co-occurs with a currency pair.
+if (!hasConceptMarker && parseOriginFxRequest(text)) {
+return done("market", "fx-signal", { instruments: extractOriginMarketInstruments(text) });
+}
 if (MARKET_SIGNAL.test(text) &&!hasConceptMarker) {
 return done("market", "market-signal", { instruments: extractOriginMarketInstruments(text) });
 }
@@ -654,4 +664,270 @@ export function extractOriginMarketInstruments(message: string): OriginMarketIns
     .sort((a, b) => a.index - b.index)
     .slice(0, MAX_MARKET_INSTRUMENTS)
     .map((entry) => entry.instrument);
+}
+
+/* ------------------------------------------------------------------ */
+/* FX rate / conversion request parsing (Frankfurter route)            */
+/* ------------------------------------------------------------------ */
+
+/**
+ * The currencies the deterministic FX route serves: the Frankfurter
+ * reference set's majors plus the Asian currencies a Japanese user
+ * asks about. Only these fixed codes are ever sent to the provider —
+ * free-form user text is never turned into a currency code.
+ */
+export type OriginFxCurrencyCode =
+  | "JPY" | "USD" | "EUR" | "GBP" | "AUD" | "CHF" | "CAD"
+  | "CNY" | "KRW" | "HKD" | "NZD" | "SGD" | "THB";
+
+export interface OriginFxRequest {
+  /** Source currency: the rate is "1 base = rate quote". */
+  base: OriginFxCurrencyCode;
+  /** Target currency the rate (and any conversion) is expressed in. */
+  quote: OriginFxCurrencyCode;
+  /** Amount of base currency to convert, when the question names one. */
+  amount: number | null;
+  /**
+   * Specific past date asked for (YYYY-MM-DD); null asks for the
+   * latest published rate. Frankfurter answers a non-business day
+   * with the most recent business day's rate and reports that date,
+   * which the composed answer states verbatim.
+   */
+  date: string | null;
+}
+
+const FX_CURRENCY_CODES: readonly OriginFxCurrencyCode[] = [
+  "JPY", "USD", "EUR", "GBP", "AUD", "CHF", "CAD", "CNY", "KRW", "HKD", "NZD", "SGD", "THB",
+];
+
+/**
+ * Japanese currency names, longest first within each code so the
+ * overlap resolution keeps 豪ドル (AUD) over the ドル (USD) inside it
+ * and 日本円 (JPY) over the bare 円.
+ */
+const FX_CURRENCY_NAMES: ReadonlyArray<{ code: OriginFxCurrencyCode; name: string }> = [
+  { code: "NZD", name: "ニュージーランドドル" },
+  { code: "AUD", name: "オーストラリアドル" },
+  { code: "SGD", name: "シンガポールドル" },
+  { code: "USD", name: "アメリカドル" },
+  { code: "CAD", name: "カナダドル" },
+  { code: "HKD", name: "香港ドル" },
+  { code: "USD", name: "米ドル" },
+  { code: "AUD", name: "豪ドル" },
+  { code: "GBP", name: "英ポンド" },
+  { code: "CNY", name: "人民元" },
+  { code: "CNY", name: "中国元" },
+  { code: "KRW", name: "韓国ウォン" },
+  { code: "CHF", name: "スイスフラン" },
+  { code: "THB", name: "タイバーツ" },
+  { code: "JPY", name: "日本円" },
+  { code: "EUR", name: "ユーロ" },
+  { code: "GBP", name: "ポンド" },
+  { code: "CHF", name: "フラン" },
+  { code: "KRW", name: "ウォン" },
+  { code: "THB", name: "バーツ" },
+  { code: "USD", name: "ドル" },
+  { code: "JPY", name: "円" },
+];
+
+/**
+ * Explicit pair tokens, Japanese and ISO, checked before the generic
+ * mention scan. Longest first: 豪ドル円 contains ドル円 as a substring
+ * and must win over it.
+ */
+const FX_PAIR_TOKENS: ReadonlyArray<{ pattern: RegExp; base: OriginFxCurrencyCode; quote: OriginFxCurrencyCode }> = [
+  { pattern: /豪ドル円/, base: "AUD", quote: "JPY" },
+  { pattern: /ユーロドル/, base: "EUR", quote: "USD" },
+  { pattern: /ユーロ円/, base: "EUR", quote: "JPY" },
+  { pattern: /ポンド円/, base: "GBP", quote: "JPY" },
+  { pattern: /ドル円/, base: "USD", quote: "JPY" },
+  { pattern: /円ドル/, base: "JPY", quote: "USD" },
+];
+
+/**
+ * A rate / conversion demand. Deliberately narrower than the market
+ * instrument fallback's: bare politeness (教えて) does not make a
+ * lone currency mention a rate question.
+ */
+const FX_DEMAND =
+  /(?:レート|いくら|何円|何ドル|何ユーロ|何ポンド|何ウォン|換算|両替|相場|現在|今の|今日の|最新の)/;
+
+/**
+ * A supplied rate equation ("1ドル=150円のとき") makes the question a
+ * self-contained calculation, not a lookup — the classifier's
+ * deterministic-calculation guard owns it, and the FX route must not
+ * re-interpret it as a request for the current rate.
+ */
+const FX_SUPPLIED_RATE_EQUATION =
+  /(?:1\s*(?:ドル|ユーロ|ポンド)\s*=\s*\d|1\s*円\s*=\s*\d|1\s*(?:USD|EUR|GBP)\s*=\s*\d|1\s*JPY\s*=\s*\d)/i;
+
+interface FxCurrencyMention {
+  code: OriginFxCurrencyCode;
+  index: number;
+  /** Amount written directly before this mention ("100ドル"), if any. */
+  amount: number | null;
+}
+
+function fxAmountBefore(text: string, index: number): number | null {
+  const head = text.slice(Math.max(0, index - 20), index);
+  const match = head.match(/(\d[\d,]*(?:\.\d+)?)\s*(万|億)?\s*$/);
+  if (!match) return null;
+  const value = Number((match[1] ?? "").replace(/,/g, ""));
+  if (!Number.isFinite(value) || value <= 0) return null;
+  const multiplier = match[2] === "万" ? 10_000 : match[2] === "億" ? 100_000_000 : 1;
+  const amount = value * multiplier;
+  return Number.isFinite(amount) && amount <= 1e15 ? amount : null;
+}
+
+function scanFxCurrencyMentions(text: string): FxCurrencyMention[] {
+  const raw: Array<{ code: OriginFxCurrencyCode; index: number; length: number }> = [];
+  for (const { code, name } of FX_CURRENCY_NAMES) {
+    let from = 0;
+    for (;;) {
+      const index = text.indexOf(name, from);
+      if (index < 0) break;
+      raw.push({ code, index, length: name.length });
+      from = index + name.length;
+    }
+  }
+  for (const match of text.matchAll(/\b(USD|JPY|EUR|GBP|AUD|CHF|CAD|CNY|KRW|HKD|NZD|SGD|THB)\b/gi)) {
+    raw.push({ code: match[1]!.toUpperCase() as OriginFxCurrencyCode, index: match.index, length: match[1]!.length });
+  }
+  // Longest match wins at any position (豪ドル over ドル, 日本円 over 円);
+  // overlapping shorter matches inside an accepted span are dropped.
+  raw.sort((a, b) => a.index - b.index || b.length - a.length);
+  const mentions: FxCurrencyMention[] = [];
+  let coveredUntil = -1;
+  for (const candidate of raw) {
+    if (candidate.index < coveredUntil) continue;
+    coveredUntil = candidate.index + candidate.length;
+    mentions.push({
+      code: candidate.code,
+      index: candidate.index,
+      amount: fxAmountBefore(text, candidate.index),
+    });
+  }
+  return mentions;
+}
+
+function fxTokyoDateString(nowMs: number): string {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Tokyo",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(new Date(nowMs));
+}
+
+function fxShiftDateString(dateString: string, deltaDays: number): string {
+  const [year, month, day] = dateString.split("-").map(Number);
+  const shifted = new Date(Date.UTC(year!, month! - 1, day! + deltaDays));
+  return shifted.toISOString().slice(0, 10);
+}
+
+/**
+ * The date an FX question asks about, as YYYY-MM-DD; null for
+ * "latest". An explicit date that is not a real calendar date, lies
+ * in the future, or predates the provider's history (1948) makes the
+ * whole request unparseable (undefined sentinel via `invalid`), so
+ * the caller falls through instead of silently answering with a
+ * different day's rate.
+ */
+function parseFxDate(text: string, nowMs: number): { date: string | null; invalid: boolean } {
+  const today = fxTokyoDateString(nowMs);
+  const explicit = text.match(/(\d{4})年(\d{1,2})月(\d{1,2})日/) ?? text.match(/(\d{4})[-/](\d{1,2})[-/](\d{1,2})/);
+  if (explicit) {
+    const year = Number(explicit[1]);
+    const month = Number(explicit[2]);
+    const day = Number(explicit[3]);
+    const probe = new Date(Date.UTC(year, month - 1, day));
+    const real = probe.getUTCFullYear() === year && probe.getUTCMonth() === month - 1 && probe.getUTCDate() === day;
+    const date = `${String(year).padStart(4, "0")}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+    if (!real || date > today || date < "1948-01-01") return { date: null, invalid: true };
+    return { date, invalid: false };
+  }
+  // 一昨日 contains 昨日 as a substring, so it is checked first.
+  if (/(?:一昨日|おととい)/.test(text)) return { date: fxShiftDateString(today, -2), invalid: false };
+  if (/昨日/.test(text)) return { date: fxShiftDateString(today, -1), invalid: false };
+  return { date: null, invalid: false };
+}
+
+/**
+ * Parses a question into the deterministic FX route's request, or
+ * null when the question is not an FX rate / conversion question this
+ * route can serve exactly. Only fixed currency codes, an optional
+ * amount, and an optional date are extracted — the provider request
+ * is built from these alone, so no user text ever leaves the server.
+ *
+ * Shapes served: an explicit pair ("ドル円はいくら", "ユーロ円の
+ * レート"), a "1 X = ? Y" ask ("1ドル何円？"), an amount conversion
+ * ("100ドルは日本円でいくら", "50ユーロを円に換算して"), a single
+ * currency against the yen default ("ユーロのレートは？"), a bare
+ * 為替 question (USD/JPY, labelled as such in the answer, mirroring
+ * the market route's standing fallback), each optionally pinned to a
+ * date ("2024年1月5日のドル円", "昨日のユーロ円").
+ */
+export function parseOriginFxRequest(message: string, nowMs: number = Date.now()): OriginFxRequest | null {
+  const text = (message ?? "").normalize("NFKC").trim();
+  if (!text) return null;
+  if (FX_SUPPLIED_RATE_EQUATION.test(text)) return null;
+  const { date, invalid } = parseFxDate(text, nowMs);
+  if (invalid) return null;
+  const demand = FX_DEMAND.test(text);
+
+  for (const token of FX_PAIR_TOKENS) {
+    const match = token.pattern.exec(text);
+    if (!match) continue;
+    // The amount belongs to the base currency wherever it is written:
+    // directly before the pair token ("100ドル円") or before a later
+    // mention of the base ("ドル円で、100ドルはいくら").
+    const amount = fxAmountBefore(text, match.index)
+      ?? scanFxCurrencyMentions(text).find((mention) => mention.code === token.base && mention.amount !== null)?.amount
+      ?? null;
+    return { base: token.base, quote: token.quote, amount, date };
+  }
+  const isoPair = text.match(/\b(USD|JPY|EUR|GBP|AUD|CHF|CAD|CNY|KRW|HKD|NZD|SGD|THB)\s*\/\s*(USD|JPY|EUR|GBP|AUD|CHF|CAD|CNY|KRW|HKD|NZD|SGD|THB)\b/i)
+    ?? text.match(/\b(USD|EUR|GBP|AUD|CHF|CAD|CNY|KRW|HKD|NZD|SGD|THB)(JPY|USD|EUR|GBP|AUD|CHF|CAD|CNY|KRW|HKD|NZD|SGD|THB)\b/i);
+  if (isoPair) {
+    const base = isoPair[1]!.toUpperCase() as OriginFxCurrencyCode;
+    const quote = isoPair[2]!.toUpperCase() as OriginFxCurrencyCode;
+    if (base !== quote && FX_CURRENCY_CODES.includes(base) && FX_CURRENCY_CODES.includes(quote)) {
+      return { base, quote, amount: fxAmountBefore(text, isoPair.index ?? 0), date };
+    }
+  }
+
+  const mentions = scanFxCurrencyMentions(text);
+  const distinct: OriginFxCurrencyCode[] = [];
+  for (const mention of mentions) {
+    if (!distinct.includes(mention.code)) distinct.push(mention.code);
+  }
+
+  if (distinct.length >= 2) {
+    const amountMention = mentions.find((mention) => mention.amount !== null);
+    if (!amountMention && !demand) return null;
+    // The currency carrying the amount is what gets converted; with
+    // no amount, mention order decides ("ユーロとドルのレート").
+    const base = amountMention ? amountMention.code : distinct[0]!;
+    const quote = distinct.find((code) => code !== base)!;
+    return { base, quote, amount: amountMention && amountMention.code === base ? amountMention.amount : null, date };
+  }
+
+  if (distinct.length === 1) {
+    const only = distinct[0]!;
+    if (only === "JPY") {
+      // A yen-only mention is a rate question only in an explicit FX
+      // framing ("円相場", "為替"); the pair is then USD/JPY, the
+      // standing default, and the answer labels it explicitly.
+      if (/(?:為替|円相場)/.test(text) && demand) return { base: "USD", quote: "JPY", amount: null, date };
+      return null;
+    }
+    if (!demand) return null;
+    const amount = mentions.find((mention) => mention.code === only)?.amount ?? null;
+    return { base: only, quote: "JPY", amount, date };
+  }
+
+  // No currency named at all: a bare 為替 question is USD/JPY (the
+  // market route's standing fallback, labelled in the answer).
+  if (/(?:為替)/.test(text) && demand) return { base: "USD", quote: "JPY", amount: null, date };
+  return null;
 }
