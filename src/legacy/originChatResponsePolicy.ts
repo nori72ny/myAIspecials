@@ -87,8 +87,13 @@ function isSuppliedPriceArithmeticRequest(message: string): boolean {
   // with separators, so a long digit run cannot be re-split while
   // backtracking (CodeQL js/polynomial-redos). Real amounts and
   // percentages match exactly as before.
-  const suppliedAmount = /(?:[0-9]{1,20}(?:[.,][0-9]{1,20}){0,12}[.,]{0,3}\s*(?:円|ドル|ユーロ|USD|JPY|EUR)|[$€£]\s*[0-9]{1,20}(?:[.,][0-9]{1,20}){0,12}[.,]{0,3})/i.test(message);
-  const suppliedPercentage = /[0-9]{1,12}(?:\.[0-9]{1,10})?\s*(?:[%％]|パーセント|percent\b)/i.test(message);
+  // Round 7 (Q6-01): the amount pattern also accepts a single
+  // magnitude unit (万/億) before the currency — "9000万円" was
+  // not an amount at all under the plain pattern, which is one of
+  // the two reasons the amount × percentage shape below fell
+  // through to the bare price-question fallback.
+  const suppliedAmount = /(?:[0-9]{1,20}(?:[.,][0-9]{1,20}){0,12}[.,]{0,3}\s*(?:[万億]\s*)?(?:円|ドル|ユーロ|USD|JPY|EUR)|[$€£]\s*[0-9]{1,20}(?:[.,][0-9]{1,20}){0,12}[.,]{0,3})/i.test(message);
+  const suppliedPercentage = /[0-9]{1,12}(?:\.[0-9]{1,10})?\s*(?:[%％]|パーセント|percent\b|割)/i.test(message);
   // The calculation cue is the explicit 計算 wording, or the derived-price
   // question shape (routing calibration, 2026-11-16 measurement H-05 /
   // H-10): with an amount and a percentage both supplied, asking back for
@@ -97,8 +102,17 @@ function isSuppliedPriceArithmeticRequest(message: string): boolean {
   // through to the price-question fallback below and was refused for
   // lack of grounding. A bare price question supplies no percentage and
   // stays grounded, exactly as before.
+  // Round 7 (Q6-01) completes the shape: with an amount AND a
+  // percentage both supplied, the bare result-amount ask
+  // ("9000万円の6.2%はいくらですか") is the same arithmetic
+  // request with no derived-price noun at all. The cue alone
+  // changes nothing — the return below still requires both
+  // supplied values — so a bare price question (no percentage)
+  // and a rate question (no amount) stay grounded exactly as
+  // before.
   const calculation = /計算|計算式|\b(?:calculate|compute|arithmetic)\b/i.test(message)
-    || /(?:元の値段|元の価格|元値|売値|定価|原価).{0,4}いくら/.test(message);
+    || /(?:元の値段|元の価格|元値|売値|定価|原価).{0,4}いくら/.test(message)
+    || /(?:いくらですか|いくらでしょう)/.test(message);
   return suppliedAmount && suppliedPercentage && calculation;
 }
 

@@ -428,6 +428,33 @@ describe("routing calibration (2026-11-16 measurement)", () => {
     expect(conversion.rule).toBe("deterministic-calculation");
   });
 
+  // Round 7 (Q6-01, ANSWER_ROUND7_DIAGNOSIS_2026-11-27): the
+  // amount × percentage → result-amount shape supplied every input
+  // yet slipped past every arithmetic exemption — the 万 in the
+  // amount broke the plain amount pattern, and the bare いくら
+  // ですか cue was not a result-amount shape — so the policy layer
+  // promoted it into grounded research and a retrieval failure
+  // refused a question no source can add anything to.
+  it("keeps amount × percentage result questions on the deterministic-calculation path (Q6-01)", () => {
+    const result = classifyOriginSearchQuestion("9000万円の6.2%はいくらですか？");
+    expect(result.type).toBe("no_search");
+    expect(result.rule).toBe("deterministic-calculation");
+    expect(classifyOriginSearchQuestion("5000万円の10%はいくらですか？").rule).toBe("deterministic-calculation");
+    expect(classifyOriginSearchQuestion("9000万円の10%引きはいくらですか？").rule).toBe("deterministic-calculation");
+    expect(classifyOriginSearchQuestion("100万円の3割はいくらですか？").rule).toBe("deterministic-calculation");
+  });
+
+  it("still routes price questions without both supplied values onward (Q6-01 counter-shapes)", () => {
+    // A bare price question supplies neither an amount nor a
+    // percentage: not arithmetic at this layer (the response
+    // policy's bare price branch is what grounds it).
+    expect(classifyOriginSearchQuestion("この商品はいくらですか？").rule).not.toBe("deterministic-calculation");
+    // A supplied amount alone is not arithmetic either.
+    expect(classifyOriginSearchQuestion("9000万円の家はいくらですか？").rule).not.toBe("deterministic-calculation");
+    // A percentage alone (a rate question) is not arithmetic.
+    expect(classifyOriginSearchQuestion("消費税率は何%ですか？").rule).not.toBe("deterministic-calculation");
+  });
+
   it("still routes live-rate demands to market (H-08 counter-shapes)", () => {
     expect(classifyOriginSearchQuestion("現在のドル円の為替レートはいくらですか？").type).toBe("market");
     expect(classifyOriginSearchQuestion("最新の為替レートで、350ドルは日本円でいくらですか？").type).toBe("market");

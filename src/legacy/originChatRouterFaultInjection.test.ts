@@ -676,3 +676,47 @@ describe("round-6 measure 6-1a: successful synthesis attempts are recorded with 
     expect(response.body.research.synthesis.attempts).toEqual(EXPECTED_SUCCESS_ATTEMPTS);
   });
 });
+
+describe("round 7: supplied-value arithmetic at the router (C-1 / C-2, Q6-01)", () => {
+  const failingResearch = () =>
+    vi.fn().mockResolvedValue({
+      ok: false,
+      failure: "grounding-unavailable",
+      sources: [],
+      provider: "test-grounding",
+      attemptedProviders: [],
+      searchQueries: [],
+    }) as unknown as OriginResearchExecutor;
+
+  it("computes the calculation instead of refusing when source retrieval fails (C-2)", async () => {
+    // The 教えて form of the bare price question reaches grounded
+    // research through the response policy's price fallback, but
+    // slips past C-1's exemptions (which key on いくらですか /
+    // いくらでしょう). With retrieval failing, the T4 hold would
+    // refuse a question whose inputs are all supplied — C-2
+    // computes it deterministically instead.
+    const synthesis = vi.fn() as unknown as OriginChatExecutor;
+    const response = await request(createChatApp(failingResearch(), synthesis))
+      .post("/api/chat")
+      .send({ messages: [{ role: "user", content: "9000万円の6.2%はいくらか教えてください" }] });
+    expect(response.status).toBe(200);
+    expect(response.body.content).toContain("5,580,000円（558万円）");
+    expect(response.body.content).not.toContain("お伝えできません");
+    expect(response.body.routing.researchOutcome).toBe("ANSWERED");
+  });
+
+  it("keeps the Q6-01 shape itself off the research route entirely (C-1)", async () => {
+    const research = failingResearch();
+    const synthesis = vi.fn() as unknown as OriginChatExecutor;
+    const response = await request(createChatApp(research, synthesis))
+      .post("/api/chat")
+      .send({ messages: [{ role: "user", content: "9000万円の6.2%はいくらですか？" }] });
+    expect(response.status).toBe(200);
+    // The direct route answers (the harness executor's fixed
+    // text); the research executor is never invoked and no
+    // source-less refusal lands.
+    expect(research).not.toHaveBeenCalled();
+    expect(response.body.content).toContain("安全な確認結果です。");
+    expect(response.body.content).not.toContain("お伝えできません");
+  });
+});

@@ -115,6 +115,18 @@ import { originSourcePeriodAnnotation } from "../search/originOfficialEdition.js
  * path, and the block is reported with reason
  * "no-official-support" so the router's structured recovery log
  * can tell it apart.
+ *
+ * Round 7 (ANSWER_ROUND7_DIAGNOSIS_2026-11-27, measure S-1): the
+ * vote and this arbitration now read the EDITION. PR-3 disqualifies
+ * a group whose stated edition is strictly older than the pool's
+ * newest stated edition, and this module mirrors that
+ * disqualification in its own eligibility, arbitrates contested
+ * votes by edition before publication date, and — when a winning
+ * group is entirely undated but carries a readable edition — lets
+ * the edition serve as the value's date of last resort for the
+ * freshness window (the deterministic release-page candidate's
+ * shape: no provider date, no date in its value sentence, its
+ * currency provable only by its edition).
  */
 
 export type RecoveryTemplateFallbackMode = "off" | "shadow" | "enforce";
@@ -289,6 +301,12 @@ interface GroupStats {
   /** Summed per-domain tier weights (PR-3's base score, before its recency bonus). */
   baseScore: number;
   domainWeights: Map<string, number>;
+  /**
+   * The newest edition any statement of this value belongs to
+   * (round 7, measure S-1), when at least one statement's edition
+   * could be read.
+   */
+  editionSortKey?: number;
 }
 
 function groupStatsOf(
@@ -313,6 +331,12 @@ function groupStatsOf(
     }
     if (candidate.domain) entry.domains.add(candidate.domain);
     if (!candidate.inTitleOnly) entry.titleOnly = false;
+    if (
+      candidate.editionSortKey !== undefined &&
+      (entry.editionSortKey === undefined || candidate.editionSortKey > entry.editionSortKey)
+    ) {
+      entry.editionSortKey = candidate.editionSortKey;
+    }
     if (!candidate.inTitleOnly && hasOfficialTierOrDomain(candidate)) {
       entry.officialSupport = true;
     }
@@ -429,9 +453,31 @@ export function tryRecoveryTemplateFallback(
   if (!vote) return { ...base, reason: "no-candidates", voteStatus: "none" };
 
   const stats = groupStatsOf(candidates);
+  // Edition discipline (round 7, measure S-1), mirroring PR-3's:
+  // the newest edition stated anywhere in the pool sets the bar,
+  // and a group stating a strictly older edition is a superseded
+  // edition — it is not eligible here either, so it can neither be
+  // confirmed through the vote's winner nor win the arbitration.
+  // A group stating no edition is of unknown vintage, never
+  // disqualified; with no edition read anywhere, nothing changes.
+  const poolNewestEditionSortKey = candidates.reduce<number | undefined>(
+    (max, candidate) =>
+      candidate.editionSortKey !== undefined &&
+      (max === undefined || candidate.editionSortKey > max)
+        ? candidate.editionSortKey
+        : max,
+    undefined,
+  );
+  const isEditionDisqualified = (entry: GroupStats): boolean =>
+    poolNewestEditionSortKey !== undefined &&
+    entry.editionSortKey !== undefined &&
+    entry.editionSortKey < poolNewestEditionSortKey;
   const eligibleKeys = new Set(
     [...stats.entries()]
-      .filter(([, entry]) => !entry.titleOnly && entry.domains.size >= 2)
+      .filter(
+        ([, entry]) =>
+          !entry.titleOnly && entry.domains.size >= 2 && !isEditionDisqualified(entry),
+      )
       .map(([key]) => key),
   );
 
@@ -457,16 +503,34 @@ export function tryRecoveryTemplateFallback(
           (a.key < b.key ? -1 : 1),
       )
       .slice(0, 2);
+    // Round 7 (measure S-1): the arbitration compares EDITIONS
+    // before publication points — a stale value restated in a
+    // newer article must not win on its article's date (defect B
+    // of the round-7 diagnosis). A group stating no edition sorts
+    // below every editioned group here; between groups whose
+    // editions tie (or state none), the strictly newest
+    // publication point still decides, exactly as before. A pool
+    // member with neither an edition nor a date cannot win.
+    let bestEdition = -1;
     let bestMs = Number.NaN;
     let bestKey: string | undefined;
     let tied = false;
     for (const { key, entry } of pool) {
-      if (!Number.isFinite(entry.newestMs)) continue;
-      if (!Number.isFinite(bestMs) || entry.newestMs > bestMs) {
-        bestMs = entry.newestMs;
+      const edition = entry.editionSortKey ?? -1;
+      const ms = entry.newestMs;
+      if (edition < 0 && !Number.isFinite(ms)) continue;
+      const msKey = Number.isFinite(ms) ? ms : Number.NEGATIVE_INFINITY;
+      const bestMsKey = Number.isFinite(bestMs) ? bestMs : Number.NEGATIVE_INFINITY;
+      if (
+        bestKey === undefined ||
+        edition > bestEdition ||
+        (edition === bestEdition && msKey > bestMsKey)
+      ) {
+        bestEdition = edition;
+        bestMs = ms;
         bestKey = key;
         tied = false;
-      } else if (entry.newestMs === bestMs) {
+      } else if (edition === bestEdition && msKey === bestMsKey) {
         tied = true;
       }
     }
@@ -505,16 +569,36 @@ export function tryRecoveryTemplateFallback(
   // must exist and lie within 365 days before now — the template
   // states the value as the latest published one, which an undated
   // or year-old value cannot claim.
-  if (!Number.isFinite(winnerStats.newestMs)) {
+  //
+  // Round 7 (diagnosis Q3): a winning group can be entirely undated
+  // — the deterministic release-page candidate's extract carries no
+  // provider date and its value sentence states none — yet still
+  // carry a readable edition, which IS the value's vintage. The
+  // edition then serves as the date of last resort, at its
+  // reference month's start: the same convention the search layer's
+  // edition-date fallback already applies to undated official
+  // sources (originSearchGrounding). The window checks below run
+  // on that effective date unchanged, so an old edition is still
+  // refused as stale; only a current edition rescues an undated
+  // winner, and the as-of it prints is the edition's month start.
+  let winnerMs = winnerStats.newestMs;
+  let winnerText = winnerStats.newestText;
+  if (!Number.isFinite(winnerMs) && winnerStats.editionSortKey !== undefined) {
+    const editionYear = Math.floor(winnerStats.editionSortKey / 100);
+    const editionMonth = winnerStats.editionSortKey % 100;
+    winnerMs = Date.UTC(editionYear, editionMonth - 1, 1);
+    winnerText = `${editionYear}-${String(editionMonth).padStart(2, "0")}-01`;
+  }
+  if (!Number.isFinite(winnerMs)) {
     return { ...base, reason: "value-undated", voteStatus: vote.status };
   }
-  if (winnerStats.newestMs > nowMs + RECOVERY_TEMPLATE_FUTURE_TOLERANCE_MS) {
+  if (winnerMs > nowMs + RECOVERY_TEMPLATE_FUTURE_TOLERANCE_MS) {
     return { ...base, reason: "value-future-dated", voteStatus: vote.status };
   }
-  if (nowMs - winnerStats.newestMs > RECOVERY_TEMPLATE_MAX_VALUE_AGE_MS) {
+  if (nowMs - winnerMs > RECOVERY_TEMPLATE_MAX_VALUE_AGE_MS) {
     return { ...base, reason: "value-stale", voteStatus: vote.status };
   }
-  const asOf = isoDatePart(winnerStats.newestText);
+  const asOf = isoDatePart(winnerText);
   if (!asOf) return { ...base, reason: "value-undated", voteStatus: vote.status };
 
   const confirmingSources: RecoveryTemplateConfirmingSource[] = [...winnerStats.sourceIndexes]
