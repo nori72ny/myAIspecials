@@ -62,6 +62,11 @@ import {
  *    left-hand rate is the PREVIOUS value and is not counted as a
  *    statement of the current one (F-03: counting it is what let
  *    the stale 1.0% out-poll the current 1.25%);
+ *  - a rate's triangle sign (▲/△, the negative marker of Japanese
+ *    official statistics) is part of the value: dropping it turned
+ *    ESRI's ▲0.0% headline into a +0.0% candidate and merged
+ *    negative real figures into the positive group of the same
+ *    magnitude (round 7, measure S-3);
  *  - recency is judged by the value's own date — the date its
  *    sentence states, else the source's publication date — never
  *    by retrieval order (the design's freshness rule);
@@ -368,7 +373,21 @@ function newestEditionInText(text: string): OriginOfficialEdition | null {
 
 function extractRateCandidates(sentence: string): RawCandidate[] {
   if (isForecastOnly(sentence)) return [];
-  const matches = [...sentence.matchAll(/(-?\d[\d,]*(?:\.\d+)?)\s*(%|パーセント|倍)/g)];
+  // Japanese official statistics write a negative rate with the
+  // triangle sign directly before the number (▲0.0%, △0.1%), the
+  // ESRI GDP release being the canonical case. Until round 7
+  // (measure S-3) the pattern only knew the ASCII minus, so the
+  // sign was silently dropped: ▲0.0% entered the vote as +0.0% and
+  // ▲0.1% as +0.1% — the current value never existed as a candidate
+  // in its stated form, and a negative real figure (実質▲0.4%)
+  // merged into the positive group of the same magnitude (the
+  // nominal 0.4% group), inflating a wrong value's candidate count.
+  // The triangle folds to "-" in the display form, the same folding
+  // normalizeSurface already applies to the −/‐ variants. The
+  // marker must sit directly before the digits, and the digits must
+  // still be closed by a rate unit, so a section-mark ▲ far from
+  // any rate ("▲2026年…") cannot sign a value it does not touch.
+  const matches = [...sentence.matchAll(/([▲△])?(-?\d[\d,]*(?:\.\d+)?)\s*(%|パーセント|倍)/g)];
   const out: RawCandidate[] = [];
   matches.forEach((match, index) => {
     // In a change construction (1.00%から1.25%へ / 0.75%→1.25%) the
@@ -383,11 +402,13 @@ function extractRateCandidates(sentence: string): RawCandidate[] {
       );
       if (/^\s*(から|→)/.test(after)) return;
     }
-    const value = Number(match[1].replace(/,/g, ""));
-    if (!Number.isFinite(value)) return;
-    const unit = match[2] === "パーセント" ? "%" : match[2];
+    const parsed = Number(match[2].replace(/,/g, ""));
+    if (!Number.isFinite(parsed)) return;
+    const negative = match[1] !== undefined || match[2].startsWith("-");
+    const value = negative ? -Math.abs(parsed) : parsed;
+    const unit = match[3] === "パーセント" ? "%" : match[3];
     out.push({
-      displayValue: `${match[1]}${match[2]}`,
+      displayValue: `${negative ? "-" : ""}${match[2].replace(/^-/, "")}${match[3]}`,
       normalizedValue: canonicalNumber(value),
       unit,
     });
