@@ -1937,3 +1937,30 @@ button.origin-orin-panel__feature-row {
     margin-right: 10px;
   }
 }
+
+/* Panel empty-state balance at >=1024px (デザイン是正バッチ9、
+   D8、2026-11-27): on the desktop rail the panel is full height
+   by design, but with the work tab empty the content ended in
+   the top half and the rest of the rail was one undivided void
+   (measured: content 341-521 of a 60-800 panel at 1280x800).
+   Below 1024px the sheet already hugs its content (batch 3);
+   on the rail the empty state instead centres in the space
+   left under the profile and tabs, so the remaining height
+   reads as framing above and below. Lists with rows and the
+   features tab are untouched: the modifier exists only while
+   the work tab is empty, and with real content the page flows
+   from the top as before. */
+@media (min-width: 1024px) {
+  .origin-orin-panel--work-empty .origin-orin-panel__scroll {
+    display: flex;
+    flex-direction: column;
+  }
+  .origin-orin-panel--work-empty .origin-orin-panel__page {
+    flex: 1 0 auto;
+    display: flex;
+    flex-direction: column;
+  }
+  .origin-orin-panel--work-empty .origin-orin-panel__page > [data-testid="origin-orin-panel-work"] {
+    margin-block: auto;
+  }
+}

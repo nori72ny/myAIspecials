@@ -838,13 +838,22 @@ export default function AgentWorkspaceView({ onOpenSettings }: {
           {attachmentError && <p role="alert" className="mt-2 text-[13px] font-semibold leading-5 text-origin-warning">{attachmentError}</p>}
         </div>}
 
+        {/* 状態の二重表示の解消（デザイン是正バッチ9、D5、2026-11-27）：
+            使えるかどうかは左の文が一度だけ言い、右の文は「いまの
+            段階」（待機中・実行中など）だけを出す。以前は使えない
+            ときに「エージェントは今は使えません」と「利用できません」
+            が同じ行に並び、確認中も「確認しています…」と「確認中」が
+            重なっていた。段階は使えるときにしか存在しないため、
+            右の文は ready のときだけ描く。 */}
         <div role="status" className="mt-3 flex items-center justify-between gap-3 text-[13px]">
           <span className="text-origin-muted">{checkingCapability ? '利用できるか確認しています…' : ready ? '利用できます' : 'エージェントは今は使えません'}</span>
           <span className="flex items-center gap-2">
             <OriginCatState state={catStateForPhase(phase, checkingCapability, ready)} />
-            <span className={ready ? 'font-bold text-origin-success' : 'font-bold text-origin-warning'}>
-              {checkingCapability ? '確認中' : ready ? phaseLabel(phase) : '利用できません'}
-            </span>
+            {ready && (
+              <span className="font-bold text-origin-success">
+                {phaseLabel(phase)}
+              </span>
+            )}
           </span>
         </div>
         {/* 確認が失敗・時間切れのときは、再読み込み以外の回復手段として
@@ -894,9 +903,16 @@ export default function AgentWorkspaceView({ onOpenSettings }: {
           </div>
         </section>}
 
-        <div className="mt-4 max-h-36 overflow-auto rounded-xl border border-origin-border bg-origin-surface p-3 text-[13px] leading-5 text-origin-muted" aria-label="実行履歴">
-          {log.length ? log.filter(Boolean).map((line, index) => <div key={`${index}-${line}`}>{line}</div>) : '進み具合はここに表示されます。'}
-        </div>
+        {/* 空の実行履歴の枠は出さない（デザイン是正バッチ9、D5、
+            2026-11-27）：以前は記録が無い間も「進み具合はここに
+            表示されます。」の枠が常駐し、下の「これまでの作業」が
+            説明する進み具合の置き場所と重なっていた。枠は最初の
+            記録が出た時点で現れる。 */}
+        {log.length > 0 && (
+          <div className="mt-4 max-h-36 overflow-auto rounded-xl border border-origin-border bg-origin-surface p-3 text-[13px] leading-5 text-origin-muted" aria-label="実行履歴">
+            {log.filter(Boolean).map((line, index) => <div key={`${index}-${line}`}>{line}</div>)}
+          </div>
+        )}
       </aside>
 
       <main className="origin-workspace overflow-hidden rounded-2xl">

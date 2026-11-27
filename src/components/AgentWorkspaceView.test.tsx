@@ -123,6 +123,37 @@ describe('AgentWorkspaceView v3', () => {
     expect(statusCalls).toBe(2);
   });
 
+  it('states availability once and shows no empty progress frame (batch 9, D5)', async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === '/api/agent/v3/status') throw new Error('network unavailable');
+      throw new Error(`unexpected request: ${url}`);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    render(<AgentWorkspaceView />);
+    expect(await screen.findByText('エージェントは今は使えません')).toBeTruthy();
+    // 使えないことは一度だけ言う（右側の「利用できません」は出さない）。
+    expect(screen.queryByText('利用できません')).toBeNull();
+    // 記録が無い間は、進み具合の空の枠も出さない。
+    expect(screen.queryByText('進み具合はここに表示されます。')).toBeNull();
+    expect(screen.queryByLabelText('実行履歴')).toBeNull();
+  });
+
+  it('shows the phase next to the availability when ready (batch 9, D5)', async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === '/api/agent/v3/status') return json(readyStatus());
+      throw new Error(`unexpected request: ${url}`);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    render(<AgentWorkspaceView />);
+    expect(await screen.findByText('利用できます')).toBeTruthy();
+    // 使える場合は、段階（待機中）が右側に出る。
+    expect(screen.getByText('待機中')).toBeTruthy();
+  });
+
   it('keeps headings at weight 700 and primary buttons on the disabled canon (K-07/K-08)', async () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);
