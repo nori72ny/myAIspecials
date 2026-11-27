@@ -28,6 +28,7 @@ export const RESEARCH_PROVIDER_NAMES = [
   'GDELT',
   'JMA',
   'Stooq',
+  'Frankfurter',
   'SearchGrounding',
 ] as const;
 

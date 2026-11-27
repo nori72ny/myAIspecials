@@ -1,16 +1,20 @@
 import { describe, expect, it } from "vitest";
 import {
   classifyOriginDomainTier,
+  composeOriginFxText,
   composeOriginMarketText,
   composeOriginWeatherText,
+  convertOriginFxAmount,
   decodeOriginPageHtml,
   extractOriginPageText,
   extractTavilyPages,
+  fetchFrankfurterRate,
   fetchJmaAreaTable,
   fetchJmaWeather,
   fetchStooqMarketQuotes,
   jmaPlaceCore,
   jmaWeatherCodeLabelJa,
+  parseFrankfurterRate,
   parseJmaAreaTable,
   resolveJmaArea,
   isSafeHttpsUrl,
@@ -21,6 +25,7 @@ import {
   searchTavilySources,
   searchWikipediaSources,
   searchWikipediaSourcesObserved,
+  type OriginFxRate,
   type OriginMarketQuoteRequest,
   type OriginSearchFetch,
 } from "./originSearchProviders";
@@ -1161,5 +1166,137 @@ describe("composeOriginMarketText", () => {
     expect(text).toContain("2026-11-06 15:30:00 時点の値");
     expect(text).toContain("遅延");
     expect(text).toContain("出典: Stooq（https://stooq.com/）");
+  });
+});
+
+/* ------------------------------------------------------------------ */
+/* Frankfurter (FX reference rates)                                    */
+/* ------------------------------------------------------------------ */
+
+const FRANKFURTER_USD_JPY = {
+  amount: 1,
+  base: "USD",
+  date: "2026-11-27",
+  rates: { JPY: 156.78 },
+};
+
+describe("parseFrankfurterRate", () => {
+  it("accepts the documented shape and returns the reported date and rate", () => {
+    expect(parseFrankfurterRate(FRANKFURTER_USD_JPY, "USD", "JPY")).toEqual({
+      date: "2026-11-27",
+      rate: 156.78,
+    });
+  });
+
+  it("rejects a response whose base is not the requested one", () => {
+    const error = (() => {
+      try {
+        parseFrankfurterRate({ ...FRANKFURTER_USD_JPY, base: "EUR" }, "USD", "JPY");
+        return null;
+      } catch (caught) {
+        return caught;
+      }
+    })();
+    expect(error).toBeInstanceOf(OriginSearchProviderError);
+    expect((error as OriginSearchProviderError).code).toBe("invalid-response");
+    expect((error as OriginSearchProviderError).providerId).toBe("frankfurter");
+  });
+
+  it("rejects missing, non-numeric, zero and negative rates", () => {
+    for (const rates of [{}, { JPY: "156.78" }, { JPY: 0 }, { JPY: -1 }, { EUR: 0.9 }]) {
+      expect(() => parseFrankfurterRate({ ...FRANKFURTER_USD_JPY, rates }, "USD", "JPY"))
+        .toThrow(OriginSearchProviderError);
+    }
+  });
+
+  it("rejects a malformed date and non-object payloads", () => {
+    expect(() => parseFrankfurterRate({ ...FRANKFURTER_USD_JPY, date: "27/11/2026" }, "USD", "JPY"))
+      .toThrow(OriginSearchProviderError);
+    expect(() => parseFrankfurterRate(null, "USD", "JPY")).toThrow(OriginSearchProviderError);
+    expect(() => parseFrankfurterRate("<html>error</html>", "USD", "JPY")).toThrow(OriginSearchProviderError);
+  });
+});
+
+describe("fetchFrankfurterRate", () => {
+  it("requests only the currency codes (latest) and returns the parsed rate", async () => {
+    const calls: RecordedCall[] = [];
+    const fetchImpl: OriginSearchFetch = async (url, init) => {
+      calls.push({ url, init });
+      return jsonResponse(FRANKFURTER_USD_JPY);
+    };
+    const rate = await fetchFrankfurterRate(
+      { base: "USD", quote: "JPY" },
+      { fetchImpl, nowMs: Date.parse("2026-11-28T03:00:00.000Z") },
+    );
+    expect(rate).toEqual({
+      base: "USD",
+      quote: "JPY",
+      rate: 156.78,
+      date: "2026-11-27",
+      retrievedAt: "2026-11-28T03:00:00.000Z",
+    });
+    expect(calls).toHaveLength(1);
+    expect(calls[0]?.url).toBe("https://api.frankfurter.dev/v1/latest?base=USD&symbols=JPY");
+  });
+
+  it("uses the dated path when a specific date is requested", async () => {
+    const calls: RecordedCall[] = [];
+    const fetchImpl: OriginSearchFetch = async (url, init) => {
+      calls.push({ url, init });
+      return jsonResponse({ amount: 1, base: "EUR", date: "2024-01-05", rates: { JPY: 160.25 } });
+    };
+    const rate = await fetchFrankfurterRate({ base: "EUR", quote: "JPY", date: "2024-01-05" }, { fetchImpl });
+    expect(rate.rate).toBe(160.25);
+    expect(rate.date).toBe("2024-01-05");
+    expect(calls[0]?.url).toBe("https://api.frankfurter.dev/v1/2024-01-05?base=EUR&symbols=JPY");
+  });
+
+  it("propagates HTTP failures as http errors", async () => {
+    const fetchImpl: OriginSearchFetch = async () => jsonResponse({ error: "not found" }, 404);
+    const error = await fetchFrankfurterRate({ base: "USD", quote: "JPY" }, { fetchImpl })
+      .catch((caught: unknown) => caught);
+    expect(error).toBeInstanceOf(OriginSearchProviderError);
+    expect((error as OriginSearchProviderError).code).toBe("http");
+    expect((error as OriginSearchProviderError).status).toBe(404);
+  });
+});
+
+describe("convertOriginFxAmount", () => {
+  it("multiplies the amount by the unit rate", () => {
+    expect(convertOriginFxAmount(100, 156.78)).toBeCloseTo(15_678);
+    expect(convertOriginFxAmount(1, 0.0064)).toBeCloseTo(0.0064);
+    expect(convertOriginFxAmount(0, 156.78)).toBe(0);
+  });
+});
+
+describe("composeOriginFxText", () => {
+  const rate: OriginFxRate = {
+    base: "USD",
+    quote: "JPY",
+    rate: 156.78,
+    date: "2026-11-27",
+    retrievedAt: "2026-11-28T03:00:00.000Z",
+  };
+
+  it("states the rate, its date, the reference-rate note and the source", () => {
+    const text = composeOriginFxText(rate, { amount: null });
+    expect(text).toContain("ドル円（USD/JPY）: 1ドル = 156.78円（2026年11月27日のレート）");
+    expect(text).toContain("欧州中央銀行（ECB）などの公式な参考レート");
+    expect(text).toContain("実勢レート");
+    expect(text).toContain("出典: Frankfurter（https://frankfurter.dev/）");
+    expect(text).not.toContain("= 15,678");
+  });
+
+  it("adds the converted amount line when an amount was asked", () => {
+    const text = composeOriginFxText(rate, { amount: 100 });
+    expect(text).toContain("100ドル = 15,678円（2026年11月27日のレートで換算）");
+  });
+
+  it("keeps small rates precise instead of rounding them to zero", () => {
+    const text = composeOriginFxText(
+      { base: "JPY", quote: "USD", rate: 0.006378, date: "2026-11-27", retrievedAt: "2026-11-28T03:00:00.000Z" },
+      { amount: null },
+    );
+    expect(text).toContain("円ドル（JPY/USD）: 1円 = 0.006378ドル");
   });
 });

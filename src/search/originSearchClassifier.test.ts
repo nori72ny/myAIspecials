@@ -6,6 +6,7 @@ import {
   extractOriginWeatherPlace,
   minimizeOriginSearchQuery,
   ORIGIN_SEARCH_FRESHNESS_REQUIREMENTS,
+  parseOriginFxRequest,
 } from "./originSearchClassifier";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -476,5 +477,128 @@ describe("routing calibration (2026-11-16 measurement)", () => {
     const result = classifyOriginSearchQuestion("国民年金は原則何歳から受け取れますか？早めたり遅らせたりはできますか？");
     expect(result.type).toBe("policy");
     expect(result.rule).toBe("high-risk-tax-institution");
+  });
+
+  it("classifies FX shapes the pair vocabulary misses as market via the fx-signal rule", () => {
+    for (const question of [
+      "1ドル何円ですか？",
+      "100ドルは日本円でいくらですか？",
+      "50ユーロを円に換算してください",
+      "昨日のユーロ円レートを教えてください",
+    ]) {
+      const result = classifyOriginSearchQuestion(question);
+      expect(result.type).toBe("market");
+      expect(result.rule).toBe("fx-signal");
+    }
+  });
+
+  it("keeps a supplied-rate conversion a deterministic calculation, not an FX lookup", () => {
+    const result = classifyOriginSearchQuestion("1ドル=150円のとき、350ドルは日本円でいくらですか？");
+    expect(result.type).toBe("no_search");
+    expect(result.rule).toBe("deterministic-calculation");
+  });
+});
+
+describe("parseOriginFxRequest", () => {
+  // 2026-11-28 12:00 in Tokyo.
+  const NOW = Date.parse("2026-11-28T03:00:00.000Z");
+
+  it("parses an explicit pair question without an amount or date", () => {
+    expect(parseOriginFxRequest("ドル円はいくらですか？", NOW)).toEqual({
+      base: "USD", quote: "JPY", amount: null, date: null,
+    });
+    expect(parseOriginFxRequest("ユーロ円のレートは？", NOW)).toEqual({
+      base: "EUR", quote: "JPY", amount: null, date: null,
+    });
+    expect(parseOriginFxRequest("円ドルはいくら？", NOW)).toEqual({
+      base: "JPY", quote: "USD", amount: null, date: null,
+    });
+  });
+
+  it("parses a '1 X = ? Y' ask with the unit amount", () => {
+    expect(parseOriginFxRequest("1ドル何円ですか？", NOW)).toEqual({
+      base: "USD", quote: "JPY", amount: 1, date: null,
+    });
+  });
+
+  it("parses an amount conversion, taking the amount's currency as the base", () => {
+    expect(parseOriginFxRequest("100ドルは日本円でいくらですか？", NOW)).toEqual({
+      base: "USD", quote: "JPY", amount: 100, date: null,
+    });
+    expect(parseOriginFxRequest("50ユーロを円に換算してください", NOW)).toEqual({
+      base: "EUR", quote: "JPY", amount: 50, date: null,
+    });
+    expect(parseOriginFxRequest("1000ウォンは何円ですか？", NOW)).toEqual({
+      base: "KRW", quote: "JPY", amount: 1000, date: null,
+    });
+    expect(parseOriginFxRequest("100万円をドルに換算するといくらですか？", NOW)).toEqual({
+      base: "JPY", quote: "USD", amount: 1_000_000, date: null,
+    });
+  });
+
+  it("parses ISO code pairs in slash and concatenated forms", () => {
+    expect(parseOriginFxRequest("USD/JPYのレートを教えてください", NOW)).toEqual({
+      base: "USD", quote: "JPY", amount: null, date: null,
+    });
+    expect(parseOriginFxRequest("EURJPYのレートは？", NOW)).toEqual({
+      base: "EUR", quote: "JPY", amount: null, date: null,
+    });
+  });
+
+  it("defaults a single named currency to the yen pair, and a bare 為替 question to USD/JPY", () => {
+    expect(parseOriginFxRequest("ユーロのレートは？", NOW)).toEqual({
+      base: "EUR", quote: "JPY", amount: null, date: null,
+    });
+    expect(parseOriginFxRequest("為替レートはいくらですか？", NOW)).toEqual({
+      base: "USD", quote: "JPY", amount: null, date: null,
+    });
+    expect(parseOriginFxRequest("今の円相場は？", NOW)).toEqual({
+      base: "USD", quote: "JPY", amount: null, date: null,
+    });
+  });
+
+  it("resolves the specific currencies inside compound names （豪ドル is AUD, not USD)", () => {
+    expect(parseOriginFxRequest("豪ドル円のレートは？", NOW)).toEqual({
+      base: "AUD", quote: "JPY", amount: null, date: null,
+    });
+    expect(parseOriginFxRequest("100豪ドルは何円ですか？", NOW)).toEqual({
+      base: "AUD", quote: "JPY", amount: 100, date: null,
+    });
+    expect(parseOriginFxRequest("スイスフランのレートは？", NOW)).toEqual({
+      base: "CHF", quote: "JPY", amount: null, date: null,
+    });
+    expect(parseOriginFxRequest("人民元円のレートは？", NOW)?.base).toBe("CNY");
+  });
+
+  it("parses an explicit past date and relative dates against the Tokyo calendar", () => {
+    expect(parseOriginFxRequest("2024年1月5日のドル円レートを教えてください", NOW)).toEqual({
+      base: "USD", quote: "JPY", amount: null, date: "2024-01-05",
+    });
+    expect(parseOriginFxRequest("昨日のユーロ円レートは？", NOW)).toEqual({
+      base: "EUR", quote: "JPY", amount: null, date: "2026-11-27",
+    });
+    expect(parseOriginFxRequest("一昨日のドル円は？", NOW)).toEqual({
+      base: "USD", quote: "JPY", amount: null, date: "2026-11-26",
+    });
+  });
+
+  it("rejects explicit dates that are invalid, in the future, or before the provider's history", () => {
+    expect(parseOriginFxRequest("2026年2月30日のドル円レートは？", NOW)).toBeNull();
+    expect(parseOriginFxRequest("2027年1月5日のドル円レートは？", NOW)).toBeNull();
+    expect(parseOriginFxRequest("1900年1月5日のドル円レートは？", NOW)).toBeNull();
+  });
+
+  it("returns null for questions that are not FX rate questions", () => {
+    for (const question of [
+      "iPhoneは日本で何円ですか？",
+      "ドルとユーロの違いは何ですか？",
+      "100ユーロの財布を買いました",
+      "ポンドケーキの作り方を教えてください",
+      "今日の東京の天気は？",
+      "1ドル=150円のとき、350ドルは日本円でいくらですか？",
+      "",
+    ]) {
+      expect(parseOriginFxRequest(question, NOW)).toBeNull();
+    }
   });
 });

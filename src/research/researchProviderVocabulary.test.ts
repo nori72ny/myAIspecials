@@ -47,6 +47,7 @@ describe("research provider vocabulary", () => {
       "GDELT",
       "JMA",
       "Stooq",
+      "Frankfurter",
       "SearchGrounding",
     ]);
   });
@@ -57,6 +58,7 @@ describe("research provider vocabulary", () => {
     ["wikipedia", "Wikipedia"],
     ["jma", "JMA"],
     ["stooq", "Stooq"],
+    ["frankfurter", "Frankfurter"],
   ] as const)("accepts the label the grounding adapter emits for %s", (providerId, label) => {
     const result = originSearchGroundingToResearchResult(groundedOutcome([providerId]));
     expect(result.searchProvider).toBe(label);

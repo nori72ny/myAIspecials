@@ -1412,3 +1412,175 @@ export function composeOriginMarketText(quotes: readonly OriginMarketQuote[], re
   ];
   return lines.join("\n");
 }
+
+/* ------------------------------------------------------------------ */
+/* Frankfurter (FX reference rates)                                    */
+/*                                                                     */
+/* Keyless public API (frankfurter.dev), adopted 2026-11-28 by owner   */
+/* decision as the deterministic FX route (survey                     */
+/* PUBLIC_APIS_SURVEY_2026-11-27: the only newly adoptable candidate   */
+/* — no key, no quota, no billing path, commercial use allowed, and    */
+/* the official FAQ states the API does not collect or log personal    */
+/* data, IP addresses or request URLs). Only currency codes and an     */
+/* optional date are ever sent — never user text.                      */
+/*                                                                     */
+/* The rates are daily REFERENCE rates blended from the ECB and 112    */
+/* other central banks / official sources — not tradable market        */
+/* quotes — and every composed answer says so. A request for a         */
+/* non-business day is answered with the most recent business day's    */
+/* rate, and the response carries that actual date, which the answer   */
+/* states verbatim as the rate's date.                                 */
+/* ------------------------------------------------------------------ */
+
+export const FRANKFURTER_SOURCE_URL = "https://frankfurter.dev/";
+const FRANKFURTER_API_BASE = "https://api.frankfurter.dev/v1";
+
+export interface OriginFxRate {
+  /** Base currency code: the rate is "1 base = rate quote". */
+  base: string;
+  /** Quote currency code. */
+  quote: string;
+  /** Units of quote per 1 unit of base, exactly as reported. */
+  rate: number;
+  /**
+   * The rate's own date (YYYY-MM-DD) exactly as reported — for a
+   * "latest" request, the most recent business day the provider has
+   * published, which may precede today on weekends and holidays.
+   */
+  date: string;
+  retrievedAt: string;
+}
+
+interface FrankfurterRatesResponse {
+  amount?: unknown;
+  base?: unknown;
+  date?: unknown;
+  rates?: unknown;
+}
+
+/**
+ * Strict parser for the Frankfurter rates response. The base must be
+ * the requested one, the date must be a YYYY-MM-DD string, and the
+ * requested quote's rate must be a finite positive number; anything
+ * else (an error page parsed as JSON, a missing currency, a zero or
+ * negative rate) is an invalid-response failure. Values are never
+ * repaired or guessed.
+ */
+export function parseFrankfurterRate(
+  payload: unknown,
+  base: string,
+  quote: string,
+): { date: string; rate: number } {
+  const invalid = () => new OriginSearchProviderError("frankfurter", "invalid-response");
+  if (!payload || typeof payload !== "object") throw invalid();
+  const record = payload as FrankfurterRatesResponse;
+  if (record.base !== base) throw invalid();
+  if (typeof record.date !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(record.date)) throw invalid();
+  if (!record.rates || typeof record.rates !== "object") throw invalid();
+  const rate = (record.rates as Record<string, unknown>)[quote];
+  if (typeof rate !== "number" || !Number.isFinite(rate) || rate <= 0) throw invalid();
+  return { date: record.date, rate };
+}
+
+export async function fetchFrankfurterRate(
+  request: { base: string; quote: string; date?: string | null },
+  deps: OriginSearchProviderDeps & { nowMs?: number } = {},
+): Promise<OriginFxRate> {
+  const path = request.date ? `/${request.date}` : "/latest";
+  const url = `${FRANKFURTER_API_BASE}${path}`
+    + `?base=${encodeURIComponent(request.base)}&symbols=${encodeURIComponent(request.quote)}`;
+  const payload = await requestJson<unknown>("frankfurter", deps, url, {
+    headers: { "User-Agent": USER_AGENT },
+  });
+  const { date, rate } = parseFrankfurterRate(payload, request.base, request.quote);
+  return {
+    base: request.base,
+    quote: request.quote,
+    rate,
+    date,
+    retrievedAt: new Date(deps.nowMs ?? Date.now()).toISOString(),
+  };
+}
+
+/** The deterministic conversion: an amount of base at a unit rate. */
+export function convertOriginFxAmount(amount: number, rate: number): number {
+  return amount * rate;
+}
+
+const ORIGIN_FX_CURRENCY_LABEL_JA: Readonly<Record<string, string>> = {
+  JPY: "円",
+  USD: "ドル",
+  EUR: "ユーロ",
+  GBP: "ポンド",
+  AUD: "豪ドル",
+  CHF: "スイスフラン",
+  CAD: "カナダドル",
+  CNY: "人民元",
+  KRW: "ウォン",
+  HKD: "香港ドル",
+  NZD: "ニュージーランドドル",
+  SGD: "シンガポールドル",
+  THB: "バーツ",
+};
+
+export function originFxCurrencyLabelJa(code: string): string {
+  return ORIGIN_FX_CURRENCY_LABEL_JA[code] ?? code;
+}
+
+function formatFxRateValue(value: number): string {
+  // Reference rates span four orders of magnitude (USD/JPY ≈ 157,
+  // JPY/USD ≈ 0.0064); the fraction digits follow the magnitude so a
+  // small rate is never rounded away to zero.
+  const maximumFractionDigits = value >= 100 ? 2 : value >= 1 ? 4 : 6;
+  return value.toLocaleString("ja-JP", { minimumFractionDigits: 2, maximumFractionDigits });
+}
+
+function formatFxAmountValue(value: number, currencyCode: string): string {
+  // Converted money is stated the way money is stated: whole yen for
+  // JPY, two decimals for other currencies.
+  const fractionDigits = currencyCode === "JPY" ? 0 : 2;
+  return value.toLocaleString("ja-JP", {
+    minimumFractionDigits: fractionDigits,
+    maximumFractionDigits: fractionDigits,
+  });
+}
+
+function formatFxSourceAmountValue(value: number, currencyCode: string): string {
+  // The amount the user named is echoed without forced decimals
+  // ("100ドル", "100.5ドル"); whole yen for JPY, as above.
+  return value.toLocaleString("ja-JP", {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: currencyCode === "JPY" ? 0 : 2,
+  });
+}
+
+function formatFxDateJa(date: string): string {
+  const match = date.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!match) return date;
+  return `${Number(match[1])}年${Number(match[2])}月${Number(match[3])}日`;
+}
+
+export function composeOriginFxText(
+  rate: OriginFxRate,
+  request: { amount: number | null },
+): string {
+  const baseLabel = originFxCurrencyLabelJa(rate.base);
+  const quoteLabel = originFxCurrencyLabelJa(rate.quote);
+  const pairLabel = `${baseLabel}${quoteLabel}（${rate.base}/${rate.quote}）`;
+  const dateJa = formatFxDateJa(rate.date);
+  const lines = [
+    "為替レート（Frankfurter）",
+    `${pairLabel}: 1${baseLabel} = ${formatFxRateValue(rate.rate)}${quoteLabel}（${dateJa}のレート）`,
+  ];
+  if (request.amount !== null && Number.isFinite(request.amount) && request.amount > 0) {
+    const converted = convertOriginFxAmount(request.amount, rate.rate);
+    lines.push(
+      `${formatFxSourceAmountValue(request.amount, rate.base)}${baseLabel} = ${formatFxAmountValue(converted, rate.quote)}${quoteLabel}（${dateJa}のレートで換算）`,
+    );
+  }
+  lines.push(
+    "注記: Frankfurter のレートは、欧州中央銀行（ECB）などの公式な参考レートをもとにした1日単位の値で、銀行や両替所の実勢レート（手数料・スプレッドを含む）とは異なります。休日を指定した場合は直近の営業日のレートです。",
+    `出典: Frankfurter（https://frankfurter.dev/）の為替レート（欧州中央銀行などの公式レートに基づく）。取得日時: ${formatTokyoDateTime(rate.retrievedAt)}`,
+  );
+  return lines.join("\n");
+}

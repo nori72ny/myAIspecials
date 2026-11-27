@@ -13,6 +13,7 @@ import {
   createDefaultOriginResearchExecutor,
   evaluateOriginSourceFreshness,
   executeOriginSearchGrounding,
+  fetchOriginFxAnswer,
   fetchOriginMarketAnswer,
   originSearchGroundingToResearchResult,
   selectOriginSearchExtractTargets,
@@ -626,6 +627,144 @@ describe("market grounding route", () => {
     const { fetchImpl } = marketFetch({ body: STOOQ_CSV_BODY });
     const result = await fetchOriginMarketAnswer("今日の株価はどうですか", makeDeps({ fetchImpl, now: () => MARKET_NOW }));
     expect(result).toEqual({ ok: false, reason: "no-instruments" });
+  });
+});
+
+/* ------------------------------------------------------------------ */
+/* FX grounding route (Frankfurter)                                    */
+/* ------------------------------------------------------------------ */
+
+// Inside the Frankfurter evidence window (verified 2026-11-28,
+// review 2026-12-25); 2026-11-28 12:00 in Tokyo.
+const FX_NOW = Date.parse("2026-11-28T03:00:00.000Z");
+const FRANKFURTER_USD_JPY_BODY = { amount: 1, base: "USD", date: "2026-11-27", rates: { JPY: 156.78 } };
+
+function isFrankfurterUrl(url: string) {
+  return url.includes("api.frankfurter.dev");
+}
+
+function fxFetch(
+  frankfurter: { payload?: unknown; status?: number },
+  tavilyResults: unknown[] = [],
+) {
+  const calls: RecordedCall[] = [];
+  const fetchImpl: OriginSearchFetch = async (url, init) => {
+    calls.push({ url, init });
+    if (isFrankfurterUrl(url)) {
+      const status = frankfurter.status ?? 200;
+      return {
+        ok: status >= 200 && status < 300,
+        status,
+        text: async () => JSON.stringify(frankfurter.payload ?? FRANKFURTER_USD_JPY_BODY),
+      };
+    }
+    if (url.includes("api.tavily.com/search")) return jsonResponse({ results: tavilyResults });
+    if (url.includes("api.tavily.com/extract")) return jsonResponse({ results: [], failed_results: [] });
+    throw new Error(`unexpected URL: ${url}`);
+  };
+  return { fetchImpl, calls };
+}
+
+describe("FX grounding route (Frankfurter)", () => {
+  it("grounds an FX question from Frankfurter with the rate, its date and the source", async () => {
+    const { fetchImpl, calls } = fxFetch({});
+    const outcome = groundedOf(await executeOriginSearchGrounding(
+      "ドル円はいくらですか？",
+      makeDeps({ fetchImpl, now: () => FX_NOW }),
+    ));
+    expect(outcome.questionType).toBe("market");
+    expect(outcome.providersUsed).toEqual(["frankfurter"]);
+    expect(outcome.sources).toHaveLength(1);
+    expect(outcome.sources[0]?.excerpt).toContain("1ドル = 156.78円（2026年11月27日のレート）");
+    expect(outcome.sources[0]?.excerpt).toContain("出典: Frankfurter（https://frankfurter.dev/）");
+    expect(outcome.sources[0]?.url).toBe("https://frankfurter.dev/");
+    expect(outcome.sources[0]?.publishedAt).toBe("2026-11-27T00:00:00Z");
+    // Only the currency codes were sent — never the raw question.
+    const fxCall = calls.find((call) => isFrankfurterUrl(call.url));
+    expect(fxCall?.url).toBe("https://api.frankfurter.dev/v1/latest?base=USD&symbols=JPY");
+    expect(fxCall?.url).not.toContain(encodeURIComponent("ドル円"));
+    const research = originSearchGroundingToResearchResult(outcome);
+    expect(research.searchProvider).toBe("Frankfurter");
+  });
+
+  it("answers an amount conversion with the converted value", async () => {
+    const { fetchImpl } = fxFetch({});
+    const outcome = groundedOf(await executeOriginSearchGrounding(
+      "100ドルは日本円でいくらですか？",
+      makeDeps({ fetchImpl, now: () => FX_NOW }),
+    ));
+    expect(outcome.providersUsed).toEqual(["frankfurter"]);
+    expect(outcome.sources[0]?.excerpt).toContain("100ドル = 15,678円（2026年11月27日のレートで換算）");
+  });
+
+  it("serves a named past date from the dated endpoint", async () => {
+    const { fetchImpl, calls } = fxFetch({
+      payload: { amount: 1, base: "EUR", date: "2024-01-05", rates: { JPY: 160.25 } },
+    });
+    const outcome = groundedOf(await executeOriginSearchGrounding(
+      "2024年1月5日のユーロ円レートを教えてください",
+      makeDeps({ fetchImpl, now: () => FX_NOW }),
+    ));
+    expect(outcome.providersUsed).toEqual(["frankfurter"]);
+    expect(outcome.sources[0]?.excerpt).toContain("1ユーロ = 160.25円（2024年1月5日のレート）");
+    const fxCall = calls.find((call) => isFrankfurterUrl(call.url));
+    expect(fxCall?.url).toBe("https://api.frankfurter.dev/v1/2024-01-05?base=EUR&symbols=JPY");
+  });
+
+  it("falls back to the generic market route when Frankfurter fails", async () => {
+    const { fetchImpl } = fxFetch({ status: 500 }, [{
+      title: "ドル円レートの市況",
+      url: "https://www.nikkei.com/markets/",
+      content: LONG_EXCERPT,
+      score: 0.9,
+      published_date: "2026-11-27T09:00:00.000Z",
+    }]);
+    const outcome = groundedOf(await executeOriginSearchGrounding(
+      "ドル円はいくらですか？",
+      makeDeps({ fetchImpl, now: () => FX_NOW }),
+    ));
+    expect(outcome.providersUsed).toEqual(["tavily"]);
+  });
+
+  it("does not take over a mixed FX + index question (the broader market route keeps it)", async () => {
+    const { fetchImpl, calls } = fxFetch({}, [{
+      title: "ドル円レート・日経平均株価の市況",
+      url: "https://www.nikkei.com/markets/",
+      content: LONG_EXCERPT,
+      score: 0.9,
+      published_date: "2026-11-27T09:00:00.000Z",
+    }]);
+    const outcome = groundedOf(await executeOriginSearchGrounding(
+      MARKET_QUESTION,
+      makeDeps({ fetchImpl, now: () => FX_NOW }),
+    ));
+    expect(outcome.providersUsed).not.toContain("frankfurter");
+    expect(calls.some((call) => isFrankfurterUrl(call.url))).toBe(false);
+  });
+
+  it("reports provider-not-enabled before the evidence window and not-fx-question for non-FX text", async () => {
+    const { fetchImpl } = fxFetch({});
+    const beforeWindow = await fetchOriginFxAnswer(
+      "ドル円はいくらですか？",
+      makeDeps({ fetchImpl, now: () => Date.parse("2026-11-07T12:00:00.000Z") }),
+    );
+    expect(beforeWindow).toEqual({ ok: false, reason: "provider-not-enabled" });
+    const notFx = await fetchOriginFxAnswer(
+      "今日の株価はどうですか",
+      makeDeps({ fetchImpl, now: () => FX_NOW }),
+    );
+    expect(notFx).toEqual({ ok: false, reason: "not-fx-question" });
+  });
+
+  it("serves a repeated question from the rate cache without a second fetch", async () => {
+    const { fetchImpl, calls } = fxFetch({});
+    const deps = makeDeps({ fetchImpl, now: () => FX_NOW });
+    const first = await fetchOriginFxAnswer("ドル円はいくらですか？", deps);
+    const second = await fetchOriginFxAnswer("50ドルは何円ですか？", deps);
+    expect(first.ok).toBe(true);
+    expect(second.ok).toBe(true);
+    if (second.ok) expect(second.text).toContain("50ドル = 7,839円");
+    expect(calls.filter((call) => isFrankfurterUrl(call.url))).toHaveLength(1);
   });
 });
 

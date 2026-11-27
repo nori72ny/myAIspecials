@@ -16,6 +16,10 @@ export const ORIGIN_SEARCH_CACHE_TTL_MS = {
   // questions inside the freshness window without hammering a keyless
   // endpoint that reportedly enforces an unpublished per-IP daily limit.
   market: 5 * 60 * 1000,
+  // FX reference rates (Frankfurter) are published once per business day,
+  // so an hour of caching cannot serve a staler day than the provider
+  // itself would; it only spares the keyless endpoint repeat questions.
+  fx: 60 * 60 * 1000,
 } as const;
 
 interface CacheEntry<T> {

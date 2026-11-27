@@ -23,6 +23,7 @@ import {
   extractOriginWeatherPlace,
   minimizeOriginSearchQuery,
   ORIGIN_SEARCH_FRESHNESS_REQUIREMENTS,
+  parseOriginFxRequest,
   type OriginSearchFreshnessRequirement,
   type OriginSearchQuestionType,
 } from "./originSearchClassifier.js";
@@ -40,16 +41,19 @@ import {
 } from "./originSearchProviderCatalog.js";
 import {
   classifyOriginDomainTier,
+  composeOriginFxText,
   composeOriginMarketText,
   composeOriginWeatherText,
   decodeOriginPageHtml,
   defaultOriginSearchFetch,
   extractOriginPageText,
   extractTavilyPages,
+  fetchFrankfurterRate,
   fetchJmaAreaTable,
   fetchJmaWeather,
   resolveJmaArea,
   fetchStooqMarketQuotes,
+  FRANKFURTER_SOURCE_URL,
   originDomainOf,
   OriginSearchProviderError,
   ORIGIN_TIER_WEIGHT,
@@ -58,6 +62,7 @@ import {
   searchWikipediaSourcesObserved,
   STOOQ_SOURCE_URL,
   type JmaAreaTable,
+  type OriginFxRate,
   type OriginMarketQuote,
   type OriginSearchFetch,
   type OriginSearchFetchResponse,
@@ -1455,6 +1460,40 @@ export async function executeOriginSearchGrounding(
   }
 
   if (questionType === "market") {
+    // Dedicated keyless FX route first (Frankfurter), mirroring the
+    // weather branch: when the question resolves to a currency pair
+    // (and names no non-FX instrument — a mixed question keeps the
+    // broader market route below), the ECB-based reference rate is
+    // the deterministic answer, including for a named past date,
+    // which no quote snapshot can serve. When Frankfurter cannot
+    // serve (route disabled, not an FX question, or the provider
+    // failed), the existing market flow runs unchanged — never a
+    // guessed number.
+    const fxInstruments = classification.instruments ?? extractOriginMarketInstruments(message);
+    if (fxInstruments.every((instrument) => instrument.kind === "fx")) {
+      const fx = await fetchOriginFxAnswer(message, depsInput);
+      if (fx.ok) {
+        return {
+          kind: "grounded",
+          questionType,
+          sources: [{
+            title: "為替レート（Frankfurter）",
+            url: FRANKFURTER_SOURCE_URL,
+            excerpt: fx.text,
+            publishedAt: `${fx.rate.date}T00:00:00Z`,
+            providerId: "frankfurter",
+            domain: "frankfurter.dev",
+            authorityTier: "official",
+            evidenceLevel: "extracted",
+            dateVerified: true,
+          }],
+          providersUsed: ["frankfurter"],
+          retrievedAt,
+          freshness: { verifiedFreshCount: 1, unknownDateCount: 0, droppedStaleCount: 0, droppedUndatedCount: 0 },
+          freshnessVerified: true,
+        };
+      }
+    }
     // Dedicated keyless route first (Stooq), mirroring the weather branch:
     // a composed, timestamped quote packet. When Stooq cannot serve (route
     // disabled, no instrument identified, or the provider failed), the
@@ -2227,6 +2266,51 @@ export async function fetchOriginMarketAnswer(
 }
 
 /* ------------------------------------------------------------------ */
+/* FX service for the grounding market branch (Frankfurter, keyless)   */
+/* ------------------------------------------------------------------ */
+
+export type OriginFxAnswerResult =
+  | { ok: true; rate: OriginFxRate; text: string }
+  | { ok: false; reason: "provider-not-enabled" | "not-fx-question" | "provider-error" };
+
+export async function fetchOriginFxAnswer(
+  message: string,
+  depsInput: OriginSearchGroundingDeps = {},
+): Promise<OriginFxAnswerResult> {
+  const deps = resolveDeps(depsInput);
+  const access = evaluateOriginSearchProviderAccess("frankfurter", {
+    env: deps.env,
+    nowMs: deps.now(),
+    catalog: deps.catalog,
+    counter: deps.counter,
+    units: 0,
+  });
+  if (!access.enabled) return { ok: false, reason: "provider-not-enabled" };
+  const request = parseOriginFxRequest(message, deps.now());
+  if (!request) return { ok: false, reason: "not-fx-question" };
+  // The cache holds the RATE (per pair and date); the amount is a
+  // property of the question, applied at compose time, so one cached
+  // rate serves every amount asked about that pair.
+  const cacheKey = `fx:${request.base}/${request.quote}:${request.date ?? "latest"}`;
+  const cached = deps.cache.get<OriginFxRate>(cacheKey, deps.now());
+  if (cached) return { ok: true, rate: cached, text: composeOriginFxText(cached, request) };
+  try {
+    const rate = await fetchFrankfurterRate(
+      { base: request.base, quote: request.quote, date: request.date },
+      {
+        fetchImpl: deps.fetchImpl,
+        timeoutMs: deps.searchMs,
+        nowMs: deps.now(),
+      },
+    );
+    deps.cache.set(cacheKey, rate, ORIGIN_SEARCH_CACHE_TTL_MS.fx, deps.now());
+    return { ok: true, rate, text: composeOriginFxText(rate, request) };
+  } catch {
+    return { ok: false, reason: "provider-error" };
+  }
+}
+
+/* ------------------------------------------------------------------ */
 /* Adapter + default research executor composition                     */
 /* ------------------------------------------------------------------ */
 
@@ -2236,6 +2320,7 @@ const SEARCH_PROVIDER_LABELS: Readonly<Record<OriginSearchProviderId, string>> =
   wikipedia: "Wikipedia",
   jma: "JMA",
   stooq: "Stooq",
+  frankfurter: "Frankfurter",
 };
 
 /**
