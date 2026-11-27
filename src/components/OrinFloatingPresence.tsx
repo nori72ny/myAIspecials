@@ -326,7 +326,9 @@ export interface OrinFloatingPresenceProps {
   active?: boolean;
   /** オリンの姿（App 側の状態集約 orinPresenceState をそのまま渡す）。 */
   state: OriginCatStateKind;
-  /** 名前のロケール（ja: オリン / en: Orin）。 */
+  /** UI の言語。名前タグの表記はロケールによらず常に「Orin」
+   * （オーナー決定 2026-11-24）。本文での呼称は言語ごとに
+   * 使い分ける（日本語の本文は「オリン」、英語の本文は Orin）。 */
   language: OriginLanguage;
   /** タップでオリンのプロフィールカードを開く。 */
   onOpenWorkSheet: () => void;
