@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { describe, expect, it } from 'vitest';
-import { agentAnalyzerCapacityAllocation, createAgentModelExecutor, failoverAttemptsFromProviderError, modelCallTimingFromDispatch, providerFailureDetailFromProviderError, servingFromRoutingEvidence } from './agentModelCall.js';
+import { agentAnalyzerCapacityAllocation, createAgentModelExecutor, failoverAttemptsFromProviderError, isAgentAnalyzerChunkCall, modelCallTimingFromDispatch, providerFailureDetailFromProviderError, servingFromRoutingEvidence } from './agentModelCall.js';
 import { OriginProviderError } from '../legacy/originProviderClient.js';
 
 describe('agentModelCall (failover-backed model executor)', () => {
@@ -10,6 +10,18 @@ describe('agentModelCall (failover-backed model executor)', () => {
     const execute = createAgentModelExecutor({});
     await expect(execute({ instruction: 'classify', userText: 'a,b\n1,2', goal: '分類して' }))
       .resolves.toEqual({ ok: false, code: 'FREE_PROVIDER_NOT_CONFIGURED' });
+  });
+
+  it('identifies analyzer chunk calls by a usable chunk index (budget-floor mark)', () => {
+    // The analyzer's chunk calls (and their parse-repair retries)
+    // always carry the chunk's global index; the reconciler's calls
+    // never do. Only the former earn the completion-budget floor.
+    expect(isAgentAnalyzerChunkCall(0)).toBe(true);
+    expect(isAgentAnalyzerChunkCall(7)).toBe(true);
+    expect(isAgentAnalyzerChunkCall(undefined)).toBe(false);
+    expect(isAgentAnalyzerChunkCall(-1)).toBe(false);
+    expect(isAgentAnalyzerChunkCall(1.5)).toBe(false);
+    expect(isAgentAnalyzerChunkCall(Number.NaN)).toBe(false);
   });
 
   it('treats an empty provider key as unconfigured', async () => {

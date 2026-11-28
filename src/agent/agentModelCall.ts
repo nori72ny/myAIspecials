@@ -109,6 +109,20 @@ export function agentAnalyzerCapacityAllocation(
   return chunkIndex % 2 === 1 ? 'agent-analyzer-chunk-primary' : 'agent-analyzer-chunk';
 }
 
+/**
+ * Whether a model call is one analyzer chunk call, identified by a
+ * usable chunk index — the same validity rule the allocation hint
+ * above applies. The analyzer's chunk calls (and their parse-repair
+ * retries) always carry the chunk's global index; the reconciler's
+ * calls never do. The executor marks chunk calls with
+ * `analyzerChunkRequest` so the provider routes can apply the
+ * completion-budget floor (design AGENT_BASEL_BUDGET_FLOOR_DESIGN_
+ * 2026-11-27).
+ */
+export function isAgentAnalyzerChunkCall(chunkIndex: number | undefined): boolean {
+  return typeof chunkIndex === 'number' && Number.isInteger(chunkIndex) && chunkIndex >= 0;
+}
+
 export type AgentModelCallInput = {
   /** The analysis instruction for this call (system role). */
   instruction: string;
@@ -119,9 +133,13 @@ export type AgentModelCallInput = {
   /**
    * The chunk's deterministic global index within its attachment set
    * (the analyzer step's chunkOffset plus the position inside its
-   * range — equivalently, the chunk list's own index). Used only to
-   * alternate the route-3 allocation hint (design §2-C); absent or
-   * invalid values keep the original D-1 hint for the call.
+   * range — equivalently, the chunk list's own index). Used to
+   * alternate the route-3 allocation hint (design §2-C) and to mark
+   * the dispatch as an analyzer chunk call for the completion-budget
+   * floor (design AGENT_BASEL_BUDGET_FLOOR_DESIGN_2026-11-27);
+   * absent or invalid values keep the original D-1 hint for the
+   * call and carry no budget mark — the reconciler's calls, which
+   * pass no chunk index, are exactly that shape.
    */
   chunkIndex?: number;
 };
@@ -372,6 +390,12 @@ export function createAgentModelExecutor(env: NodeJS.ProcessEnv): AgentModelExec
         systemInstruction: input.instruction,
         groqSystemInstruction: input.instruction,
         groqCapacityAllocation: agentAnalyzerCapacityAllocation(input.chunkIndex, env),
+        // Analyzer chunk calls — identified by the same usable chunk
+        // index the allocation hint keys on — carry the budget-floor
+        // mark (design AGENT_BASEL_BUDGET_FLOOR_DESIGN_2026-11-27);
+        // calls without one (the reconciler) stay unmarked and keep
+        // the task-type budget exactly.
+        ...(isAgentAnalyzerChunkCall(input.chunkIndex) ? { analyzerChunkRequest: true } : {}),
         messages: [{ role: 'user', content: input.userText }],
       }, env);
       const durationMs = Date.now() - dispatchStartedAt;

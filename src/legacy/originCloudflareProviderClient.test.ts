@@ -443,6 +443,29 @@ describe("executeOriginCloudflareProvider", () => {
     expect(inferenceBody.max_tokens).toBe(4096);
   });
 
+  it("floors the completion budget for marked analyzer chunk calls only (AGENT_BASEL_BUDGET_FLOOR_DESIGN_2026-11-27)", async () => {
+    // taskType "test" falls in the 2,400 default budget class — the
+    // Basel classification shape. This route is bound by the same
+    // plan budget as route 3 and has no reasoning-effort bound, so
+    // the shared analyzer floor applies here too.
+    const testPlan: OriginExecutionPlan = { ...plan, taskType: "test" };
+    const captureMaxTokens = async (chunkRequest: OriginProviderExecutionRequest) => {
+      const fetchMock = fullFetch(async () => cloudflareJson({
+        response: "分類結果です。",
+        usage: { prompt_tokens: 100, completion_tokens: 50 },
+      }));
+      await executeOriginCloudflareProvider(chunkRequest, enabledEnv, fetchMock as unknown as OriginFetch, { nowMs: NOW_MS });
+      const calls = fetchMock.mock.calls as Array<[string, RequestInit?]>;
+      // The plan proof is cached between executes, so the inference
+      // call is located by its URL, not by position.
+      const inferenceCall = calls.find((call) => String(call[0]).includes("/ai/run/"));
+      const inferenceInit = inferenceCall?.[1] as RequestInit;
+      return (JSON.parse(String(inferenceInit.body)) as { max_tokens: number }).max_tokens;
+    };
+    await expect(captureMaxTokens({ ...request, plan: testPlan })).resolves.toBe(2400);
+    await expect(captureMaxTokens({ ...request, plan: testPlan, analyzerChunkRequest: true })).resolves.toBe(4800);
+  });
+
   it("records the result's Neurons in the capacity ledger's tracked estimate (capacity D-0)", async () => {
     resetOriginCapacityLedgerForTests();
     const fetchMock = fullFetch(async () => cloudflareJson({

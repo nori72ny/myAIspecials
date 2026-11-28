@@ -13,6 +13,7 @@ import {
 } from "../lib/orchestration/OriginGroqFreeModelCatalog.js";
 import { sanitizePreEgress } from "../services/securitySanitizer.js";
 import {
+  ORIGIN_ANALYZER_CHUNK_COMPLETION_FLOOR_TOKENS,
   originCompletionTokenBudget,
   OriginProviderError,
   safeOriginFinishReason,
@@ -515,9 +516,20 @@ function prepareGroqModelAttempt(
   // TPM headroom — when the final message alone overruns the deck input
   // budget the headroom is what it is, and the preflight skip below
   // still applies unchanged.
+  // Analyzer-chunk floor (design AGENT_BASEL_BUDGET_FLOOR_DESIGN_
+  // 2026-11-27): same shape as the deck floor — the budget may rise
+  // up to the floor even when the task-type budget is lower, but
+  // never above the actual TPM headroom, and the preflight skip
+  // below still applies unchanged when headroom is short.
+  const analyzerChunkRequest = providerRequest.analyzerChunkRequest === true;
   const completionBudget = deckRequest
     ? Math.min(
         Math.max(originCompletionTokenBudget(plan.taskType), ORIGIN_GROQ_DECK_COMPLETION_FLOOR_TOKENS),
+        originGroqTokensPerMinuteLimit(modelId) - estimatedInputTokens,
+      )
+    : analyzerChunkRequest
+    ? Math.min(
+        Math.max(originCompletionTokenBudget(plan.taskType), ORIGIN_ANALYZER_CHUNK_COMPLETION_FLOOR_TOKENS),
         originGroqTokensPerMinuteLimit(modelId) - estimatedInputTokens,
       )
     : Math.min(

@@ -84,6 +84,21 @@ export interface OriginProviderExecutionRequest {
    */
   deckRequest?: boolean;
   /**
+   * Optional mark that this request is one analyzer chunk call of an
+   * agent data step (design AGENT_BASEL_BUDGET_FLOOR_DESIGN_2026-11-27).
+   * The agent model-call adapter sets it on chunk calls only — the
+   * same calls that carry the capacity-allocation hint above. The
+   * route-2 and route-3 executors read it to guarantee a completion-
+   * budget floor for the call, covering the residual the packing
+   * bound and the route-3 reasoning-effort bound leave (see
+   * ORIGIN_ANALYZER_CHUNK_COMPLETION_FLOOR_TOKENS). The floor is a
+   * cap, not a target: generation still stops when the answer is
+   * complete. Route 1 never reads it, and callers that do not set
+   * it — every direct-chat, research and synthesis caller — keep
+   * the previous behavior exactly.
+   */
+  analyzerChunkRequest?: boolean;
+  /**
    * Optional last-resort-route eligibility mark for the OVHcloud AI
    * Endpoints anonymous tier (fourth route, owner-approved 2026-11-25 as
    * an auxiliary route). A caller may set this to true ONLY when the
@@ -508,6 +523,37 @@ export function assertOriginZeroCostExecutionResult(result: OriginProviderExecut
   if (!validStrategy || !validFallback || !validServedModel) fail("Provider fallback またはPrimary証跡が不正です。", "PROVIDER_ROUTING_UNVERIFIED");
   if (expectedProvider && pid(expectedProvider) !== provider) fail("Providerが一致しません。", "PROVIDER_ROUTING_UNVERIFIED");
 }
+/**
+ * Analyzer chunk calls (design AGENT_BASEL_BUDGET_FLOOR_DESIGN_
+ * 2026-11-27): the completion budget is floored at this many tokens
+ * for requests marked `analyzerChunkRequest`, on both routes that
+ * read the mark (Cloudflare and Groq). The Basel failure
+ * (diagnosis 2026-11-26) was this arithmetic: the plan budget for
+ * the classified task type is 2,400, the pre-packing chunk-0 answer
+ * body alone measured ≈2,043 tokens, and ≈350 remained for the
+ * reasoning the reasoning-first models spend first — the response
+ * came back empty. Two measures already bound that shape: the
+ * deterministic packing caps the PRIMARY table's estimated output
+ * per chunk at 1,200 tokens (agentAttachmentData.ts), and route 3
+ * sends analyzer chunks with reasoning_effort "low". What they do
+ * not cover is the residual this floor exists for: chunks the
+ * packing does not budget (reference and parameter chunks are
+ * character-packed, so a dense one can still demand a ≈2,000-token
+ * body), estimator error between the packing estimate and the
+ * actual output, reasoning variance above the packed margin
+ * (2,400 − 1,200), and route 2, which has no reasoning-effort
+ * bound at all. The floor sizes from the original measurement —
+ * the body (2,043) plus ≈2,750 of reasoning headroom — kept ≈600
+ * under the observed Groq TPM headroom (8,000 − ≈2,582 input
+ * ≈ 5,418) so estimator error cannot push the request over the
+ * provider's own tokens/minute enforcement. Unlike the Groq deck
+ * floor, no input trim guarantees this floor: chunk payloads are
+ * data and must be sent verbatim, so on route 3 the TPM clamp
+ * remains the binding cap, and the preflight skip still applies
+ * unchanged when headroom is short. The floor is a cap, not a
+ * target: generation stops when the answer completes.
+ */
+export const ORIGIN_ANALYZER_CHUNK_COMPLETION_FLOOR_TOKENS = 4_800;
 export function originCompletionTokenBudget(taskType: OriginExecutionPlan["taskType"], requiredTool = false): number {
   if (requiredTool) return 8192;
   switch (taskType) {
