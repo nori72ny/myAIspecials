@@ -1766,7 +1766,7 @@ export function buildActiveContextInstruction(context: string): string {
     // manner only — never content — and matter most for proxy answers
     // and for answers that will be read aloud, where the owner asked
     // for the reply to feel like talking with him.
-    "- Speaking style: lines labelled as the owner's speaking style describe how the owner himself talks — his politeness, sentence length, characteristic phrases, and whether he leads with the conclusion. When you answer in his stead, and when you phrase an answer that will be read aloud, mirror that manner naturally. Never exaggerate it into caricature, and never let the manner change the facts of the answer.",
+    "- Speaking style: lines labelled as the owner's speaking style describe how the owner himself talks — his politeness, sentence length, characteristic phrases, and whether he leads with the conclusion. When you answer in his stead, and when you phrase an answer that will be read aloud, mirror that manner naturally. Never exaggerate it into caricature, and never let the manner change the facts of the answer, except while alter-ego mode is on, where the persona's register governs and this line bears on vocabulary and phrasing only.",
     context,
   ].join("\n");
 }

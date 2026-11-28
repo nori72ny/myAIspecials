@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { Router, type NextFunction, type Request, type Response } from "express";
+import { isAlterEgoMode } from "../lib/orchestration/alterEgoRequestStore.js";
 import { DEFAULT_ORIGIN_CONTEXT_POLICY, minimizeOriginContext, type OriginContextPolicy } from "../lib/orchestration/OriginContextPolicy.js";
 import { buildOriginExecutionPlan } from "../lib/orchestration/OriginExecutionPolicy.js";
 import type { OriginFreeModelEvidence } from "../lib/orchestration/OriginFreeModelCatalog.js";
@@ -293,7 +294,7 @@ export function createOriginStreamingChatRouter(options: OriginStreamingChatRout
         messages: contextResult.window.messages,
         systemInstruction: fullSystemInstruction + premiseGuardBlockSuffix,
         cloudflareSystemInstruction: originCloudflareRouteSystemInstruction(fullSystemInstruction) + premiseGuardBlockSuffix,
-        groqSystemInstruction: originGroqRouteSystemInstruction(answerQualityPolicy.businessPlanning, { forDeck: deckRequested }) + premiseGuardBlockSuffix + deckGroqSuffix,
+        groqSystemInstruction: originGroqRouteSystemInstruction(answerQualityPolicy.businessPlanning, { forDeck: deckRequested, alterEgo: isAlterEgoMode() }) + premiseGuardBlockSuffix + deckGroqSuffix,
         // Progressive display for responses that need no verification: the
         // upstream executor forwards each fragment as it is generated (after
         // that fragment's own routing/billing checks), so the first characters
