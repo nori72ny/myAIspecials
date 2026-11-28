@@ -137,6 +137,20 @@ export const VOICE_CONVERSATION_CLOSING_ID = 'orin-conversation-closing';
  * no chat content. */
 export const ORIN_CONVERSATION_CLOSING_TEXT = 'はい、またいつでも呼んでください。';
 
+/** Playback id for the immediate acknowledgment, mirroring the
+ * opening's, so it never looks like an answer is being read. */
+export const VOICE_CONVERSATION_ACK_ID = 'orin-conversation-ack';
+/** Fixed acknowledgment lines spoken the moment a spoken turn has
+ * been accepted for sending (speed program, 2026-11-28: the owner
+ * asked for replies "as fast as actually talking"). A backchannel
+ * only — no claims, no chat content, nothing generated — so it
+ * stands outside the answer gate exactly like the opening greeting:
+ * the answer itself is still spoken only after the verified final
+ * answer completes. The lines rotate so consecutive turns do not
+ * repeat the same word. An empty list (via deps) disables the
+ * acknowledgment entirely. */
+export const ORIN_CONVERSATION_ACK_PHRASES: readonly string[] = ['はい。', 'うん。', 'なるほど。', '分かりました。'];
+
 /** Alter-ego variants of the two fixed lines (owner's real-device
  * finding, 2026-11-28: with alter-ego mode on, the greeting and
  * the farewell still sounded like the default Orin). The wording
@@ -248,6 +262,9 @@ export interface VoiceConversationDeps {
   onUtterance?: (text: string) => boolean;
   /** Overrides the opening line (tests, future localization). */
   openingText?: string;
+  /** Overrides the acknowledgment lines (tests, future settings).
+   * An empty list disables the immediate acknowledgment. */
+  ackPhrases?: readonly string[];
   /** Whether the owner's alter-ego mode is on, consulted at each
    * playback of the fixed lines (opening / closing) — the same
    * resolver discipline as styleProfile below, so flipping the
@@ -329,6 +346,23 @@ export class VoiceConversationController {
    * "no active id" state while it replaces the previous playback;
    * only an observed-then-finished playback counts as finished. */
   private speakingObservedActive = false;
+  /** Rotation counter for the acknowledgment lines, so consecutive
+   * turns do not repeat the same word. */
+  private ackCount = 0;
+  /** True while an acknowledgment playback is in flight. The floor
+   * must not reopen the microphone over its tail (the recognizer
+   * would hear Orin's own backchannel), so a floor return that
+   * lands during an acknowledgment is deferred until it ends. */
+  private ackActive = false;
+  /** True once the acknowledgment has actually been observed with
+   * its playback id. speak() passes through a momentary "no active
+   * id" state while it sets up (the same trap speakingObservedActive
+   * guards for answers); only an observed-then-finished
+   * acknowledgment counts as finished. */
+  private ackObservedActive = false;
+  /** A floor return was requested while the acknowledgment was
+   * still playing; performed when the acknowledgment ends. */
+  private floorReturnPending = false;
   /** Consecutive failed attempts to open the current listening
    * turn; reset whenever a fresh floor opens a turn and whenever
    * a session actually hears something. */
@@ -656,6 +690,11 @@ export class VoiceConversationController {
       const accepted = this.deps.onUtterance ? this.deps.onUtterance(text) : false;
       if (accepted) {
         this.setState({ phase: 'idle' });
+        // Immediate fixed acknowledgment: the owner hears at once
+        // that the turn landed, while the answer is still being
+        // prepared. Content-free and fixed, like the greeting —
+        // the gated answer path below is untouched.
+        this.speakAcknowledgment();
       } else {
         this.setState({ phase: 'idle', notice: 'failed' });
       }
@@ -750,8 +789,60 @@ export class VoiceConversationController {
 
   // -- Playback ------------------------------------------------------------
 
+  /** Speaks one fixed acknowledgment line for an accepted turn.
+   * Skipped when disabled (empty phrase list) or when something is
+   * already playing — the acknowledgment never talks over speech. */
+  private speakAcknowledgment(): void {
+    const phrases = this.deps.ackPhrases ?? ORIN_CONVERSATION_ACK_PHRASES;
+    if (phrases.length === 0) return;
+    if (this.speech().getActiveId() !== null) return;
+    const phrase = phrases[this.ackCount % phrases.length]!;
+    this.ackCount += 1;
+    this.ackActive = true;
+    this.ackObservedActive = false;
+    const started = this.speech().speak(VOICE_CONVERSATION_ACK_ID, phrase, this.resolveStyle());
+    if (!started) this.ackActive = false;
+  }
+
+  /** Returns the floor to the owner (opens the next listening
+   * turn), deferring while an acknowledgment is still playing so
+   * the microphone never opens over Orin's own voice. */
+  private returnFloor(): void {
+    if (this.ackActive) {
+      this.floorReturnPending = true;
+      return;
+    }
+    this.startTurnListening();
+  }
+
   private handleSpeechActivityChange(): void {
     if (this.disposed) return;
+    if (this.ackActive) {
+      const activeId = this.speech().getActiveId();
+      if (activeId === VOICE_CONVERSATION_ACK_ID) {
+        this.ackObservedActive = true;
+      } else if (activeId === null && this.ackObservedActive) {
+        // The acknowledgment finished. The answer (if any is
+        // coming) owns the floor while the phase is 'thinking';
+        // only a floor return that was deferred for the
+        // acknowledgment runs here.
+        this.ackActive = false;
+        this.ackObservedActive = false;
+        if (this.floorReturnPending) {
+          this.floorReturnPending = false;
+          if (this.state.mode === 'on' && this.state.phase === 'thinking') {
+            this.startTurnListening();
+          }
+        }
+      } else if (activeId !== null) {
+        // Another playback (the answer) replaced the
+        // acknowledgment: it owns the floor now, and any deferred
+        // return is moot.
+        this.ackActive = false;
+        this.ackObservedActive = false;
+        this.floorReturnPending = false;
+      }
+    }
     if (this.state.mode !== 'on' || this.state.phase !== 'speaking') return;
     if (this.speech().getActiveId() !== null) {
       this.speakingObservedActive = true;
@@ -857,6 +948,9 @@ export class VoiceConversationController {
   stopConversation(): void {
     this.clearPendingTimer();
     this.preparedFirstRecognition = null;
+    this.ackActive = false;
+    this.ackObservedActive = false;
+    this.floorReturnPending = false;
     this.stopSession();
     this.speech().stop();
     this.accumulatedFinal = '';
@@ -978,7 +1072,7 @@ export class VoiceConversationController {
       ? built
       : applySpokenTonePhrasing(built, this.deps.conversationTone?.() ?? 'everyday');
     if (!summary) {
-      this.startTurnListening();
+      this.returnFloor();
       return;
     }
     this.speakingObservedActive = false;
@@ -986,7 +1080,7 @@ export class VoiceConversationController {
     const started = this.speech().speak(messageId, summary, this.resolveStyle());
     if (!started) {
       this.setState({ notice: 'failed' });
-      this.startTurnListening();
+      this.returnFloor();
     }
   }
 
@@ -999,7 +1093,7 @@ export class VoiceConversationController {
    * the owner, as it does when there is nothing speakable. */
   notifyAnswerSettled(): void {
     if (this.state.mode !== 'on' || this.state.phase !== 'thinking') return;
-    this.startTurnListening();
+    this.returnFloor();
   }
 
   clearNotice(): void {

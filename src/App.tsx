@@ -1919,7 +1919,7 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenAg
   const committedLoadingRef = useRef(isLoading);
   const idleWaitersRef = useRef<Array<() => void>>([]);
   const queueDrainPendingRef = useRef(false);
-  const handleSendRef = useRef<((textToSend?: string, interruptCurrent?: boolean, attachmentSnapshot?: Attachment[], researchOverride?: boolean, displayContent?: string, refinementOfPreviousAnswer?: boolean, reuseExistingUserTurn?: boolean) => Promise<void>) | null>(null);
+  const handleSendRef = useRef<((textToSend?: string, interruptCurrent?: boolean, attachmentSnapshot?: Attachment[], researchOverride?: boolean, displayContent?: string, refinementOfPreviousAnswer?: boolean, reuseExistingUserTurn?: boolean, voiceConversationTurn?: boolean) => Promise<void>) | null>(null);
   const [isImageGenerationPanelOpen, setIsImageGenerationPanelOpen] = useState(false);
   const [motionImage, setMotionImage] = useState<{ url: string; downloadName: string } | null>(null);
   const [isDragging, setIsDragging] = useState(false);
@@ -2239,7 +2239,7 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenAg
     if (loaded.length) setAttachments((current) => [...current, ...loaded]);
   };
   const handleDrop = (event: React.DragEvent<HTMLElement>) => { event.preventDefault(); setIsDragging(false); void attachFiles(event.dataTransfer.files); };
-  const handleSend = async (textToSend?: string, interruptCurrent = false, attachmentSnapshot?: Attachment[], researchOverride?: boolean, displayContent?: string, refinementOfPreviousAnswer?: boolean, reuseExistingUserTurn = false) => {
+  const handleSend = async (textToSend?: string, interruptCurrent = false, attachmentSnapshot?: Attachment[], researchOverride?: boolean, displayContent?: string, refinementOfPreviousAnswer?: boolean, reuseExistingUserTurn = false, voiceConversationTurn = false) => {
     // 新しい送信が始まったら、再生中の前の回答は即時に全文表示へ倒す。
     finishAnswerReplay();
     const text = textToSend !== undefined ? textToSend : inputText;
@@ -2837,7 +2837,7 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenAg
       // refinementOfPreviousAnswer marker, so the server can tell this
       // machine-generated instruction apart from a user-authored request
       // by the field — never by scanning its text.
-      const requestBody = JSON.stringify({ model: ORIGIN_FIXED_FREE_MODEL, systemPrompt: getOriginSystemPrompt(language), messages: requestMessages, ...(refinementOfPreviousAnswer ? { refinementOfPreviousAnswer: true } : {}) });
+      const requestBody = JSON.stringify({ model: ORIGIN_FIXED_FREE_MODEL, systemPrompt: getOriginSystemPrompt(language), messages: requestMessages, ...(refinementOfPreviousAnswer ? { refinementOfPreviousAnswer: true } : {}), ...(voiceConversationTurn ? { voiceConversationTurn: true } : {}) });
       chatExchangeStarted = true;
       let response = await fetchOriginChat(requestBody, controller.signal);
       let failure: OriginChatFailurePayload | null = null;
@@ -3508,7 +3508,11 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenAg
       if (isOfflineRef.current) return false;
       const send = handleSendRef.current;
       if (!send) return false;
-      void send(text);
+      // The explicit voiceConversationTurn field marks this send as
+      // a spoken conversation turn, so the server appends the
+      // conversation brevity instruction (voiceConversationTurn.ts)
+      // — identified by the field, never by scanning the text.
+      void send(text, false, undefined, undefined, undefined, false, false, true);
       return true;
     });
     return () => {

@@ -1,11 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import {
   DEFAULT_VOICE_CONVERSATION_STYLE,
+  ORIN_CONVERSATION_ACK_PHRASES,
   ORIN_CONVERSATION_CLOSING_TEXT,
   ORIN_CONVERSATION_CLOSING_TEXT_ALTER_EGO,
   ORIN_CONVERSATION_OPENING_TEXT,
   ORIN_CONVERSATION_OPENING_TEXT_ALTER_EGO,
   VoiceConversationController,
+  VOICE_CONVERSATION_ACK_ID,
   VOICE_CONVERSATION_CLOSING_ID,
   VOICE_CONVERSATION_DAILY_LIMIT,
   VOICE_CONVERSATION_DAILY_STORAGE_KEY,
@@ -707,7 +709,12 @@ describe('VoiceConversationController turn-start resilience', () => {
     const sessionsBefore = ctx.recognitions.length;
     // The glue reports the completed answer as not speakable:
     // the floor returns instead of 'thinking' holding it forever.
+    // Since the speed program (2026-11-28) the return waits for
+    // the turn's acknowledgment to finish playing — the microphone
+    // never reopens over Orin's own voice — so finish it first.
     ctx.controller.notifyAnswerSettled();
+    expect(ctx.controller.getState().phase).toBe('thinking');
+    ctx.speech.finishPlayback();
     expect(ctx.controller.getState().phase).toBe('listening');
     expect(ctx.recognitions).toHaveLength(sessionsBefore + 1);
     expect(ctx.recognitions.at(-1)!.started).toBe(true);
@@ -1112,5 +1119,96 @@ describe('VoiceConversationController wake phrase', () => {
     ctx.controller.setWakeWaiting(false);
     expect(wakeSession.abortCalls).toBe(1);
     expect(ctx.controller.getState().wakeWaiting).toBe(false);
+  });
+});
+describe('immediate acknowledgment (speed program 2026-11-28)', () => {
+  function setupAck(options: { accepted?: boolean; ackPhrases?: readonly string[] } = {}) {
+    const recognitions: FakeRecognition[] = [];
+    const speech = new FakeSpeech();
+    const scheduler = createManualScheduler();
+    const storage = createMemoryStorage();
+    const sent: string[] = [];
+    const controller = new VoiceConversationController({
+      createRecognition: () => {
+        const recognition = new FakeRecognition();
+        recognitions.push(recognition);
+        return recognition;
+      },
+      speech,
+      storage: () => storage,
+      now: () => FIXED_NOW,
+      schedule: scheduler.schedule,
+      cancelSchedule: scheduler.cancel,
+      onUtterance: (text) => { sent.push(text); return options.accepted ?? true; },
+      ...(options.ackPhrases !== undefined ? { ackPhrases: options.ackPhrases } : {}),
+    });
+    return { controller, recognitions, speech, scheduler, storage, sent };
+  }
+
+  function speakTurn(ctx: ReturnType<typeof setupAck>, transcript = '明日の天気は？'): void {
+    startToListening(ctx);
+    const recognition = ctx.recognitions.at(-1)!;
+    recognition.emitResult([{ isFinal: true, transcript }]);
+    recognition.emitEnd();
+  }
+
+  it('speaks a fixed acknowledgment the moment a turn is accepted, before the answer', () => {
+    const ctx = setupAck();
+    speakTurn(ctx);
+    const ack = ctx.speech.spoken.find((entry) => entry.id === VOICE_CONVERSATION_ACK_ID);
+    expect(ack?.text).toBe(ORIN_CONVERSATION_ACK_PHRASES[0]);
+    ctx.controller.notifyUserSent();
+    ctx.controller.notifyAnswerReady('a1', '明日は晴れです。気温は20度です。');
+    expect(ctx.speech.spoken.some((entry) => entry.id === 'a1')).toBe(true);
+    expect(ctx.controller.getState().phase).toBe('speaking');
+  });
+
+  it('rotates the acknowledgment lines across turns', () => {
+    const ctx = setupAck();
+    speakTurn(ctx);
+    ctx.speech.finishPlayback();
+    ctx.controller.notifyUserSent();
+    ctx.controller.notifyAnswerReady('a1', '明日は晴れです。');
+    ctx.speech.finishPlayback();
+    ctx.scheduler.fireByMs(VOICE_CONVERSATION_NEXT_TURN_DELAY_MS);
+    const recognition = ctx.recognitions.at(-1)!;
+    recognition.emitResult([{ isFinal: true, transcript: 'ありがとう' }]);
+    recognition.emitEnd();
+    const acks = ctx.speech.spoken.filter((entry) => entry.id === VOICE_CONVERSATION_ACK_ID);
+    expect(acks.map((entry) => entry.text)).toEqual([ORIN_CONVERSATION_ACK_PHRASES[0], ORIN_CONVERSATION_ACK_PHRASES[1]]);
+  });
+
+  it('does not acknowledge a refused utterance', () => {
+    const ctx = setupAck({ accepted: false });
+    speakTurn(ctx);
+    expect(ctx.speech.spoken.some((entry) => entry.id === VOICE_CONVERSATION_ACK_ID)).toBe(false);
+  });
+
+  it('does not acknowledge the end phrase', () => {
+    const ctx = setupAck();
+    speakTurn(ctx, 'バイバイ、オリン');
+    expect(ctx.speech.spoken.some((entry) => entry.id === VOICE_CONVERSATION_ACK_ID)).toBe(false);
+    expect(ctx.speech.spoken.some((entry) => entry.id === VOICE_CONVERSATION_CLOSING_ID)).toBe(true);
+  });
+
+  it('stays silent when the acknowledgment is disabled', () => {
+    const ctx = setupAck({ ackPhrases: [] });
+    speakTurn(ctx);
+    expect(ctx.speech.spoken.some((entry) => entry.id === VOICE_CONVERSATION_ACK_ID)).toBe(false);
+  });
+
+  it('defers the floor return until the acknowledgment finishes', () => {
+    const ctx = setupAck();
+    speakTurn(ctx);
+    ctx.controller.notifyUserSent();
+    const sessionsBefore = ctx.recognitions.length;
+    ctx.controller.notifyAnswerSettled();
+    // The acknowledgment is still playing: the microphone must not
+    // reopen over Orin's own voice.
+    expect(ctx.recognitions.length).toBe(sessionsBefore);
+    expect(ctx.controller.getState().phase).toBe('thinking');
+    ctx.speech.finishPlayback();
+    expect(ctx.recognitions.length).toBe(sessionsBefore + 1);
+    expect(ctx.controller.getState().phase).toBe('listening');
   });
 });

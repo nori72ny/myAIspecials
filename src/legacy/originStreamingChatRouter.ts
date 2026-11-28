@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { Router, type NextFunction, type Request, type Response } from "express";
 import { isAlterEgoMode } from "../lib/orchestration/alterEgoRequestStore.js";
+import { voiceConversationTurnSuffix } from "../voice/voiceConversationTurn.js";
 import { DEFAULT_ORIGIN_CONTEXT_POLICY, minimizeOriginContext, type OriginContextPolicy } from "../lib/orchestration/OriginContextPolicy.js";
 import { buildOriginExecutionPlan } from "../lib/orchestration/OriginExecutionPolicy.js";
 import type { OriginFreeModelEvidence } from "../lib/orchestration/OriginFreeModelCatalog.js";
@@ -268,6 +269,10 @@ export function createOriginStreamingChatRouter(options: OriginStreamingChatRout
         ? planOriginPremiseGuard({ messages, nowMs: now() })
         : null;
       const premiseGuardBlockSuffix = premiseGuardPlan?.block ? `\n\n${premiseGuardPlan.block.text}` : "";
+      // Voice conversation turns carry an explicit request field;
+      // their brevity instruction rides the same suffix transport
+      // as the premise guard block, on every route's instruction.
+      const voiceTurnSuffix = voiceConversationTurnSuffix(req.body);
       // DG-1 修正（原因1）＋資料第1波（2026-11-25）: 資料の指示は
       // 経路1・2の指示（fullSystemInstruction）には従来どおり乗る
       // が、経路3（Groq）の固定コンパクト指示には乗らず、経路3が
@@ -292,9 +297,9 @@ export function createOriginStreamingChatRouter(options: OriginStreamingChatRout
           timeoutMs: Math.min(planningResult.plan.timeoutMs, MAX_PROVIDER_ATTEMPT_TIMEOUT_MS),
         },
         messages: contextResult.window.messages,
-        systemInstruction: fullSystemInstruction + premiseGuardBlockSuffix,
-        cloudflareSystemInstruction: originCloudflareRouteSystemInstruction(fullSystemInstruction) + premiseGuardBlockSuffix,
-        groqSystemInstruction: originGroqRouteSystemInstruction(answerQualityPolicy.businessPlanning, { forDeck: deckRequested, alterEgo: isAlterEgoMode() }) + premiseGuardBlockSuffix + deckGroqSuffix,
+        systemInstruction: fullSystemInstruction + premiseGuardBlockSuffix + voiceTurnSuffix,
+        cloudflareSystemInstruction: originCloudflareRouteSystemInstruction(fullSystemInstruction) + premiseGuardBlockSuffix + voiceTurnSuffix,
+        groqSystemInstruction: originGroqRouteSystemInstruction(answerQualityPolicy.businessPlanning, { forDeck: deckRequested, alterEgo: isAlterEgoMode() }) + premiseGuardBlockSuffix + deckGroqSuffix + voiceTurnSuffix,
         // Progressive display for responses that need no verification: the
         // upstream executor forwards each fragment as it is generated (after
         // that fragment's own routing/billing checks), so the first characters
