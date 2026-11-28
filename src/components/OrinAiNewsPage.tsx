@@ -102,8 +102,8 @@ export default function OrinAiNewsPage({ language }: { language: OriginLanguage 
       <h1 className="m-0 text-xl font-bold">{ja ? 'AIの最新情報' : 'The latest in AI'}</h1>
       <p className="origin-muted m-0 mt-2 text-sm leading-[1.7]">
         {ja
-          ? 'AIの大切な動きを、週に一度のまとめと最新の見出しでお伝えします。見出しは出典元でそのまま読めます。'
-          : 'The important moves in AI, in a weekly digest and the latest headlines. Headlines open at their source.'}
+          ? 'AIの大切な動きを、週に一度のまとめと最新の見出しでお伝えします。リンクのある見出しは、出典元でそのまま読めます。'
+          : 'The important moves in AI, in a weekly digest and the latest headlines. Linked headlines open at their source.'}
       </p>
 
       <section className="origin-orin-panel__section">
@@ -157,17 +157,30 @@ export default function OrinAiNewsPage({ language }: { language: OriginLanguage 
           </>
         ) : (
           <ul className="origin-orin-panel__rows">
-            {newsState.payload.items.map((headline) => {
+            {newsState.payload.items.map((headline, index) => {
               const relative = orinAiNewsRelativeTime(headline.publishedAt, now, ja);
+              const row = (
+                <>
+                  <span className="origin-orin-panel__news-title">{headline.title}</span>
+                  <span className="origin-orin-panel__news-meta">
+                    {headline.source}
+                    {relative && <>{' ・ '}{relative}</>}
+                  </span>
+                </>
+              );
               return (
-                <li key={headline.url}>
-                  <a href={headline.url} target="_blank" rel="noopener noreferrer" className="origin-orin-panel__news-row">
-                    <span className="origin-orin-panel__news-title">{headline.title}</span>
-                    <span className="origin-orin-panel__news-meta">
-                      {headline.source}
-                      {relative && <>{' ・ '}{relative}</>}
-                    </span>
-                  </a>
+                <li key={`${headline.title}-${index}`}>
+                  {headline.url ? (
+                    <a href={headline.url} target="_blank" rel="noopener noreferrer" className="origin-orin-panel__news-row">
+                      {row}
+                    </a>
+                  ) : (
+                    // Q7-03: 記事 URL へ解決できなかった見出しは
+                    // リンクにしない（中継ページを記事と偽らない）。
+                    <div className="origin-orin-panel__news-row">
+                      {row}
+                    </div>
+                  )}
                 </li>
               );
             })}

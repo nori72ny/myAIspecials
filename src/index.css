@@ -119,6 +119,16 @@
      (6.57:1). At 2.02:1 on white it must never be a text or icon
      color. */
   --brand-gold: #d7b253;
+  /* Brand navy + cream (button distinctiveness pass, design audit
+     A1/A3 2026-11-28): the logo navy and cream, defined ONCE here
+     and never redefined by a theme block, so the send / conversation
+     / selected buttons wear the same navy under every design theme
+     (the luxury theme otherwise pulls the primary hue into the
+     terracotta band) and the logo cream can ride the hover surfaces.
+     --brand-navy ≒ #2F4C81, --brand-cream ≒ #F7F2E7. */
+  --brand-navy: oklch(0.42 0.095 262);
+  --brand-navy-hover: oklch(0.365 0.095 262);
+  --brand-cream: oklch(0.965 0.02 85);
   /* Panel motion (design refinement 2026-11-17): one decelerating
      curve for the sidebar / drawer and its scrim — fast start, long
      quiet settle, never a bounce or overshoot. */
@@ -327,6 +337,14 @@
 }
 .origin-primary-button { background: var(--accent-primary); color: var(--text-on-accent); }
 .origin-primary-button:hover:not(:disabled) { background: var(--accent-hover); }
+/* Brand-navy variant (audit A1): worn WITH .origin-primary-button
+   by the send / stop slot, the conversation bar's buttons and the
+   settings' selected options, so those three read as the logo navy
+   under every theme. Declared after the primary rules so it wins
+   at equal specificity; the :disabled rule further below still
+   outranks it, keeping the muted disabled treatment. */
+.origin-brand-button { background: var(--brand-navy); }
+.origin-brand-button:hover:not(:disabled) { background: var(--brand-navy-hover); }
 /* Sidebar navigation's active item: a pale blue wash with text-grade
    accent lettering (the quiet first-class sidebar pattern) instead of a
    solid primary fill, so the current screen reads clearly without a
@@ -433,6 +451,19 @@
    from this declaration like every other call site. */
 .origin-secondary-button { background: var(--bg-surface); border: 1px solid var(--border-strong); color: var(--text-primary); }
 .origin-secondary-button:hover:not(:disabled) { background: var(--bg-surface-muted); border-color: var(--border-strong); }
+/* Cream hover surfaces (audit A3): on the light theme the
+   secondary buttons and the answer chips hover onto the logo
+   cream instead of the grey, carrying the logo's navy + cream
+   pairing into the UI. Light only — the audit measured the light
+   theme, and on dark the cream would break the text contrast. */
+:root[data-theme="light"] .origin-secondary-button:hover:not(:disabled) { background: var(--brand-cream); }
+:root[data-theme="light"] .origin-answer-code-toolbar button:hover, :root[data-theme="light"] .origin-answer-actions button:hover { background: var(--brand-cream); }
+/* Press feedback, shared (audit A4): every button family answers
+   the press with the same slight scale, and the danger button —
+   which had no hover at all — gains a faint red wash (its red
+   frame itself is unchanged, by the audit's explicit decision). */
+.origin-primary-button:active:not(:disabled), .origin-secondary-button:active:not(:disabled), .origin-danger-button:active:not(:disabled) { transform: scale(0.98); }
+.origin-danger-button:hover:not(:disabled) { background: color-mix(in oklch, var(--danger) 6%, var(--bg-surface)); }
 /* The single close-button spec for every dialog / sheet (external
    design evaluation fix PR-A1, 2026-11-20): 44x44px, a Lucide X icon
    at 18px, the bordered secondary treatment, and the control radius.

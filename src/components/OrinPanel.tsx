@@ -93,6 +93,13 @@ export interface OrinPanelProps {
   onOpenAgent?: () => void;
   onOpenCoding?: () => void;
   onOpenCreative?: () => void;
+  /**
+   * 「資料を作る」の入口（Q7-02）。文書の自動生成は有効化待ちだが、
+   * 企画・構成の相談はチャットで使えるため、押下で相談の下書きを
+   * チャット入力欄へ投入する。受け手が無い場合はボタンを押せる
+   * 見た目にしない（行き止まりを作らない）。
+   */
+  onOpenDocuments?: (draft: string) => void;
 }
 
 /** カードに出すオリンの姿の寸法（px）。旧プロフィールカードから継承。 */
@@ -143,6 +150,7 @@ export default function OrinPanel({
   onOpenAgent,
   onOpenCoding,
   onOpenCreative,
+  onOpenDocuments,
 }: OrinPanelProps) {
   const ja = language !== 'en';
   const [tab, setTab] = useState<OrinPanelTab>('work');
@@ -255,12 +263,18 @@ export default function OrinPanel({
     if (action === 'agent' && onOpenAgent) { onClose(); onOpenAgent(); return; }
     if (action === 'coding' && onOpenCoding) { onClose(); onOpenCoding(); return; }
     if (action === 'creative' && onOpenCreative) { onClose(); onOpenCreative(); return; }
+    if (action === 'documents' && onOpenDocuments) {
+      onClose();
+      onOpenDocuments(ja ? '資料の企画・構成を相談したい' : 'I would like help planning a document');
+      return;
+    }
     onClose();
   };
   const featureActionAvailable = (action: OrinFeatureAction): boolean => {
     if (action === 'agent') return Boolean(onOpenAgent);
     if (action === 'coding') return Boolean(onOpenCoding);
     if (action === 'creative') return Boolean(onOpenCreative);
+    if (action === 'documents') return Boolean(onOpenDocuments);
     return true; // chat はこの画面そのもの（閉じるだけ）
   };
 

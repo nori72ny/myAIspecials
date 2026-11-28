@@ -105,9 +105,9 @@ describe('CodingJobWorkspaceV14', () => {
 
     render(<CodingJobWorkspaceV14 />);
     await screen.findByText('準備できています');
-    // 状態表示は1文だけ（PR-D）：キー未入力では「入力すると始められます」
-    // のみで、「利用できます」は併記しない。キー入力欄はこの画面に無い。
-    expect(screen.getByText('実行キーを入力すると始められます')).toBeTruthy();
+    // 状態表示は1文だけ：キー未入力では統合した理由文のみで、
+    // 「利用できます」は併記しない。キー入力欄はこの画面に無い。
+    expect(screen.getByText('始めるには、先に実行キーを入力してください')).toBeTruthy();
     expect(screen.queryByText('利用できます')).toBeNull();
     expect(screen.queryByText('キーを入力すると始められます')).toBeNull();
     expect(screen.queryByLabelText('実行キーを入力')).toBeNull();
@@ -285,7 +285,7 @@ describe('CodingJobWorkspaceV14', () => {
     vi.stubGlobal('fetch', fetchMock);
     render(<CodingJobWorkspaceV14 onOpenSettings={onOpenSettings} />);
     await screen.findByText('準備できています');
-    expect(screen.getByText('実行キーを入力すると始められます')).toBeTruthy();
+    expect(screen.getByText('始めるには、先に実行キーを入力してください')).toBeTruthy();
     fireEvent.change(screen.getByLabelText('作りたいもの・直したいこと'), { target: { value: 'Fix the parser.' } });
     const button = screen.getByRole('button', { name: '実行キーを入力する' }) as HTMLButtonElement;
     expect(button.disabled).toBe(false);
@@ -306,7 +306,8 @@ describe('CodingJobWorkspaceV14', () => {
     // 理由も title 属性の中ではなく、ボタン直下の文で出る。
     const button = screen.getByRole('button', { name: '実行キーを入力する' }) as HTMLButtonElement;
     expect(button.disabled).toBe(false);
-    expect(screen.getByText('始めるには、先に実行キーを入力してください。')).toBeTruthy();
+    // 理由文は状態行の1箇所だけ（Q6-14 の是正：同義の2行目を置かない）。
+    expect(screen.queryAllByText('始めるには、先に実行キーを入力してください')).toHaveLength(1);
     expect(screen.queryByRole('button', { name: '作成・修正を始める' })).toBeNull();
     fireEvent.click(button);
     expect(onOpenSettings).toHaveBeenCalledTimes(1);

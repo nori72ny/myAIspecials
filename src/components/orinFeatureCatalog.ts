@@ -15,7 +15,7 @@
  */
 
 export type OrinFeatureStatus = 'ready' | 'partial' | 'preparing';
-export type OrinFeatureAction = 'chat' | 'agent' | 'coding' | 'creative';
+export type OrinFeatureAction = 'chat' | 'agent' | 'coding' | 'creative' | 'documents';
 
 /**
  * 行のアイコン（拡張設計 §6.2：Lucide の単一体系、項目ごとに1つ）。
@@ -156,7 +156,7 @@ export function buildOrinFeatureCatalog(health: OrinFeatureHealth): OrinFeatureG
             en: 'Planning and structure advice works in chat. Automatic document generation is awaiting activation.',
           },
           status: 'partial',
-          action: 'chat',
+          action: 'documents',
         },
       ],
     },

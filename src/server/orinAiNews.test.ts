@@ -39,6 +39,10 @@ const RSS_ITEMS = [
   { title: "AI regulation & policy update", url: "https://news.google.com/rss/articles/BBB", source: "Reuters", publishedAt: "2026-11-25T01:00:00.000Z" },
 ];
 
+// Q7-03: テスト用の fetch は最終 URL を返さないため、中継 URL は
+// 解決できず url: null で出るのが新しい契約。
+const RSS_ITEMS_UNRESOLVED = RSS_ITEMS.map((item) => ({ ...item, url: null }));
+
 function rssResponse(xml: string = RSS_XML, status = 200): OriginSearchFetchResponse {
   return {
     ok: status >= 200 && status < 300,
@@ -55,12 +59,30 @@ describe("createOrinAiNewsService (ai-news headline outlet fix, 2026-11-25; RSS 
     const service = createOrinAiNewsService({ fetchImpl, sleep: noSleep });
     const result = await service.getHeadlines();
     expect(result.stale).toBe(false);
-    expect(result.items).toEqual(RSS_ITEMS);
-    // 主系が成功したら代替（GDELT）は引かない。
-    expect(fetchImpl).toHaveBeenCalledTimes(1);
+    expect(result.items).toEqual(RSS_ITEMS_UNRESOLVED);
+    // 主系が成功したら代替（GDELT）は引かない。呼び出しは RSS
+    // 1回＋中継 URL の解決2回（Q7-03）。
+    expect(fetchImpl).toHaveBeenCalledTimes(3);
     const calledUrl = String(vi.mocked(fetchImpl).mock.calls[0][0]);
     expect(calledUrl).toContain("news.google.com/rss");
     expect(decodeURIComponent(calledUrl)).toContain("人工知能");
+  });
+
+  it("resolves redirector links to article URLs and nulls the ones that stay on the redirector (Q7-03)", async () => {
+    const fetchImpl = vi.fn(async (url: string) => {
+      const target = String(url);
+      if (target.includes("/rss/search")) return rssResponse();
+      if (target.endsWith("/AAA")) {
+        return { ok: true, status: 200, url: "https://www.itmedia.co.jp/news/articles/2511/25/news001.html", text: async () => "" };
+      }
+      // BBB は中継のまま（中間ページに着いた）→ 解決できない。
+      return { ok: true, status: 200, url: target, text: async () => "" };
+    }) as unknown as OriginSearchFetch;
+    const service = createOrinAiNewsService({ fetchImpl, sleep: noSleep });
+    const result = await service.getHeadlines();
+    expect(result.items[0].url).toBe("https://www.itmedia.co.jp/news/articles/2511/25/news001.html");
+    expect(result.items[1].url).toBeNull();
+    expect(result.items).toHaveLength(2);
   });
 
   it("serves the in-memory cache within the TTL instead of refetching", async () => {
@@ -70,19 +92,28 @@ describe("createOrinAiNewsService (ai-news headline outlet fix, 2026-11-25; RSS 
     const first = await service.getHeadlines();
     nowMs += 5 * 60 * 1000;
     const second = await service.getHeadlines();
-    expect(fetchImpl).toHaveBeenCalledTimes(1);
+    // RSS 1回＋解決2回だけが走り、2回目はキャッシュで増えない。
+    expect(fetchImpl).toHaveBeenCalledTimes(3);
     expect(second).toEqual(first);
   });
 
   it("coalesces concurrent requests into one fetch", async () => {
     let release: (response: OriginSearchFetchResponse) => void = () => { /* replaced below */ };
-    const fetchImpl = vi.fn(() => new Promise<OriginSearchFetchResponse>((resolve) => { release = resolve; }));
+    let calls = 0;
+    const fetchImpl = vi.fn(() => {
+      calls += 1;
+      // 最初の呼び出し（RSS）だけを保留にして合流を確かめる。
+      // 解決用の後続呼び出しは即時に返す。
+      if (calls === 1) return new Promise<OriginSearchFetchResponse>((resolve) => { release = resolve; });
+      return Promise.resolve<OriginSearchFetchResponse>({ ok: true, status: 200, url: "https://example.com/article", text: async () => "" });
+    });
     const service = createOrinAiNewsService({ fetchImpl, sleep: noSleep });
     const first = service.getHeadlines();
     const second = service.getHeadlines();
     release(rssResponse());
     const [firstResult, secondResult] = await Promise.all([first, second]);
-    expect(fetchImpl).toHaveBeenCalledTimes(1);
+    // 束ねられるのは取得全体（RSS＋解決）で、要求は1本に合流する。
+    expect(fetchImpl).toHaveBeenCalledTimes(3);
     expect(firstResult.items).toHaveLength(2);
     expect(secondResult.items).toHaveLength(2);
   });

@@ -104,7 +104,7 @@ export const DEFAULT_ORIGIN_SEARCH_PROVIDER_CATALOG: readonly OriginSearchProvid
     paymentMethodRequired: false,
     requiresApiKey: false,
     monthlySelfCapUnits: null,
-    verifiedAt: "2026-11-28T00:00:00.000Z",
+    verifiedAt: "2026-11-27T21:39:00.000Z",
     reviewAfter: "2026-12-25T00:00:00.000Z",
   },
 ] as const;

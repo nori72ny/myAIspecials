@@ -1136,6 +1136,29 @@
   }
 }
 
+/* Home density (quality inspection Q6-09 follow-up, 2026-11-28):
+   the centred pair (presence row + home layout) keeps the owner's
+   centring, with two residual fixes. (1) The heading-to-description
+   gap was 12px (the composer's mt-3 utility) although the group
+   scale documented in the batch-1 block above fixes it at 16px —
+   the desktop band now takes the documented 16px, matching the
+   mobile band. The other joints already sit on the uniform 24px
+   rhythm (presence-to-heading, description-to-chips, chips-to-
+   composer). (2) The pair's centre is biased 12px upward by
+   trading scroller padding (top 16 -> 4, bottom 16 -> 28; the
+   content box keeps its height), tightening the void above Orin
+   while the centring itself — equal auto margins — is untouched. */
+@media (min-width: 640px) {
+  .origin-app main .origin-home-intro > p {
+    margin-top: 16px !important;
+  }
+  .origin-app main > div.min-h-0.flex-1.overflow-y-auto.p-2:has(> .origin-home-layout),
+  .origin-app main > div.min-h-0.flex-1.overflow-y-auto.p-4:has(> .origin-home-layout) {
+    padding-top: 4px !important;
+    padding-bottom: 28px !important;
+  }
+}
+
 /* Orin panel (owner request 2026-11-24, panel design
    ORIN_PANEL_DESIGN_2026-11-24; expanded 2026-11-25 by
    ORIN_PANEL_EXPANSION_DESIGN_2026-11-25; restructured the
@@ -1579,7 +1602,10 @@
   min-height: 44px;
   padding: 8px 16px;
   border: 1px solid var(--border-default);
-  border-radius: 999px;
+  /* 12px, not the full pill (audit A2, 2026-11-28): the pill was
+     the panel's lone shape outlier; the radius language of the
+     app is the rounded rectangle (primary 8px / chips 16px). */
+  border-radius: 12px;
   background: var(--bg-surface);
   color: var(--text-primary);
   font-size: 14px;
@@ -1589,6 +1615,9 @@
 }
 .origin-orin-panel__empty-action:hover {
   background: var(--bg-surface-muted);
+}
+.origin-orin-panel__empty-action:active {
+  transform: scale(0.98);
 }
 .origin-orin-panel__empty-guide {
   display: block;

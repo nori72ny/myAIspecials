@@ -37,6 +37,30 @@ describe('OrinAiNewsPage (expansion design §8, moved to a sidebar page 2026-11-
     expect(page.textContent).toContain('たった今');
   });
 
+  it('renders an unresolved headline without a link and a resolved one with a link (Q7-03)', async () => {
+    stubFetch((url) => {
+      if (url.includes('/api/orin/ai-news')) {
+        return new Response(JSON.stringify({
+          ok: true,
+          fetchedAt: new Date().toISOString(),
+          items: [
+            { title: 'リンクあり見出し', url: 'https://example.com/news', source: 'example.com', publishedAt: new Date().toISOString() },
+            { title: 'リンクなし見出し', url: null, source: 'ITmedia', publishedAt: new Date().toISOString() },
+          ],
+        }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+      return new Response('{}', { status: 200, headers: { 'Content-Type': 'application/json' } });
+    });
+    render(<OrinAiNewsPage language="ja" />);
+    const page = screen.getByTestId('origin-ai-news-page');
+    const linked = await within(page).findByText('リンクあり見出し');
+    expect(linked.closest('a')?.getAttribute('href')).toBe('https://example.com/news');
+    const unlinked = await within(page).findByText('リンクなし見出し');
+    expect(unlinked.closest('a')).toBeNull();
+    expect(page.textContent).toContain('ITmedia');
+    expect(page.textContent).toContain('リンクのある見出しは、出典元でそのまま読めます。');
+  });
+
   it('keeps the digest visible when the live headlines cannot be loaded', async () => {
     stubFetch((url) => {
       if (url.includes('/api/orin/ai-news')) {

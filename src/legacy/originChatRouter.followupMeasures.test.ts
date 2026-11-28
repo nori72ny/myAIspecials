@@ -86,7 +86,7 @@ describe("measure 1 — deterministic date branch", () => {
     expect(researchMock).not.toHaveBeenCalled();
   });
 
-  it("with the switch off the branch stays silent (pre-measure behaviour)", async () => {
+  it("answers deterministically even with the official-routing switch off (Q7-04: a clock question is not gated)", async () => {
     const executeMock = vi.fn().mockResolvedValue(defaultExecutionResult);
     const researchMock = vi.fn().mockResolvedValue({ ok: false, sources: [] });
     const app = createApp({
@@ -98,8 +98,10 @@ describe("measure 1 — deterministic date branch", () => {
       .post("/api/chat")
       .send({ messages: [{ role: "user", content: "今日は何曜日ですか？" }] });
     expect(response.status).toBe(200);
-    expect(response.body.content).not.toBe("今日は2026年11月26日（木曜日）です。");
-    expect(response.body.routing.answerMode).not.toBe("deterministic-date");
+    expect(response.body.content).toBe("今日は2026年11月26日（木曜日）です。");
+    expect(response.body.routing.answerMode).toBe("deterministic-date");
+    expect(executeMock).not.toHaveBeenCalled();
+    expect(researchMock).not.toHaveBeenCalled();
   });
 });
 

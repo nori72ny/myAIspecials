@@ -31,6 +31,20 @@ describe('orinAiNews payload parsing (expansion design §8.3)', () => {
     expect(payload?.items[1].publishedAt).toBeUndefined();
   });
 
+  it('keeps headlines whose url is null (unresolved redirector, Q7-03) and drops other bad url shapes', () => {
+    const payload = parseOrinAiNewsPayload({
+      ok: true,
+      fetchedAt: '2026-11-25T06:04:00.000Z',
+      items: [
+        { title: '解決できなかった見出し', url: null, source: 'ITmedia' },
+        { title: '数値の url は落とす', url: 42, source: 'example.com' },
+      ],
+    });
+    expect(payload?.items).toHaveLength(1);
+    expect(payload?.items[0].title).toBe('解決できなかった見出し');
+    expect(payload?.items[0].url).toBeNull();
+  });
+
   it('rejects payloads that are not the ok shape', () => {
     expect(parseOrinAiNewsPayload({ ok: false, fetchedAt: '2026-11-25T06:04:00.000Z', items: [] })).toBeNull();
     expect(parseOrinAiNewsPayload(null)).toBeNull();

@@ -72,7 +72,7 @@ describe("DEFAULT_ORIGIN_SEARCH_PROVIDER_CATALOG", () => {
     expect(frankfurter?.requiresApiKey).toBe(false);
     expect(frankfurter?.freeCap).toBeNull();
     expect(frankfurter?.monthlySelfCapUnits).toBeNull();
-    expect(Date.parse(frankfurter?.verifiedAt ?? "")).toBe(Date.parse("2026-11-28T00:00:00.000Z"));
+    expect(Date.parse(frankfurter?.verifiedAt ?? "")).toBe(Date.parse("2026-11-27T21:39:00.000Z"));
     expect(Date.parse(frankfurter?.reviewAfter ?? "")).toBe(Date.parse("2026-12-25T00:00:00.000Z"));
     // The route is live only inside the survey window and fails closed outside it.
     expect(selectCurrentOriginSearchProviderEvidence(

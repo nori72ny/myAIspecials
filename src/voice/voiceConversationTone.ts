@@ -8,17 +8,20 @@ import type { SpeechStyleOptions, VoiceStorageLike } from './voiceSpeech';
  * strong / gentle / polite / everyday — alongside the existing
  * choice of which device voice speaks (settings: "Orin's voice").
  *
- * A preset is prosody only: speech rate and pitch handed to the
- * speech controller. It never changes the words — what Orin says is
- * the gated final answer's summary, whatever the tone. (A tone of
- * WORD CHOICE would belong to answer generation, not to this
- * layer.) A preset's rate is a factor on the owner's stored
- * speaking rate — the 声の速さ step (VOICE_RATE_DESIGN
- * 2026-11-27): at the default step the composed conversation
- * rates equal the presets' historical absolutes, and when the
- * owner picks a faster or slower step the conversation follows
- * it, keeping each tone's character. The stored rate itself is
- * never rewritten here.
+ * A preset's prosody is speech rate and pitch handed to the
+ * speech controller. The tone ALSO shapes the spoken summary's
+ * sentence-final phrasing (voiceSpokenPhrasing.ts — the summary's
+ * facts, numbers and sources are never touched; only how each
+ * sentence ends). Until 2026-11-28 the preset was prosody only
+ * with narrow spreads, and the owner could not hear the
+ * difference; the spreads were widened and the phrasing layer
+ * added on his instruction. A preset's rate is a factor on the
+ * owner's stored speaking rate — the 声の速さ step
+ * (VOICE_RATE_DESIGN 2026-11-27): at the default step the
+ * composed conversation rate equals the factor itself, and when
+ * the owner picks a faster or slower step the conversation
+ * follows it, keeping each tone's character. The stored rate
+ * itself is never rewritten here.
  *
  * The choice is stored on the device only (a settings value — no
  * content). Default: everyday.
@@ -37,8 +40,16 @@ export interface VoiceConversationToneOption {
 }
 
 export const VOICE_CONVERSATION_TONES: readonly VoiceConversationToneOption[] = [
-  { id: 'strong', labelJa: '強い口調', labelEn: 'Strong', profile: { rate: 1.05, pitch: 0.95 } },
-  { id: 'gentle', labelJa: '優しい口調', labelEn: 'Gentle', profile: { rate: 0.95, pitch: 1.1 } },
+  // The spreads were widened on 2026-11-28 (owner's real-device
+  // finding: the differences could not be told apart). The
+  // composition rule is unchanged — each rate is a factor on the
+  // owner's stored speaking-rate step — only the factors and
+  // pitches moved, to values a device voice renders audibly
+  // differently. The tone ALSO shapes the spoken summary's
+  // sentence-final phrasing (voiceSpokenPhrasing.ts); the profile
+  // here remains prosody only.
+  { id: 'strong', labelJa: '強い口調', labelEn: 'Strong', profile: { rate: 1.15, pitch: 0.85 } },
+  { id: 'gentle', labelJa: '優しい口調', labelEn: 'Gentle', profile: { rate: 0.88, pitch: 1.2 } },
   { id: 'polite', labelJa: '丁寧な口調', labelEn: 'Polite', profile: { rate: 0.95, pitch: 1.0 } },
   // Everyday names no rate: the owner's stored rate keeps applying.
   { id: 'everyday', labelJa: '日常の口調', labelEn: 'Everyday', profile: { pitch: 1.05 } },

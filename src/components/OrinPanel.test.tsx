@@ -234,6 +234,28 @@ describe('OrinPanel (panel design 2026-11-24, expansion 2026-11-25)', () => {
     expect(within(features).getByTestId('origin-orin-panel-feature-agent').tagName).toBe('BUTTON');
   });
 
+  it('routes 資料を作る to the chat draft entrance instead of only closing (Q7-02)', async () => {
+    stubFetch(() => new Response('{}', { status: 200, headers: { 'Content-Type': 'application/json' } }));
+    const onClose = vi.fn();
+    const onOpenDocuments = vi.fn();
+    renderPanel({ onClose, onOpenDocuments });
+    fireEvent.click(screen.getByTestId('origin-orin-panel-tab-features'));
+    const features = screen.getByTestId('origin-orin-panel-features');
+    const row = within(features).getByTestId('origin-orin-panel-feature-documents');
+    expect(row.tagName).toBe('BUTTON');
+    fireEvent.click(row);
+    expect(onOpenDocuments).toHaveBeenCalledWith('資料の企画・構成を相談したい');
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not render 資料を作る as a button when no documents entrance is wired (Q7-02)', async () => {
+    stubFetch(() => new Response('{}', { status: 200, headers: { 'Content-Type': 'application/json' } }));
+    renderPanel({ onOpenAgent: vi.fn() });
+    fireEvent.click(screen.getByTestId('origin-orin-panel-tab-features'));
+    const features = screen.getByTestId('origin-orin-panel-features');
+    expect(within(features).getByTestId('origin-orin-panel-feature-documents').tagName).toBe('DIV');
+  });
+
   it('closes on Escape and on the back control', () => {
     const onClose = vi.fn();
     renderPanel({ onClose });

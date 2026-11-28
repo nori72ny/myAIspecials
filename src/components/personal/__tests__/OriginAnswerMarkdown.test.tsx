@@ -97,9 +97,23 @@ describe('answer copy and code controls', () => {
     expect(screen.getByRole('region', { name: 'コードブロック' }).querySelector('pre')?.className).toBe('origin-code-wrap');
   });
   it('renders the answer text without actions while generation is in progress', () => {
-    render(<OriginAnswerMarkdown language="ja" content="生成中の回答です。" showActions={false} />);
+    render(<OriginAnswerMarkdown language="ja" content="生成中の回答です。" actionsSuspended />);
     expect(screen.getByText('生成中の回答です。')).toBeTruthy();
     expect(screen.queryByRole('button', { name: '回答をコピー' })).toBeNull();
+  });
+  it('attaches text-answer actions only to plain answers, never to image results or failure cards (proposal 7)', () => {
+    const onRefine = vi.fn();
+    const image = render(<OriginAnswerMarkdown language="ja" content="画像の説明です。" resultKind="image" onRefine={onRefine} />);
+    expect(screen.queryByRole('button', { name: '回答をコピー' })).toBeNull();
+    expect(screen.queryByRole('group', { name: '回答を調整' })).toBeNull();
+    image.unmount();
+    const failure = render(<OriginAnswerMarkdown language="ja" content="確認できませんでした。" resultKind="failure" onRefine={onRefine} />);
+    expect(screen.queryByRole('button', { name: '回答をコピー' })).toBeNull();
+    expect(screen.queryByRole('group', { name: '回答を調整' })).toBeNull();
+    failure.unmount();
+    render(<OriginAnswerMarkdown language="ja" content="通常の回答です。" resultKind="answer" onRefine={onRefine} />);
+    expect(screen.getByRole('button', { name: '回答をコピー' })).toBeTruthy();
+    expect(screen.getByRole('group', { name: '回答を調整' })).toBeTruthy();
   });
   it('reports clipboard rejection without claiming success', async () => {
     vi.stubGlobal('navigator', { clipboard: { writeText: vi.fn().mockRejectedValue(new Error('denied')) } });

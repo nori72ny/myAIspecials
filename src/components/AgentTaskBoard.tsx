@@ -190,6 +190,14 @@ type ResumeSession = {
 type BoardAuth = { kind: 'operator'; credential: string } | { kind: 'browser'; planToken: string };
 type LoadState = 'idle' | 'loading' | 'ready' | 'unavailable' | 'auth-error' | 'error';
 
+/**
+ * 権限なし（キー未入力・計画なし）の案内文。失敗ではないので、
+ * 初期表示から中立な通知ブロックで出す（Q7-01）。赤字の
+ * role="alert" は、利用者自身の操作（キーを入力して読み込む等）
+ * が実際に失敗した時だけに使う。
+ */
+const NO_AUTH_NOTICE = '上の画面で計画を作ると、ここに表示されます。管理者として作成した作業は、設定の「管理者キー」でキーを入力すると表示できます。';
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
 }
@@ -330,6 +338,9 @@ export default function AgentTaskBoard({ browserPlanToken, onOpenSettings }: {
         }
         return current;
       });
+      // The plan went away and no credential remains: the board is
+      // back in the no-authority state, so restore the guidance.
+      if (!next && !getSessionCredential('admin').trim()) setNotice(NO_AUTH_NOTICE);
     }
   }, [browserPlanToken]);
 
@@ -354,7 +365,7 @@ export default function AgentTaskBoard({ browserPlanToken, onOpenSettings }: {
   const load = async (authOverride?: BoardAuth) => {
     const resolved = authOverride ?? resolveAuth();
     if (!resolved) {
-      setNotice('上の画面で計画を作ると、ここに表示されます。管理者として作成した作業は、設定の「管理者キー」でキーを入力すると表示できます。');
+      setNotice(NO_AUTH_NOTICE);
       return;
     }
     setAuth(resolved);
@@ -372,10 +383,27 @@ export default function AgentTaskBoard({ browserPlanToken, onOpenSettings }: {
         return;
       }
       if (response.status === 401 || response.status === 403) {
+        // Q7-01: the browser plan token is machine-issued, so a
+        // rejection here is a normal state (no listable runs bound
+        // to this plan yet), not a failure of anything the user did
+        // — the automatic load must never paint it as a red error.
+        // It lands on the same neutral empty state as a successful
+        // empty list. Only the operator kind (a key the user typed,
+        // rejected after their own explicit load) is a real failure
+        // and keeps the red alert.
+        if (resolved.kind === 'browser') {
+          setRuns([]);
+          setLoadState('ready');
+          return;
+        }
         setLoadState('auth-error');
         return;
       }
       if (!response.ok || data.ok !== true || !Array.isArray(data.runs)) {
+        if (resolved.kind === 'browser') {
+          setLoadState('idle');
+          return;
+        }
         setLoadState('error');
         return;
       }
@@ -390,6 +418,13 @@ export default function AgentTaskBoard({ browserPlanToken, onOpenSettings }: {
         void redriveOperatorRuns(resolved, parsed);
       }
     } catch {
+      // Same discipline as the 401/403 branch: a browser-kind load
+      // (usually the automatic one) failing on the wire is not the
+      // user's failure — stay silent instead of painting red.
+      if (resolved.kind === 'browser') {
+        setLoadState('idle');
+        return;
+      }
       setLoadState('error');
     }
   };
@@ -421,6 +456,15 @@ export default function AgentTaskBoard({ browserPlanToken, onOpenSettings }: {
       if (redriveAbortRef.current === controller) redriveAbortRef.current = null;
     }
   };
+
+  // Q7-01: with neither a credential nor a plan, the board starts in
+  // the no-authority state — show the neutral guidance (with the
+  // settings shortcut) from the start instead of leaving the card
+  // blank until the button is pressed.
+  useEffect(() => {
+    if (!resolveAuth()) setNotice(NO_AUTH_NOTICE);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Auto-display: once per browser plan binding, load the runs bound to
   // it so delegated work is visible without pressing "タスクを表示".
@@ -763,7 +807,7 @@ export default function AgentTaskBoard({ browserPlanToken, onOpenSettings }: {
       </div>
     )}
     {loadState === 'unavailable' && <p role="status" className="mt-2 text-sm text-origin-muted">作業の記録を今は利用できません。</p>}
-    {loadState === 'auth-error' && <p role="alert" className="mt-2 text-sm font-semibold text-origin-danger">{auth?.kind === 'operator' ? '認証できませんでした。入力したキーを確認してください。キーは設定の「管理者キー」で入力できます。' : '作業を表示できませんでした。上の画面で計画を作ると、ここにも表示されます。'}</p>}
+    {loadState === 'auth-error' && auth?.kind === 'operator' && <p role="alert" className="mt-2 text-sm font-semibold text-origin-danger">認証できませんでした。入力したキーを確認してください。キーは設定の「管理者キー」で入力できます。</p>}
     {loadState === 'error' && <p role="alert" className="mt-2 text-sm font-semibold text-origin-danger">作業を読み込めませんでした。</p>}
     {loadState === 'ready' && runs !== null && runs.length === 0 && (
       <p className="mt-2 text-sm text-origin-muted">表示できる作業はありません。</p>
