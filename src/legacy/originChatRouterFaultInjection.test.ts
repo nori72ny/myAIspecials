@@ -348,6 +348,7 @@ describe("fault injection: research router (extractive tier)", () => {
     expect(response.body.research.synthesis).toEqual({
       status: "provider-failed",
       failureCode: "PROVIDER_RATE_LIMITED",
+      payloadChars: 3283,
       // Round-5 measure 5-2b: this router now runs the provider
       // retry layer too; with no free route configured in this
       // env it skips at the last stage, and the skip is recorded.
