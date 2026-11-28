@@ -1489,6 +1489,73 @@ it('keeps the unsent composer draft across Orin panel open/close and conversatio
     vi.unstubAllGlobals();
   });
 
+  it('opens the generated image in an enlargement view and closes it with Escape (Q7-07)', async () => {
+    const bytes = Uint8Array.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3, 4]);
+    const digest = new Uint8Array(32);
+    digest.fill(0xab);
+    const sha = Array.from(digest).map((byte) => byte.toString(16).padStart(2, '0')).join('');
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, _init?: RequestInit) => {
+      if (String(input) !== '/api/generate-image') {
+        return new Response('{}', { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+      return new Response(bytes, {
+        status: 200,
+        headers: {
+          'Content-Type': 'image/png',
+          'Content-Disposition': 'attachment; filename="origin-image.png"',
+          'X-Origin-Visual-Verified': 'true',
+          'X-Origin-Visual-Sha256': sha,
+          'X-Origin-Visual-Provider': 'cloudflare-workers-ai-free',
+          'X-Origin-Visual-Model': '@cf/black-forest-labs/flux-2-klein-4b',
+          'X-Origin-Visual-Generation-Id': `raster-${sha.slice(0, 24)}`,
+          'X-Origin-Visual-Brain': 'visual-brain-v1',
+          'X-Origin-Visual-Plan': 'raster-visual-plan-v1',
+          'X-Origin-Visual-Purpose': 'photograph',
+          'X-Origin-Visual-Critic': 'raster-structural-critic-v1',
+          'X-Origin-Visual-Quality-Score': '100',
+          'X-Origin-Visual-Actual-Width': '1024',
+          'X-Origin-Visual-Actual-Height': '1024',
+          'X-Origin-Visual-Typography-Overlay': 'not-required',
+          'X-Origin-Visual-Plan-Sha256': 'c'.repeat(64),
+          'X-Origin-Visual-Width': '1024',
+          'X-Origin-Visual-Height': '1024',
+          'X-Origin-Free-Only': 'true',
+          'X-Origin-Cost-Usd': '0',
+          'X-Origin-Paid-Fallback': 'false',
+          'X-Origin-Secret-Delivery': 'server-only',
+        },
+      });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    const originalCrypto = globalThis.crypto;
+    Object.defineProperty(globalThis, 'crypto', {
+      configurable: true,
+      value: { subtle: { digest: vi.fn(async () => digest.buffer) } },
+    });
+    const originalCreateObjectURL = URL.createObjectURL;
+    Object.defineProperty(URL, 'createObjectURL', { configurable: true, value: vi.fn(() => 'blob:origin-generated-image') });
+
+    render(<App language="ja" />);
+    fireEvent.change(screen.getByTestId('origin-home-request'), { target: { value: '夕焼けの海の画像を作ってください' } });
+    fireEvent.click(screen.getByTestId('start-request-button'));
+    await waitFor(() => expect(screen.getByAltText('ORIGINが生成した画像')).toBeTruthy());
+
+    // 結果画像は拡大表示ボタンになっていて、押すと拡大表示が開く。
+    expect(screen.queryByTestId('origin-image-lightbox')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: '画像を拡大表示' }));
+    const lightbox = await screen.findByTestId('origin-image-lightbox');
+    expect(lightbox.querySelector('img')?.getAttribute('src')).toBe('blob:origin-generated-image');
+
+    // Esc で閉じる。
+    fireEvent.keyDown(document, { key: 'Escape' });
+    await waitFor(() => expect(screen.queryByTestId('origin-image-lightbox')).toBeNull());
+
+    if (originalCreateObjectURL) Object.defineProperty(URL, 'createObjectURL', { configurable: true, value: originalCreateObjectURL });
+    else delete (URL as unknown as { createObjectURL?: unknown }).createObjectURL;
+    Object.defineProperty(globalThis, 'crypto', { configurable: true, value: originalCrypto });
+    vi.unstubAllGlobals();
+  });
+
   it('keeps repeated variation prompts bounded to the original visual brief', () => {
     const first = buildRasterVariationPrompt('夕焼けの海の画像を作ってください');
     const second = buildRasterVariationPrompt(first);
