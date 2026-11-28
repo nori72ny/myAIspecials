@@ -352,7 +352,7 @@ describe("research router records path", () => {
     expect(response.status).toBe(200);
     expect(response.body.content).toBe(validText);
     expect(response.body.routing.synthesisStatus).toBe("citation-validated");
-    expect(response.body.research.synthesis).toEqual({ status: "citation-validated", sourceCount: 2 });
+    expect(response.body.research.synthesis).toEqual({ status: "citation-validated", sourceCount: 2, payloadChars: expect.any(Number) });
     expect(synthesis).toHaveBeenCalledTimes(1);
   });
 });

@@ -279,7 +279,7 @@ describe("originResearchRouter", () => {
     expect(response.body.content).not.toContain("出典付き調査レポート（抽出方式）");
     expect(response.body.routing.synthesisStatus).toBe("citation-validated");
     expect(response.body.routing.answerMode).toBe("research");
-    expect(response.body.research.synthesis).toEqual({ status: "citation-validated", sourceCount: 2 });
+    expect(response.body.research.synthesis).toEqual({ status: "citation-validated", sourceCount: 2, payloadChars: 3299 });
     // The extractive report stays available as metadata, not as the answer.
     expect(response.body.research.report.mode).toBe("extractive");
   });
@@ -303,7 +303,7 @@ describe("originResearchRouter", () => {
     expect(synthesis).toHaveBeenCalledTimes(2);
     expect(response.body.content).toContain("出典付き調査レポート（抽出方式）");
     expect(response.body.content).not.toContain("99,800円です");
-    expect(response.body.research.synthesis).toEqual({ status: "citation-validation-failed", failureCode: "UNKNOWN_CITATION" });
+    expect(response.body.research.synthesis).toEqual({ status: "citation-validation-failed", failureCode: "UNKNOWN_CITATION", payloadChars: 3299 });
   });
 
   it("degrades safely to the extractive report when the synthesis provider fails", async () => {
@@ -365,6 +365,7 @@ describe("originResearchRouter", () => {
     expect(response.body.research.synthesis).toEqual({
       status: "citation-validated",
       sourceCount: 2,
+      payloadChars: 3299,
       providerRetried: true,
       providerRetryRoute: 2,
       // Round-6 measure 6-1a: the successful retry joins the attempt

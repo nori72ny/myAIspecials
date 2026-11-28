@@ -17,7 +17,7 @@ import { applyOriginPublicationGate, publicationGateFiringKinds } from "../lib/o
 import { applyOriginDateWeekdayVerificationGate } from "../lib/orchestration/OriginDateWeekdayVerification.js";
 import { resolveOriginAgentWorkPlan, type OriginResolvedWorkPlan } from "../lib/orchestration/OriginServiceRegistry.js";
 import { generateOriginSupervisorArtifactsV2, ORIGIN_SUPERVISOR_VERSION_V2 } from "../lib/orchestration/OriginSupervisorV2.js";
-import { buildOriginProviderFailureDiagnostic, OriginProviderError, summarizeOriginProviderAttempts, type OriginProviderAttemptDiagnostic, type OriginProviderExecutionRequest, type OriginProviderExecutionResult } from "./originProviderClient.js";
+import { buildOriginProviderFailureDiagnostic, measureOriginProviderRequestChars, OriginProviderError, summarizeOriginProviderAttempts, type OriginProviderAttemptDiagnostic, type OriginProviderExecutionRequest, type OriginProviderExecutionResult } from "./originProviderClient.js";
 import { assertOriginZeroCostExecutionResultWithFailover, executeOriginProviderWithFailover, executeOriginSynthesisWithFailover } from "./originProviderFailover.js";
 import { ORIGIN_CLOUDFLARE_FREE_MODEL } from "../lib/orchestration/OriginCloudflareFreeModelCatalog.js";
 import { ORIGIN_GROQ_FREE_MODEL_ID } from "../lib/orchestration/OriginGroqFreeModelCatalog.js";
@@ -881,6 +881,11 @@ export function createOriginChatRouter(options: OriginChatRouterOptions = {}) {
       // outcome / error code), exactly the failure diagnostic's
       // shape — no upstream text, no credentials.
       let synthesisProviderAttempts: OriginProviderAttemptDiagnostic[] = [];
+      // PR-A observation: the V12 synthesis request's payload size
+      // (instruction + prompt characters), recorded alongside the
+      // attempt record so a slow or rejected dispatch can be
+      // attributed to its payload from the response alone.
+      let synthesisPayloadChars: number | undefined;
 
       if (researchSynthesis && grounded.sources.length > 0) {
         const synthesisPlan = buildOriginExecutionPlan(
@@ -1174,6 +1179,7 @@ export function createOriginChatRouter(options: OriginChatRouterOptions = {}) {
                 + "\n\n"
                 + originCurrentDateInstruction(now(), grounded.language),
             };
+            synthesisPayloadChars = measureOriginProviderRequestChars(synthesisRequest);
             // Provider-failure retry (K-06 案A, diagnosis §案A-2):
             // when the initial execution throws a provider failure
             // (429 / timeout / unavailable / invalid response), the
@@ -1582,6 +1588,7 @@ export function createOriginChatRouter(options: OriginChatRouterOptions = {}) {
                   providerAttempts: providerAttemptCount(synthesisResult),
                   ...(synthesisResult.attempts ? { providerRouteAttempts: synthesisResult.attempts } : {}),
                   ...(synthesisProviderAttempts.length > 0 ? { synthesisProviderAttempts } : {}),
+                  ...(synthesisPayloadChars !== undefined ? { synthesisPayloadChars } : {}),
                   requestedOutputs: researchRequestedOutputs,
                   supervisorMode: researchRequestedOutputs.length > 0 ? ORIGIN_SUPERVISOR_VERSION_V2 : "research-only",
                   supervisorStatus: supervisorArtifacts.status,
@@ -2082,6 +2089,7 @@ export function createOriginChatRouter(options: OriginChatRouterOptions = {}) {
           ...(synthesisProviderAttempts.length > 0
             ? { synthesisProviderAttempts }
             : {}),
+          ...(synthesisPayloadChars !== undefined ? { synthesisPayloadChars } : {}),
           requestedOutputs: researchRequestedOutputs,
           supervisorMode: researchRequestedOutputs.length > 0 ? "research-output-contract-v1" : "research-only",
           downstreamDeliverablePending: researchNeedsDownstreamDeliverable,
