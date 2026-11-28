@@ -2760,6 +2760,39 @@ it('keeps the unsent composer draft across Orin panel open/close and conversatio
     vi.unstubAllGlobals();
   });
 
+  it('shows the plain-register held heading in alter-ego mode', async () => {
+    // Alter-ego mode (2026-11-28): the held heading switches to the
+    // plain register together with the hold body, so a tier-T4 landing
+    // does not stay polite while every other answer speaks plainly.
+    window.localStorage.setItem('origin_personal_settings', JSON.stringify({
+      language: 'ja',
+      selectedTheme: 'light',
+      personalizationEnabled: true,
+      alterEgoEnabled: true,
+    }));
+    const heldText = '「今日は何曜日ですか？」については、確認できた情報がないから、推測では答えない。';
+    const body = [
+      `data: ${JSON.stringify({ type: 'phase', phase: 'searching' })}`,
+      `data: ${JSON.stringify({ type: 'outcome', researchTier: 'T4', researchOutcome: 'ABSTAIN' })}`,
+      `data: ${JSON.stringify({ type: 'delta', text: heldText })}`,
+      `data: ${JSON.stringify({ type: 'complete' })}`,
+      'data: [DONE]',
+      '',
+    ].join('\n\n');
+    const fetchMock = vi.fn(async () => new Response(body, {
+      status: 200,
+      headers: { 'Content-Type': 'text/event-stream', 'X-Origin-Stream-Source': 'phased', 'X-Origin-Stream-Protocol': 'origin-phased-sse-v1' },
+    }));
+    vi.stubGlobal('fetch', fetchMock);
+    render(<App language="ja" />);
+    fireEvent.change(screen.getByTestId('origin-home-request'), { target: { value: '今日は何曜日ですか？' } });
+    fireEvent.click(screen.getByTestId('start-request-button'));
+    await waitFor(() => expect(screen.getByText('確認できなかった')).toBeTruthy());
+    expect(screen.queryByText('確認できませんでした')).toBeNull();
+    vi.unstubAllGlobals();
+    window.localStorage.removeItem('origin_personal_settings');
+  });
+
   it('does not offer a retry under an adopted (tier-T0) research answer', async () => {
     const body = [
       `data: ${JSON.stringify({ type: 'phase', phase: 'searching' })}`,
