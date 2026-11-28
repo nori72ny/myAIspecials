@@ -3,6 +3,7 @@ import type {
   OriginProviderExecutionRequest,
   OriginProviderExecutionResult,
 } from "../legacy/originProviderClient.js";
+import { measureOriginProviderRequestChars } from "../legacy/originProviderClient.js";
 import type {
   GroundedResearchRecordsRetrySkip,
   GroundedResearchRecordsRetrySkipDetail,
@@ -3631,6 +3632,17 @@ export interface GroundedResearchRecordsExecutionOutcome {
   acceptedRecords?: GroundedResearchAcceptedRecord[];
   /** Stage metrics (counts/codes only), when attempted. */
   metrics?: GroundedResearchRecordsStageMetrics;
+  /**
+   * PR-B observation (PR-A remainder): the main records request's
+   * payload size in characters (instruction + prompt), recorded so a
+   * slow or rejected records dispatch can be attributed to its
+   * payload exactly like the text path's synthesisPayloadChars.
+   * Present only when the request was actually built (an attempted
+   * execution); the slot/selection sub-requests keep their own
+   * shapes and are not folded into this number. Counts only — the
+   * payload text is never recorded.
+   */
+  payloadChars?: number;
 }
 
 export interface GroundedResearchRecordsExecutionOptions {
@@ -3706,9 +3718,30 @@ export interface GroundedResearchRecordsExecutionOptions {
  * layers contain their own failures instead (design §9/§10/§8), as
  * does the supporting records generation after a slot adoption.
  */
+/**
+ * PR-B observation wrapper: runs the records execution unchanged and
+ * attaches the main request's payload size to the outcome (see the
+ * outcome's payloadChars field). The size is captured through a sink
+ * the internal execution fills in when it builds the request, so no
+ * return point of the layered execution needs to know about it; an
+ * execution that throws (the initial dispatch's standing contract)
+ * propagates exactly as before, without the field.
+ */
 export async function executeGroundedResearchRecordsSynthesis(
   execute: (request: OriginProviderExecutionRequest) => Promise<OriginProviderExecutionResult>,
   options: GroundedResearchRecordsExecutionOptions,
+): Promise<GroundedResearchRecordsExecutionOutcome> {
+  const payloadSink: { chars?: number } = {};
+  const outcome = await executeGroundedResearchRecordsSynthesisInternal(execute, options, payloadSink);
+  return payloadSink.chars !== undefined && outcome.attempted
+    ? { ...outcome, payloadChars: payloadSink.chars }
+    : outcome;
+}
+
+async function executeGroundedResearchRecordsSynthesisInternal(
+  execute: (request: OriginProviderExecutionRequest) => Promise<OriginProviderExecutionResult>,
+  options: GroundedResearchRecordsExecutionOptions,
+  payloadSink: { chars?: number },
 ): Promise<GroundedResearchRecordsExecutionOutcome> {
   if (!options.enabled) {
     return { attempted: false, adopted: false, usedSourceIds: [] };
@@ -3812,6 +3845,7 @@ export async function executeGroundedResearchRecordsSynthesis(
     }],
     systemInstruction: buildGroundedResearchRecordsInstruction(options.language),
   };
+  payloadSink.chars = measureOriginProviderRequestChars(request);
 
   // Fact slot (design §9, R-PR-6; composite since R-PR-9c): the head of the layer order
   // (§12), reached only when the question deterministically matches a

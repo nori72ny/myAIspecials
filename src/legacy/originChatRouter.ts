@@ -1132,6 +1132,7 @@ export function createOriginChatRouter(options: OriginChatRouterOptions = {}) {
                       providerAttempts: providerAttemptCount(recordsResult),
                       ...(recordsResult.attempts ? { providerRouteAttempts: recordsResult.attempts } : {}),
                       ...(synthesisProviderAttempts.length > 0 ? { synthesisProviderAttempts } : {}),
+                      ...(recordsOutcome.payloadChars !== undefined ? { recordsPayloadChars: recordsOutcome.payloadChars } : {}),
                       requestedOutputs: researchRequestedOutputs,
                       supervisorMode: researchRequestedOutputs.length > 0 ? ORIGIN_SUPERVISOR_VERSION_V2 : "research-only",
                       supervisorStatus: supervisorArtifacts.status,

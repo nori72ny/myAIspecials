@@ -4,6 +4,7 @@ import type {
   OriginProviderExecutionRequest,
   OriginProviderExecutionResult,
 } from "../legacy/originProviderClient";
+import { measureOriginProviderRequestChars } from "../legacy/originProviderClient";
 import {
   buildGroundedResearchRecordsInstruction,
   buildGroundedResearchRecordsPacket,
@@ -396,5 +397,51 @@ describe("executeGroundedResearchRecordsSynthesis shape gate metrics (R-PR-8a)",
     expect(outcome.text).toContain(
       "- 従業員は一定の条件を満たせば退職できます。 [S1](https://hr.example.co.jp/retire) [S2](https://guide.example.com/retire)",
     );
+  });
+});
+
+describe("executeGroundedResearchRecordsSynthesis payload size record (PR-B observation)", () => {
+  it("carries the main records request's payloadChars on the outcome", async () => {
+    const fabricated = jsonOutput([
+      { evidence: ["E1_2"], quote: "パケットに存在しない引用文です。", text: CLAIM_A },
+    ]);
+    let recordsRequest: OriginProviderExecutionRequest | undefined;
+    const execute = vi.fn(async (request: OriginProviderExecutionRequest) => {
+      if (request.systemInstruction === buildGroundedResearchRecordsInstruction("ja")) {
+        recordsRequest = request;
+        return executionResult(fabricated);
+      }
+      if (request.systemInstruction === buildGroundedResearchSelectionInstruction("ja")) {
+        return executionResult("{\"select\":[\"E1_1\",\"E1_2\",\"E2_1\"]}");
+      }
+      throw new Error("unexpected instruction");
+    });
+    const outcome = await executeGroundedResearchRecordsSynthesis(execute, {
+      plan: fakePlan,
+      query: "公開情報の要点を調査してください",
+      sources: dumpSources(),
+      language: "ja",
+      enabled: true,
+      assertZeroCost: () => {},
+    });
+    expect(outcome.adopted).toBe(true);
+    expect(recordsRequest).toBeDefined();
+    expect(outcome.payloadChars).toBe(measureOriginProviderRequestChars(recordsRequest as OriginProviderExecutionRequest));
+    expect(outcome.payloadChars).toBeGreaterThan(0);
+  });
+
+  it("records no payloadChars when the records path is disabled", async () => {
+    const execute = vi.fn(async () => executionResult("{}"));
+    const outcome = await executeGroundedResearchRecordsSynthesis(execute, {
+      plan: fakePlan,
+      query: "公開情報の要点を調査してください",
+      sources: dumpSources(),
+      language: "ja",
+      enabled: false,
+      assertZeroCost: () => {},
+    });
+    expect(outcome.attempted).toBe(false);
+    expect(outcome.payloadChars).toBeUndefined();
+    expect(execute).not.toHaveBeenCalled();
   });
 });

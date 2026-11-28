@@ -284,7 +284,7 @@ describe("research router records path", () => {
     expect(response.body.content).toBe(EXPECTED_IPHONE_RENDER);
     expect(response.body.routing.synthesisStatus).toBe("records-validated");
     expect(response.body.routing.synthesisPath).toBe("records");
-    expect(response.body.research.synthesis).toEqual({ status: "records-validated", path: "records", sourceCount: 2 });
+    expect(response.body.research.synthesis).toEqual({ status: "records-validated", path: "records", sourceCount: 2, payloadChars: expect.any(Number) });
     expect(synthesis).toHaveBeenCalledTimes(1);
   });
 
@@ -317,6 +317,7 @@ describe("research router records path", () => {
       path: "records",
       sourceCount: 1,
       partial: true,
+      payloadChars: expect.any(Number),
     });
     expect(response.body.routing.synthesisPartial).toBe(true);
     expect(synthesis).toHaveBeenCalledTimes(2);
