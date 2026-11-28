@@ -1,4 +1,5 @@
 import type { OriginResearchResult } from "../legacy/originResearchSource.js";
+import { isAlterEgoMode } from "../lib/orchestration/alterEgoRequestStore.js";
 
 /**
  * Degradation ladder for the grounded-research path (N-1,
@@ -126,6 +127,30 @@ const ABSTAIN_REASON_TEXT: Record<OriginResearchAbstainReason, { ja: string; en:
 };
 
 /**
+ * Alter-ego mode (2026-11-28): the same reason statements in the
+ * plain register, Japanese only. The hold body is fixed text — it
+ * never passes through the model — so the register switch the mode
+ * applies to generated answers (see groundedResearchSynthesisV12)
+ * must be applied here deterministically, or a held answer would
+ * stay polite while every other answer speaks plainly. Content and
+ * honesty are unchanged: what was tried, what fell short, and the
+ * refusal to guess are stated exactly as in the standard texts; no
+ * first person and no persona traits are added. English has no
+ * polite/plain register distinction in these texts, so the English
+ * hold is identical in both modes.
+ */
+const ABSTAIN_REASON_TEXT_ALTER_EGO_JA: Record<OriginResearchAbstainReason, string> = {
+  "no-sources": "関連する公開情報源を探したけど、条件に合う出典が見つからなかった。",
+  "no-fresh-sources":
+    "情報源は見つかったけど、いずれも必要な新しさを満たしていなかったから、古い情報を現在の情報として示すことはしなかった。",
+  "provider-error": "情報源を取る処理で問題が起きて、出典を確認できなかった。",
+  "monthly-cap-reached": "今月の検索利用の上限に達しているから、今回は検索を実行できなかった。",
+  "budget-exhausted": "制限時間内に裏付けの確認を終えることができなかった。",
+  "high-risk-insufficient-sources":
+    "重要な内容だから複数の独立した出典による裏付けが必要だけど、十分な出典が揃わなかった。",
+};
+
+/**
  * Upper bound on a query that may be echoed in the hold text. The echo
  * exists so a person can recognize their own short question in the
  * hold; it is not a quotation channel. Text that was never written to
@@ -137,7 +162,9 @@ const ABSTAIN_REASON_TEXT: Record<OriginResearchAbstainReason, { ja: string; en:
  * of such a text. This builder is the single generator shared by
  * every tier-T4 landing (the grounded path, the terminal guard, and
  * the publication gate's hold on both chat routers), so this one
- * bound closes the echo on all of them.
+ * bound closes the echo on all of them. The alter-ego register
+ * switch lives in this same builder, so it covers every landing
+ * too; with the mode off the output is byte-identical.
  */
 const MAX_ECHOED_QUERY_LENGTH = 40;
 
@@ -186,13 +213,23 @@ export function buildGroundedResearchAbstainAnswer(input: {
   searched?: boolean;
 }): string {
   const topic = displayQueryTopic(input.query);
-  const reasonText = ABSTAIN_REASON_TEXT[input.reason][input.language];
   if (input.language === "en") {
+    const reasonText = ABSTAIN_REASON_TEXT[input.reason].en;
     const lead = topic
       ? `For "${topic}", I have no confirmed information, so I will not guess an answer.`
       : "I have no confirmed information, so I will not guess an answer.";
     return `${lead}\n\n${reasonText}\n\nFor the definitive information, please check the official announcement, or provide a public source you would like checked.`;
   }
+  // Alter-ego mode: the whole hold switches to the plain register
+  // (lead, reason, closing), with the mode off the text below is
+  // byte-identical to the standard hold.
+  if (isAlterEgoMode()) {
+    const lead = topic
+      ? `「${topic}」については、確認できた情報がないから、推測では答えない。`
+      : "確認できた情報がないから、推測では答えない。";
+    return `${lead}\n\n${ABSTAIN_REASON_TEXT_ALTER_EGO_JA[input.reason]}\n\n正確な情報は、公式の発表などで確認してほしい。確認したい公開情報源があれば出して。`;
+  }
+  const reasonText = ABSTAIN_REASON_TEXT[input.reason].ja;
   const lead = topic
     ? `「${topic}」については、確認できた情報がないため、推測で回答しません。`
     : "確認できた情報がないため、推測で回答しません。";
