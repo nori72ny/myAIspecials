@@ -241,6 +241,7 @@ describe("research router synthesis salvage", () => {
       sourceCount: 2,
       salvaged: true,
       salvageRemovedUnits: 1,
+      payloadChars: expect.any(Number),
     });
   });
 });

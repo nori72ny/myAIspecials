@@ -149,8 +149,23 @@ export interface OriginProviderRoutingEvidence { requestedModel: string; servedM
  * value is never carried as text.
  */
 export interface OriginRateLimitSnapshot { limitRequests?: number; remainingRequests?: number; limitTokens?: number; remainingTokens?: number; resetRequestsSeconds?: number; resetTokensSeconds?: number; }
-export interface OriginProviderAttemptEvidence { providerId: string; modelId: string; outcome: "succeeded" | "availability-error" | "failed" | "skipped"; errorCode?: OriginProviderErrorCode; skipReason?: string; upstreamStatus?: number; upstreamErrorType?: string; upstreamErrorCode?: string; transportRequestCount?: number; durationMs?: number; rateLimitHit?: boolean; rateLimit?: OriginRateLimitSnapshot; }
-export interface OriginProviderExecutionResult { text: string; transportRequestCount?: number; actualCostUsd: 0; providerDataPolicy: OriginProviderDataPolicy; routingEvidence: OriginProviderRoutingEvidence; usage: { promptTokens?: number; completionTokens?: number; totalTokens?: number; costUsd: 0; }; attempts?: readonly OriginProviderAttemptEvidence[]; rateLimit?: OriginRateLimitSnapshot;
+export interface OriginProviderAttemptEvidence { providerId: string; modelId: string; outcome: "succeeded" | "availability-error" | "failed" | "skipped"; errorCode?: OriginProviderErrorCode; skipReason?: string; upstreamStatus?: number; upstreamErrorType?: string; upstreamErrorCode?: string; transportRequestCount?: number; durationMs?: number; rateLimitHit?: boolean; rateLimit?: OriginRateLimitSnapshot; modelAttempts?: readonly OriginProviderModelAttemptEvidence[]; }
+/**
+ * One model-level attempt inside a single route whose client rotates
+ * between models internally (PR-A observation, design
+ * SYNTHESIS_RELIABILITY_DESIGN_2026-11-27 §9 PR-A): the Groq route's
+ * failover attempt evidence names only the route and its aggregate
+ * transport count, so a rotation (120b rate-limited, then 20b served
+ * or also limited) was previously indistinguishable from a single
+ * model's failure — the round-6/7 records could not attribute a 429
+ * to a model pool. Recording only: counts, codes and durations, never
+ * payload text. `estimatedInputTokens` is the sending client's own
+ * pre-send estimate for that model's request (an estimate by
+ * construction, labelled as such), recorded so an over-ceiling
+ * single request can be told apart from a drained window.
+ */
+export interface OriginProviderModelAttemptEvidence { modelId: string; outcome: "succeeded" | "availability-error" | "failed"; errorCode?: OriginProviderErrorCode; upstreamStatus?: number; durationMs?: number; transportRequestCount?: number; estimatedInputTokens?: number; rateLimit?: OriginRateLimitSnapshot; }
+export interface OriginProviderExecutionResult { text: string; transportRequestCount?: number; actualCostUsd: 0; providerDataPolicy: OriginProviderDataPolicy; routingEvidence: OriginProviderRoutingEvidence; usage: { promptTokens?: number; completionTokens?: number; totalTokens?: number; cachedTokens?: number; costUsd: 0; }; attempts?: readonly OriginProviderAttemptEvidence[]; rateLimit?: OriginRateLimitSnapshot; modelAttempts?: readonly OriginProviderModelAttemptEvidence[];
   /**
    * True when the answer text ended at the provider's output limit instead of
    * completing (PKG-2). The text is the verified partial answer: it passed
@@ -170,7 +185,7 @@ export type OriginProviderErrorCode = "PROVIDER_NOT_CONFIGURED" | "PROVIDER_POLI
  * models, the signature of a completion budget spent entirely on reasoning).
  */
 export type OriginProviderStreamFailure = "no-done" | "no-model" | "empty-content";
-export interface OriginProviderDiagnostic { upstreamStatus?: number; upstreamErrorType?: string; upstreamErrorCode?: string; transportFailure?: "timeout" | "network"; transportRequestCount?: number; failoverAttempts?: readonly OriginProviderAttemptEvidence[]; streamFailure?: OriginProviderStreamFailure; finishReason?: string; usagePromptTokens?: number; usageCompletionTokens?: number; usageReasoningTokens?: number;rateLimit?: OriginRateLimitSnapshot; }
+export interface OriginProviderDiagnostic { upstreamStatus?: number; upstreamErrorType?: string; upstreamErrorCode?: string; transportFailure?: "timeout" | "network"; transportRequestCount?: number; failoverAttempts?: readonly OriginProviderAttemptEvidence[]; streamFailure?: OriginProviderStreamFailure; finishReason?: string; usagePromptTokens?: number; usageCompletionTokens?: number; usageReasoningTokens?: number;rateLimit?: OriginRateLimitSnapshot; modelAttempts?: readonly OriginProviderModelAttemptEvidence[]; }
 
 function safeProviderMessage(code: OriginProviderErrorCode): string {
   switch (code) {
@@ -225,6 +240,7 @@ export interface OriginProviderAttemptDiagnostic {
   durationMs?: number;
   rateLimitHit?: boolean;
   rateLimit?: OriginRateLimitSnapshot;
+  modelAttempts?: readonly OriginProviderModelAttemptEvidence[];
 }
 
 export interface OriginProviderFailureDiagnostic {
@@ -360,6 +376,47 @@ export function summarizeOriginRateLimitSnapshot(value: unknown): OriginRateLimi
   return Object.keys(snapshot).length > 0 ? snapshot : undefined;
 }
 
+/**
+ * Whitelist reduction for one model-level attempt record (PR-A): the
+ * same discipline as the route-level summary — model identifiers in
+ * their known shape, this module's error-code enum, bounded counts
+ * and durations, and the rate-limit snapshot reduced by its own
+ * summarizer. Anything else is dropped, never passed through.
+ */
+function summarizeOriginProviderModelAttempt(
+  attempt: OriginProviderModelAttemptEvidence,
+): OriginProviderModelAttemptEvidence | null {
+  if (!attempt || typeof attempt !== "object") return null;
+  const modelId = safeRouteIdentifier(attempt.modelId);
+  if (!modelId) return null;
+  if (!["succeeded", "availability-error", "failed"].includes(attempt.outcome)) return null;
+  const summary: OriginProviderModelAttemptEvidence = { modelId, outcome: attempt.outcome };
+  if (attempt.errorCode && ORIGIN_PROVIDER_ERROR_CODE_SET.has(attempt.errorCode)) summary.errorCode = attempt.errorCode;
+  const upstreamStatus = safeUpstreamStatusValue(attempt.upstreamStatus);
+  if (upstreamStatus !== undefined) summary.upstreamStatus = upstreamStatus;
+  const durationMs = safeDurationMs(attempt.durationMs);
+  if (durationMs !== undefined) summary.durationMs = durationMs;
+  const transportRequestCount = safeTransportRequestCount(attempt.transportRequestCount);
+  if (transportRequestCount !== undefined) summary.transportRequestCount = transportRequestCount;
+  const estimatedInputTokens = safeTransportRequestCount(attempt.estimatedInputTokens);
+  if (estimatedInputTokens !== undefined) summary.estimatedInputTokens = estimatedInputTokens;
+  const rateLimit = summarizeOriginRateLimitSnapshot(attempt.rateLimit);
+  if (rateLimit) summary.rateLimit = rateLimit;
+  return summary;
+}
+
+function summarizeOriginProviderModelAttempts(
+  attempts: readonly OriginProviderModelAttemptEvidence[] | undefined,
+): OriginProviderModelAttemptEvidence[] | undefined {
+  if (!Array.isArray(attempts) || attempts.length === 0) return undefined;
+  const summaries: OriginProviderModelAttemptEvidence[] = [];
+  for (const attempt of attempts.slice(0, 8)) {
+    const summarized = summarizeOriginProviderModelAttempt(attempt);
+    if (summarized) summaries.push(summarized);
+  }
+  return summaries.length > 0 ? summaries : undefined;
+}
+
 function summarizeOriginProviderAttempt(attempt: OriginProviderAttemptEvidence): OriginProviderAttemptDiagnostic | null {
   if (!attempt || typeof attempt !== "object") return null;
   const providerId = safeRouteIdentifier(attempt.providerId);
@@ -383,7 +440,25 @@ function summarizeOriginProviderAttempt(attempt: OriginProviderAttemptEvidence):
   if (typeof attempt.rateLimitHit === "boolean") summary.rateLimitHit = attempt.rateLimitHit;
   const rateLimit = summarizeOriginRateLimitSnapshot(attempt.rateLimit);
   if (rateLimit) summary.rateLimit = rateLimit;
+  const modelAttempts = summarizeOriginProviderModelAttempts(attempt.modelAttempts);
+  if (modelAttempts) summary.modelAttempts = modelAttempts;
   return summary;
+}
+
+/**
+ * Total character count of one provider request's instruction plus
+ * message contents (PR-A observation): the size the sending routes
+ * actually carry, recorded by the synthesis callers so a slow or
+ * rejected dispatch can be attributed to its payload size from the
+ * response record alone. Counts only — the text itself is never
+ * recorded.
+ */
+export function measureOriginProviderRequestChars(request: OriginProviderExecutionRequest): number {
+  let chars = typeof request.systemInstruction === "string" ? request.systemInstruction.length : 0;
+  for (const message of request.messages ?? []) {
+    if (typeof message?.content === "string") chars += message.content.length;
+  }
+  return chars;
 }
 
 /**

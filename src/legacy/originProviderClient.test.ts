@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { assertOriginZeroCostExecutionResult, buildOriginProviderFailureDiagnostic, executeOriginProvider, originCompletionTokenBudget, OriginProviderError, resetOriginProviderCooldownForTests, safeOriginFinishReason, safeOriginUpstreamErrorCode, summarizeOriginProviderAttempts, type OriginFetch } from "./originProviderClient";
+import { assertOriginZeroCostExecutionResult, buildOriginProviderFailureDiagnostic, executeOriginProvider, measureOriginProviderRequestChars, originCompletionTokenBudget, OriginProviderError, resetOriginProviderCooldownForTests, safeOriginFinishReason, safeOriginUpstreamErrorCode, summarizeOriginProviderAttempts, type OriginFetch } from "./originProviderClient";
 import { ORIGIN_OPENROUTER_FREE_MODEL, type OriginExecutionPlan } from "../lib/orchestration/OriginExecutionPolicy";
 
 const plan: OriginExecutionPlan = {
@@ -246,6 +246,52 @@ describe("summarizeOriginProviderAttempts (round-6 measure 6-1a)", () => {
     expect(summarizeOriginProviderAttempts([
       { providerId: "not a route id!", modelId: "x", outcome: "succeeded" },
     ] as never)).toEqual([]);
+  });
+
+  it("carries per-model attempts through the whitelist and drops poisoned values (PR-A observation)", () => {
+    expect(summarizeOriginProviderAttempts([
+      {
+        providerId: "groq-free", modelId: "openai/gpt-oss-120b", outcome: "availability-error",
+        errorCode: "PROVIDER_RATE_LIMITED", transportRequestCount: 2, durationMs: 240,
+        modelAttempts: [
+          { modelId: "openai/gpt-oss-120b", outcome: "availability-error", errorCode: "PROVIDER_RATE_LIMITED", upstreamStatus: 429, durationMs: 120, transportRequestCount: 1, estimatedInputTokens: 6400 },
+          { modelId: "openai/gpt-oss-20b", outcome: "availability-error", errorCode: "PROVIDER_RATE_LIMITED", upstreamStatus: 429, durationMs: 110, transportRequestCount: 1, estimatedInputTokens: 6400 },
+        ],
+      },
+    ])).toEqual([
+      {
+        providerId: "groq-free", modelId: "openai/gpt-oss-120b", outcome: "availability-error",
+        errorCode: "PROVIDER_RATE_LIMITED", transportRequestCount: 2, durationMs: 240,
+        modelAttempts: [
+          { modelId: "openai/gpt-oss-120b", outcome: "availability-error", errorCode: "PROVIDER_RATE_LIMITED", upstreamStatus: 429, durationMs: 120, transportRequestCount: 1, estimatedInputTokens: 6400 },
+          { modelId: "openai/gpt-oss-20b", outcome: "availability-error", errorCode: "PROVIDER_RATE_LIMITED", upstreamStatus: 429, durationMs: 110, transportRequestCount: 1, estimatedInputTokens: 6400 },
+        ],
+      },
+    ]);
+    // A poisoned model identifier or an out-of-vocabulary outcome drops
+    // only that model record; a free-form string can never ride through.
+    expect(summarizeOriginProviderAttempts([
+      {
+        providerId: "groq-free", modelId: "openai/gpt-oss-120b", outcome: "failed", transportRequestCount: 1,
+        modelAttempts: [
+          { modelId: "not a model id!", outcome: "failed" },
+          { modelId: "openai/gpt-oss-20b", outcome: "mystery" },
+        ] as never,
+      },
+    ])).toEqual([
+      { providerId: "groq-free", modelId: "openai/gpt-oss-120b", outcome: "failed", transportRequestCount: 1 },
+    ]);
+  });
+
+  it("measures a request's payload characters without recording its text (PR-A observation)", () => {
+    expect(measureOriginProviderRequestChars({
+      plan: {} as never,
+      systemInstruction: "abcde",
+      messages: [
+        { role: "user", content: "1234567" },
+        { role: "assistant", content: "xy" },
+      ],
+    })).toBe(14);
   });
 });
 

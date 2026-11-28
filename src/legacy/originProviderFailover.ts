@@ -756,6 +756,12 @@ function upstreamAttemptFields(error: OriginProviderError): Partial<OriginProvid
     ...(diagnostic?.upstreamErrorType !== undefined ? { upstreamErrorType: diagnostic.upstreamErrorType } : {}),
     ...(diagnostic?.upstreamErrorCode !== undefined ? { upstreamErrorCode: diagnostic.upstreamErrorCode } : {}),
     ...(diagnostic?.rateLimit ? { rateLimit: diagnostic.rateLimit } : {}),
+    // PR-A observation: a route whose client rotated between models
+    // internally (Groq) carries the per-model breakdown on its error
+    // diagnostic; the route attempt record keeps it so the caller's
+    // summary can attribute the failure to a model pool. Routes whose
+    // clients do not rotate never set the field.
+    ...(diagnostic?.modelAttempts ? { modelAttempts: diagnostic.modelAttempts } : {}),
   };
 }
 
@@ -1016,6 +1022,7 @@ function composeGroqResult(
     modelId: groqResult.routingEvidence?.servedModel ?? ORIGIN_GROQ_FREE_MODEL_ID,
     rateLimitHit: false,
     ...(groqResult.rateLimit ? { rateLimit: groqResult.rateLimit } : {}),
+    ...(groqResult.modelAttempts ? { modelAttempts: groqResult.modelAttempts } : {}),
     transportRequestCount: groqResult.transportRequestCount,
     ...(groqDurationMs !== undefined ? { durationMs: groqDurationMs } : {}),
   });

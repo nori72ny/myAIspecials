@@ -157,7 +157,10 @@ describe("executeOriginGroqProvider", () => {
   it("returns exactly the pre-diagnostics result shape on success (observation-only change)", async () => {
     const fetchMock = vi.fn(async () => groqJson(successBody())) as unknown as OriginFetch;
     const result = await executeOriginGroqProvider(request, groqEnv, fetchMock, { nowMs: NOW_MS });
-    expect(result).toEqual({
+    // PR-A adds exactly one field to this shape: the per-model attempt
+    // record (whose duration is a measurement, asserted by shape).
+    const { modelAttempts, ...resultShape } = result;
+    expect(resultShape).toEqual({
       text: "第3経路の回答です。",
       transportRequestCount: 1,
       actualCostUsd: 0,
@@ -171,6 +174,12 @@ describe("executeOriginGroqProvider", () => {
         fallbackUsed: true,
       },
       usage: { promptTokens: 120, completionTokens: 40, totalTokens: 160, costUsd: 0 },
+    });
+    expect(modelAttempts).toHaveLength(1);
+    expect(modelAttempts?.[0]).toMatchObject({
+      modelId: ORIGIN_GROQ_FREE_MODEL_ID,
+      outcome: "succeeded",
+      transportRequestCount: 1,
     });
   });
 
@@ -193,11 +202,21 @@ describe("executeOriginGroqProvider", () => {
       .catch((caught: unknown) => caught);
     expect(error).toBeInstanceOf(OriginProviderError);
     expect(error).toMatchObject({ code: "PROVIDER_INVALID_RESPONSE", status: 502, retryable: true });
-    expect((error as OriginProviderError).diagnostic).toEqual({
+    // PR-A: the diagnostic additionally carries the per-model attempt
+    // record; the pre-existing fields are unchanged and exact.
+    const diagnostic = (error as OriginProviderError).diagnostic;
+    expect(diagnostic).toMatchObject({
       finishReason: "length",
       usagePromptTokens: 7_400,
       usageCompletionTokens: 620,
       usageReasoningTokens: 620,
+      transportRequestCount: 1,
+    });
+    expect(diagnostic?.modelAttempts).toHaveLength(1);
+    expect(diagnostic?.modelAttempts?.[0]).toMatchObject({
+      modelId: ORIGIN_GROQ_FREE_MODEL_ID,
+      outcome: "failed",
+      errorCode: "PROVIDER_INVALID_RESPONSE",
       transportRequestCount: 1,
     });
   });
@@ -486,6 +505,52 @@ describe("executeOriginGroqProvider in-route model rotation", () => {
     const secondBody = JSON.parse(String((calls[1] as [string, RequestInit])[1].body)) as { model: string };
     expect(firstBody.model).toBe(ORIGIN_GROQ_FREE_MODEL_ID);
     expect(secondBody.model).toBe(ORIGIN_GROQ_FREE_ROTATION_MODEL_ID);
+  });
+
+  it("records the per-model attempts of a rotation on the result (PR-A observation)", async () => {
+    const fetchMock = sequencedFetch([rateLimitResponse, () => groqJson(rotationSuccessBody())]);
+    const result = await executeOriginGroqProvider(request, groqEnv, fetchMock, { nowMs: NOW_MS });
+    expect(result.modelAttempts).toHaveLength(2);
+    expect(result.modelAttempts?.[0]).toMatchObject({
+      modelId: ORIGIN_GROQ_FREE_MODEL_ID,
+      outcome: "availability-error",
+      errorCode: "PROVIDER_RATE_LIMITED",
+      upstreamStatus: 429,
+      transportRequestCount: 1,
+    });
+    expect(result.modelAttempts?.[0].estimatedInputTokens).toBeGreaterThan(0);
+    expect(result.modelAttempts?.[1]).toMatchObject({
+      modelId: ORIGIN_GROQ_FREE_ROTATION_MODEL_ID,
+      outcome: "succeeded",
+      transportRequestCount: 1,
+    });
+  });
+
+  it("records the per-model attempts on the failure diagnostic when both models are rate-limited (PR-A observation)", async () => {
+    const fetchMock = vi.fn(async () => groqJson({ error: { code: "rate_limit_exceeded", message: "Rate limit reached" } }, 429)) as unknown as OriginFetch;
+    const error = await executeOriginGroqProvider(request, groqEnv, fetchMock, { nowMs: NOW_MS })
+      .catch((caught: unknown) => caught);
+    const attempts = (error as OriginProviderError).diagnostic?.modelAttempts;
+    expect(attempts).toHaveLength(2);
+    expect(attempts?.map((attempt) => attempt.modelId)).toEqual([
+      ORIGIN_GROQ_FREE_MODEL_ID,
+      ORIGIN_GROQ_FREE_ROTATION_MODEL_ID,
+    ]);
+    expect(attempts?.every((attempt) => attempt.outcome === "availability-error")).toBe(true);
+    expect((error as OriginProviderError).diagnostic?.transportRequestCount).toBe(2);
+  });
+
+  it("records cached tokens on the result usage when the provider reports them (PR-A observation)", async () => {
+    const fetchMock = sequencedFetch([
+      () => groqJson({
+        ...successBody(),
+        usage: { prompt_tokens: 500, completion_tokens: 40, total_tokens: 540, prompt_tokens_details: { cached_tokens: 320 } },
+      }),
+    ]);
+    const result = await executeOriginGroqProvider(request, groqEnv, fetchMock, { nowMs: NOW_MS });
+    expect(result.usage).toMatchObject({ promptTokens: 500, cachedTokens: 320 });
+    expect(result.modelAttempts).toHaveLength(1);
+    expect(result.modelAttempts?.[0]).toMatchObject({ modelId: ORIGIN_GROQ_FREE_MODEL_ID, outcome: "succeeded" });
   });
 
   it("rotates after an upstream 503 overload response", async () => {

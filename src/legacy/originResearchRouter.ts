@@ -19,7 +19,7 @@ import { isRefinementOfPreviousAnswer, originClientPolicy, screenConversationFor
 import { isSelfContainedCodeTaskRequest, resolveOriginCodeTaskRoutingMode } from "./originChatResponsePolicy.js";
 import { buildResearchReport } from "./originResearchReport.js";
 import { researchCurrentInformation, type OriginResearchResult, type OriginResearchSource } from "./originResearchSource.js";
-import { buildOriginProviderFailureDiagnostic, OriginProviderError, summarizeOriginProviderAttempts, type OriginProviderAttemptDiagnostic, type OriginProviderExecutionRequest, type OriginProviderExecutionResult } from "./originProviderClient.js";
+import { buildOriginProviderFailureDiagnostic, measureOriginProviderRequestChars, OriginProviderError, summarizeOriginProviderAttempts, type OriginProviderAttemptDiagnostic, type OriginProviderExecutionRequest, type OriginProviderExecutionResult } from "./originProviderClient.js";
 import { ORIGIN_CLOUDFLARE_WORKERS_AI_FREE_PROVIDER_ID, ORIGIN_GROQ_FREE_PROVIDER_ID } from "../lib/orchestration/OriginExecutionPolicy.js";
 import { ORIGIN_CLOUDFLARE_FREE_MODEL } from "../lib/orchestration/OriginCloudflareFreeModelCatalog.js";
 import { ORIGIN_GROQ_FREE_MODEL_ID } from "../lib/orchestration/OriginGroqFreeModelCatalog.js";
@@ -438,6 +438,9 @@ export function createOriginResearchRouter(options: OriginResearchRouterOptions 
     // research.synthesis record, so this router's failures are
     // attributable to a route and model from the response itself.
     let synthesisProviderAttempts: OriginProviderAttemptDiagnostic[] = [];
+    // PR-A observation: the V12 synthesis request's payload size,
+    // recorded with the attempt record (see the chat router).
+    let synthesisPayloadChars: number | undefined;
     let synthesisProviderRetryRoute: 2 | 3 | null = null;
     let synthesisProviderRetrySkipDetail: string | null = null;
     let synthesisProviderRetryFailed = false;
@@ -628,6 +631,7 @@ export function createOriginResearchRouter(options: OriginResearchRouterOptions 
               quoteFirstContext ? buildQuoteFirstContractInstruction(language) : undefined,
             ),
           };
+          synthesisPayloadChars = measureOriginProviderRequestChars(synthesisRequest);
           // Provider-failure retry (round-5 measure 5-2b): this
           // router previously had NO retry for the text synthesis —
           // a provider failure threw straight to the extractive
@@ -862,6 +866,7 @@ export function createOriginResearchRouter(options: OriginResearchRouterOptions 
                   ...(retryOutcome.retried ? { retried: true } : {}),
                   ...(synthesisProviderRetryRoute ? { providerRetried: true, providerRetryRoute: synthesisProviderRetryRoute } : {}),
                   ...(synthesisProviderAttempts.length > 0 ? { attempts: synthesisProviderAttempts } : {}),
+                  ...(synthesisPayloadChars !== undefined ? { payloadChars: synthesisPayloadChars } : {}),
                 },
               },
             });
@@ -961,7 +966,7 @@ export function createOriginResearchRouter(options: OriginResearchRouterOptions 
         ? "無料公開Web検索で取得した証拠をレコード形式で検証しましたが、検証を通ったレコードが不足し、検証済みの回答を組み立てられませんでした。要約した回答は作成せず、確認できた範囲と出典の一覧のみを示しています。主張の真偽・網羅性・媒体の権威性は独立検証していません。"
         : "Retrieved public evidence was checked in records form, but too few records passed verification to assemble a verified answer. No summarized answer was produced; only the confirmed scope and the source list are shown. Claim truth, completeness, and publisher authority were not independently verified."
       : language === "ja" ? "無料公開Web検索が実行され、取得した複数ソースを回答に添付しました。証拠レベルを各ソースに明示しています。独立AIレビューは実行していません。" : "The free public web search executed and attached multiple retrieved sources. Evidence level is explicit for each source. No independent AI review was performed.";
-    return res.status(200).json({ status: 200, content, answer: envelope(content, language, "not-run", reason, evidence), routing: { model: "ORIGIN 無料公開Web検索", provider: result.searchProvider ?? "DuckDuckGo", cost: 0, actualCostUsd: 0, costEvidenceStatus: "NOT_MEASURED", freeOnly: true, verificationStatus: "not-run", synthesisStatus }, research: { source: result.searchProvider ?? "DuckDuckGo", sources: result.sources, report, sourceAssessments, comparison, fallback: result.fallback, ...(result.grounding ? { grounding: result.grounding } : {}), synthesis: { status: synthesisStatus, ...(synthesisFailureCode ? { failureCode: synthesisFailureCode } : {}), ...(synthesisProviderAttempts.length > 0 ? { attempts: synthesisProviderAttempts } : {}), ...(synthesisProviderRetrySkipDetail ? { providerRetrySkipDetail: synthesisProviderRetrySkipDetail } : {}), ...(synthesisProviderRetryFailed ? { providerRetryFailed: true } : {}) } } });
+    return res.status(200).json({ status: 200, content, answer: envelope(content, language, "not-run", reason, evidence), routing: { model: "ORIGIN 無料公開Web検索", provider: result.searchProvider ?? "DuckDuckGo", cost: 0, actualCostUsd: 0, costEvidenceStatus: "NOT_MEASURED", freeOnly: true, verificationStatus: "not-run", synthesisStatus }, research: { source: result.searchProvider ?? "DuckDuckGo", sources: result.sources, report, sourceAssessments, comparison, fallback: result.fallback, ...(result.grounding ? { grounding: result.grounding } : {}), synthesis: { status: synthesisStatus, ...(synthesisFailureCode ? { failureCode: synthesisFailureCode } : {}), ...(synthesisProviderAttempts.length > 0 ? { attempts: synthesisProviderAttempts } : {}), ...(synthesisPayloadChars !== undefined ? { payloadChars: synthesisPayloadChars } : {}), ...(synthesisProviderRetrySkipDetail ? { providerRetrySkipDetail: synthesisProviderRetrySkipDetail } : {}), ...(synthesisProviderRetryFailed ? { providerRetryFailed: true } : {}) } } });
   });
   return router;
 }

@@ -226,7 +226,7 @@ describe("research router synthesis feedback retry", () => {
     expect(response.body.content).toBe(validText);
     expect(response.body.routing.synthesisStatus).toBe("citation-validated");
     expect(response.body.routing.synthesisRetried).toBe(true);
-    expect(response.body.research.synthesis).toEqual({ status: "citation-validated", sourceCount: 2, retried: true });
+    expect(response.body.research.synthesis).toEqual({ status: "citation-validated", sourceCount: 2, retried: true, payloadChars: expect.any(Number) });
     expect(synthesis).toHaveBeenCalledTimes(2);
     // The feedback names the unsupported price token from the first text,
     // in the scan's normalized form (thousands separator removed). The
@@ -257,7 +257,7 @@ describe("research router synthesis feedback retry", () => {
     expect(response.status).toBe(200);
     expect(response.body.content).toContain("出典付き調査レポート（抽出方式）");
     expect(response.body.content).not.toContain("99,800円です");
-    expect(response.body.research.synthesis).toEqual({ status: "citation-validation-failed", failureCode: "UNKNOWN_CITATION" });
+    expect(response.body.research.synthesis).toEqual({ status: "citation-validation-failed", failureCode: "UNKNOWN_CITATION", payloadChars: expect.any(Number) });
     expect(synthesis).toHaveBeenCalledTimes(2);
   });
 });

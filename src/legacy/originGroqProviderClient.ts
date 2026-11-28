@@ -23,6 +23,7 @@ import {
   type OriginProviderDiagnostic,
   type OriginProviderExecutionRequest,
   type OriginProviderExecutionResult,
+  type OriginProviderModelAttemptEvidence,
   type OriginRateLimitSnapshot,
 } from "./originProviderClient.js";
 import {
@@ -312,7 +313,7 @@ export function assertOriginGroqExecutionResult(result: OriginProviderExecutionR
 interface GroqChatCompletionEnvelope {
   model?: unknown;
   choices?: Array<{ message?: { content?: unknown }; finish_reason?: unknown }>;
-  usage?: { prompt_tokens?: unknown; completion_tokens?: unknown; total_tokens?: unknown; completion_tokens_details?: { reasoning_tokens?: unknown } };
+  usage?: { prompt_tokens?: unknown; completion_tokens?: unknown; total_tokens?: unknown; completion_tokens_details?: { reasoning_tokens?: unknown }; prompt_tokens_details?: { cached_tokens?: unknown } };
   error?: { code?: unknown; type?: unknown; message?: unknown };
 }
 
@@ -390,12 +391,19 @@ function inferenceFailure(status: number, body: GroqChatCompletionEnvelope | nul
   return new OriginProviderError("PROVIDER_UNAVAILABLE", "無料AIを現在利用できません。", 503, false, undefined, diagnostic);
 }
 
-function extractUsage(body: GroqChatCompletionEnvelope): { promptTokens: number; completionTokens: number; totalTokens: number } {
+function extractUsage(body: GroqChatCompletionEnvelope): { promptTokens: number; completionTokens: number; totalTokens: number; cachedTokens?: number } {
   const usage = body.usage;
   const promptTokens = Number.isSafeInteger(usage?.prompt_tokens) && Number(usage?.prompt_tokens) >= 0 ? Number(usage?.prompt_tokens) : 0;
   const completionTokens = Number.isSafeInteger(usage?.completion_tokens) && Number(usage?.completion_tokens) >= 0 ? Number(usage?.completion_tokens) : 0;
   const totalTokens = Number.isSafeInteger(usage?.total_tokens) && Number(usage?.total_tokens) >= 0 ? Number(usage?.total_tokens) : promptTokens + completionTokens;
-  return { promptTokens, completionTokens, totalTokens };
+  // PR-A observation: the provider's prompt-cache hit count for this
+  // request. Cached input tokens are excluded from the free plan's
+  // tokens/minute and tokens/day accounting, so the cache hit rate is
+  // a capacity variable, not a curiosity — recorded when the provider
+  // reports it, absent when it does not (never invented).
+  const cachedRaw = usage?.prompt_tokens_details?.cached_tokens;
+  const cachedTokens = Number.isSafeInteger(cachedRaw) && Number(cachedRaw) >= 0 ? Number(cachedRaw) : undefined;
+  return { promptTokens, completionTokens, totalTokens, ...(cachedTokens !== undefined ? { cachedTokens } : {}) };
 }
 
 /**
@@ -438,6 +446,15 @@ export interface OriginGroqExecutionOptions {
    */
   pacingNowMs?: () => number;
   pacingSleepMs?: (ms: number) => Promise<void>;
+  /**
+   * PR-A observation sink: when the caller supplies this object, the
+   * blocking attempt writes the pre-send gate's input estimate into it
+   * as soon as preparation completes, so the caller's per-model attempt
+   * record can carry the estimate even when the send itself then
+   * fails. Recording only — preparation and sending are unchanged
+   * whether or not the sink is present.
+   */
+  attemptTrace?: { estimatedInputTokens?: number };
 }
 
 interface OriginGroqPreparedAttempt {
@@ -553,7 +570,7 @@ function composeGroqAttemptResult(
   plan: OriginExecutionPlan,
   modelId: OriginGroqFreeModelId,
   transport: { count: number },
-  usage: { promptTokens: number; completionTokens: number; totalTokens: number },
+  usage: { promptTokens: number; completionTokens: number; totalTokens: number; cachedTokens?: number },
   rateLimit?: OriginRateLimitSnapshot,
 ): OriginProviderExecutionResult {
   const result: OriginProviderExecutionResult = {
@@ -569,7 +586,7 @@ function composeGroqAttemptResult(
       attempt: 3,
       fallbackUsed: true,
     },
-    usage: { promptTokens: usage.promptTokens, completionTokens: usage.completionTokens, totalTokens: usage.totalTokens, costUsd: 0 },
+    usage: { promptTokens: usage.promptTokens, completionTokens: usage.completionTokens, totalTokens: usage.totalTokens, ...(usage.cachedTokens !== undefined ? { cachedTokens: usage.cachedTokens } : {}), costUsd: 0 },
     ...(rateLimit ? { rateLimit } : {}),
   };
   assertOriginGroqExecutionResult(result, modelId);
@@ -616,6 +633,7 @@ async function executeGroqModelAttempt(
   pacing?: OriginGroqPacingContext,
 ): Promise<OriginProviderExecutionResult> {
   const { modelId, messages, completionBudget, timeoutMs, estimatedInputTokens } = prepareGroqModelAttempt(providerRequest, plan, options);
+  if (options.attemptTrace) options.attemptTrace.estimatedInputTokens = estimatedInputTokens;
   // D-1 pacing (allocated cascade only): the send's footprint is booked
   // against the model's rolling per-minute window before anything is
   // sent, waiting or deferring as the pacing context directs. Attempts
@@ -814,6 +832,22 @@ async function paceGroqModelSend(
   }
 }
 
+/**
+ * PR-A observation: attaches the accumulated per-model attempt records
+ * to a provider error's diagnostic, preserving every existing field.
+ * Non-provider errors and empty record sets pass through untouched.
+ */
+function withGroqModelAttempts(error: unknown, modelAttempts: readonly OriginProviderModelAttemptEvidence[]): unknown {
+  if (modelAttempts.length === 0) return error;
+  if (error instanceof OriginProviderError) {
+    return new OriginProviderError(error.code, error.message, error.status, error.retryable, error.retryAfterSeconds, {
+      ...error.diagnostic,
+      modelAttempts: [...modelAttempts],
+    });
+  }
+  return error;
+}
+
 function withTransportCount(error: unknown, transport: { count: number }): unknown {
   if (error instanceof OriginGroqPreflightError) return error;
   if (error instanceof OriginProviderError) {
@@ -964,8 +998,54 @@ export async function executeOriginGroqProvider(
         : executePlannedAllocationCascade(providerRequest, rotationPlan, providerRequest.plan, ORIGIN_GROQ_FREE_MODEL_ID, apiKey, fetchImpl, options, transport, env);
     }
   }
+  // PR-A observation (design SYNTHESIS_RELIABILITY_DESIGN_2026-11-27
+  // §9 PR-A): every stage of the standard cascade is recorded as a
+  // per-model attempt — which model was tried, how it ended, how long
+  // it took, how many sends it spent, the pre-send estimate, and the
+  // rate-limit snapshot its response carried — so a rotation is
+  // distinguishable from a single model's failure in the caller's
+  // record. Recording only: stage order, trigger conditions, and
+  // error propagation are exactly as before (a recorded failure is
+  // rethrown with its diagnostic extended, never altered in code,
+  // status, or retryability). Preflight failures are not model
+  // attempts — nothing was prepared or sent — and stay unrecorded
+  // here; the failover layer records them as route skips.
+  const modelAttempts: OriginProviderModelAttemptEvidence[] = [];
+  const runGroqStage = async (stagePlan: OriginExecutionPlan): Promise<OriginProviderExecutionResult> => {
+    const trace: { estimatedInputTokens?: number } = {};
+    const startedAtMs = Date.now();
+    const startCount = transport.count;
+    try {
+      const result = await executeGroqModelAttempt(providerRequest, stagePlan, apiKey, fetchImpl, { ...options, attemptTrace: trace }, transport);
+      modelAttempts.push({
+        modelId: stagePlan.modelId,
+        outcome: "succeeded",
+        durationMs: Date.now() - startedAtMs,
+        transportRequestCount: transport.count - startCount,
+        ...(trace.estimatedInputTokens !== undefined ? { estimatedInputTokens: trace.estimatedInputTokens } : {}),
+        ...(result.rateLimit ? { rateLimit: result.rateLimit } : {}),
+      });
+      result.modelAttempts = [...modelAttempts];
+      return result;
+    } catch (stageError) {
+      if (stageError instanceof OriginProviderError) {
+        modelAttempts.push({
+          modelId: stagePlan.modelId,
+          outcome: isGroqRotationTrigger(stageError) ? "availability-error" : "failed",
+          errorCode: stageError.code,
+          ...(stageError.diagnostic?.upstreamStatus !== undefined ? { upstreamStatus: stageError.diagnostic.upstreamStatus } : {}),
+          durationMs: Date.now() - startedAtMs,
+          transportRequestCount: transport.count - startCount,
+          ...(trace.estimatedInputTokens !== undefined ? { estimatedInputTokens: trace.estimatedInputTokens } : {}),
+          ...(stageError.diagnostic?.rateLimit ? { rateLimit: stageError.diagnostic.rateLimit } : {}),
+        });
+        throw withGroqModelAttempts(stageError, modelAttempts);
+      }
+      throw stageError;
+    }
+  };
   try {
-    return await executeGroqModelAttempt(providerRequest, providerRequest.plan, apiKey, fetchImpl, options, transport);
+    return await runGroqStage(providerRequest.plan);
   } catch (error) {
     if (error instanceof OriginProviderError
       && providerRequest.plan.modelId === ORIGIN_GROQ_FREE_MODEL_ID
@@ -973,7 +1053,7 @@ export async function executeOriginGroqProvider(
       const rotationPlan = buildGroqRotationPlan(providerRequest, options);
       if (rotationPlan) {
         try {
-          return await executeGroqModelAttempt(providerRequest, rotationPlan, apiKey, fetchImpl, options, transport);
+          return await runGroqStage(rotationPlan);
         } catch (rotationError) {
           // Second rotation stage: qwen/qwen3.8-27b (Preview), reached only
           // when the first rotation model also failed with a rotation
@@ -986,7 +1066,7 @@ export async function executeOriginGroqProvider(
             const qwenPlan = buildGroqRotationPlan(providerRequest, options, ORIGIN_GROQ_QWEN_MODEL_ID);
             if (qwenPlan) {
               try {
-                return await executeGroqModelAttempt(providerRequest, qwenPlan, apiKey, fetchImpl, options, transport);
+                return await runGroqStage(qwenPlan);
               } catch (qwenError) {
                 throw withTransportCount(qwenError, transport);
               }
