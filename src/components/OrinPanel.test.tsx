@@ -1,8 +1,9 @@
-import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import OrinPanel, { type OrinPanelProps } from './OrinPanel';
 import { setSessionCredential } from '../security/sessionCredentials';
 import { clearOrinAiNewsCache } from './orinAiNews';
+import { refreshVoiceOutputAvailability } from '../voice/voiceOutputAvailability';
 
 const baseProps: OrinPanelProps = {
   open: true,
@@ -263,5 +264,101 @@ describe('OrinPanel (panel design 2026-11-24, expansion 2026-11-25)', () => {
     expect(onClose).toHaveBeenCalledTimes(1);
     fireEvent.click(screen.getByTestId('origin-orin-panel-back'));
     expect(onClose).toHaveBeenCalledTimes(2);
+  });
+
+  it('labels the single foreground completion as the latest one only (Q9-03, list unavailable)', () => {
+    stubFetch(() => new Response('{}', { status: 200, headers: { 'Content-Type': 'application/json' } }));
+    renderPanel({ lastCompletedChat: { label: '質問への回答', at: Date.now() } });
+    const work = screen.getByTestId('origin-orin-panel-work');
+    // 件数は表示している行の数。前景の完了は直近の1件だけが保持
+    // される設計で、行の側がその範囲を明示する（Q9-03）。
+    expect(work.textContent).toContain('完了（1件）');
+    expect(work.textContent).toContain('質問への回答');
+    expect(work.textContent).toContain('直近の完了');
+    expect(work.textContent).toContain('終わった作業は、最新の1件だけを表示しています');
+  });
+
+  it('marks the chat completion row as latest-only next to finished runs (Q9-03)', async () => {
+    setSessionCredential('admin', 'test-credential');
+    const now = Date.now();
+    const iso = (ms: number) => new Date(ms).toISOString();
+    stubFetch((url) => {
+      if (url.includes('/api/agent/v3/runs')) {
+        return runsResponse([
+          {
+            runId: 'run-done', status: 'completed', goal: '終わった依頼',
+            plan: [{ toolName: 'web_search_grounding' }],
+            stepsState: [{ id: 's0', status: 'completed' }],
+            hold: null, createdAt: iso(now - 3600_000), updatedAt: iso(now - 600_000),
+          },
+        ]);
+      }
+      return new Response('{}', { status: 200, headers: { 'Content-Type': 'application/json' } });
+    });
+    renderPanel({ lastCompletedChat: { label: '質問への回答', at: now } });
+    const work = await screen.findByTestId('origin-orin-panel-work');
+    await waitFor(() => expect(work.textContent).toContain('終わった依頼'));
+    // 表示行は2行（終わったエージェント依頼＋直近のチャット完了）。
+    expect(work.textContent).toContain('完了（2件）');
+    expect(work.textContent).toContain('直近の完了');
+    expect(work.textContent).toContain('チャット・画像の完了は、最新の1件だけを表示しています');
+  });
+
+  it('keeps voice conversation "in preparation" when the device cannot converse, even with the switch on (Q8-01)', async () => {
+    stubFetch(() => new Response('{}', { status: 200, headers: { 'Content-Type': 'application/json' } }));
+    const healthOn = vi.fn(async () => new Response(
+      JSON.stringify({ voiceOutputEnabled: true }),
+      { status: 200, headers: { 'Content-Type': 'application/json' } },
+    ));
+    await act(async () => { await refreshVoiceOutputAvailability(healthOn as unknown as typeof fetch); });
+    try {
+      renderPanel({ onOpenAgent: vi.fn() });
+      fireEvent.click(screen.getByTestId('origin-orin-panel-tab-features'));
+      const features = screen.getByTestId('origin-orin-panel-features');
+      // jsdom には聞き取り・読み上げが無い＝会話バーも出ない端末。
+      // カタログも同じ判定で「準備中」に倒れる（fail closed）。
+      expect(within(features).getByTestId('origin-orin-panel-feature-status-voice-talk').textContent).toBe('準備中');
+      expect(features.textContent).toContain('今の端末・ブラウザでは、まだ会話を使えません。');
+      expect(features.textContent).not.toContain('聞き取り確認');
+    } finally {
+      // 音声ストアはモジュール共有なので、他のテストへ持ち越さない。
+      const healthOff = vi.fn(async () => { throw new Error('offline'); });
+      await act(async () => { await refreshVoiceOutputAvailability(healthOff as unknown as typeof fetch); });
+    }
+  });
+
+  it('shows voice conversation as available when the switch is on and the device supports it (Q8-01)', async () => {
+    vi.stubGlobal('speechSynthesis', {
+      speak: () => {},
+      cancel: () => {},
+      getVoices: () => [],
+      addEventListener: () => {},
+      removeEventListener: () => {},
+    });
+    vi.stubGlobal('SpeechRecognition', class {
+      start(): void {}
+      stop(): void {}
+      abort(): void {}
+    });
+    stubFetch(() => new Response('{}', { status: 200, headers: { 'Content-Type': 'application/json' } }));
+    const healthOn = vi.fn(async () => new Response(
+      JSON.stringify({ voiceOutputEnabled: true }),
+      { status: 200, headers: { 'Content-Type': 'application/json' } },
+    ));
+    await act(async () => { await refreshVoiceOutputAvailability(healthOn as unknown as typeof fetch); });
+    try {
+      renderPanel({ onOpenAgent: vi.fn() });
+      fireEvent.click(screen.getByTestId('origin-orin-panel-tab-features'));
+      const features = screen.getByTestId('origin-orin-panel-features');
+      // 使える項目には状態ラベルを付けない（例外だけに付ける決まり）。
+      expect(within(features).queryByTestId('origin-orin-panel-feature-status-voice-talk')).toBeNull();
+      expect(features.textContent).toContain('声で話しかけると、その場で会話できます。');
+      expect(features.textContent).not.toContain('聞き取り確認');
+      // 会話に画面遷移の action は無いので、行はボタにしない。
+      expect(within(features).getByTestId('origin-orin-panel-feature-voice-talk').tagName).toBe('DIV');
+    } finally {
+      const healthOff = vi.fn(async () => { throw new Error('offline'); });
+      await act(async () => { await refreshVoiceOutputAvailability(healthOff as unknown as typeof fetch); });
+    }
   });
 });

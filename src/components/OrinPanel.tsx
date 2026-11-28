@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import {
   Blocks,
   Bot,
@@ -23,6 +23,7 @@ import {
   getVoiceOutputAvailability,
   subscribeVoiceOutputAvailability,
 } from '../voice/voiceOutputAvailability';
+import { voiceConversation } from '../voice/voiceConversation';
 import {
   orinPanelProgressText,
   orinPanelStepStatusText,
@@ -168,6 +169,11 @@ export default function OrinPanel({
     getVoiceOutputAvailability,
     getVoiceOutputAvailability,
   );
+  // 声の会話がこの端末で使えるかは、会話バー（VoiceConversationBar）
+  // の表示条件と同一に判定する：音声スイッチの確認結果（上の
+  // voiceOutput）と、端末の聞き取り・読み上げ対応（コントローラの
+  // supported()）の両方がそろった時だけ入口が出る（Q8-01）。
+  const voiceConversationSupported = useMemo(() => voiceConversation.supported(), []);
 
   // Escで閉じる（旧カードから継承）。
   useEffect(() => {
@@ -378,7 +384,17 @@ export default function OrinPanel({
       });
     }
     if (lastCompletedChat) {
-      doneRows.push({ id: 'last-completed-chat', title: lastCompletedChat.label, statusText: ja ? '完了' : 'Done', pulsing: false });
+      // 前景（チャット・画像）の完了は、App が直近の1件だけを保持
+      // する設計（lastCompletedWork）。節の件数は「表示している行
+      // の数」であって完了した作業の総数ではないため、行の側で
+      // 範囲を明示する（品質検査 Q9-03、2026-11-28）。
+      doneRows.push({
+        id: 'last-completed-chat',
+        title: lastCompletedChat.label,
+        statusText: ja ? '直近の完了' : 'Latest completion',
+        note: ja ? 'チャット・画像の完了は、最新の1件だけを表示しています' : 'Only the latest chat or image completion is shown.',
+        pulsing: false,
+      });
     }
   } else {
     // 一覧が引けない時は従来どおり直近の完了1件だけ（新しい方）。
@@ -388,10 +404,13 @@ export default function OrinPanel({
     ].filter((candidate) => candidate !== null).sort((a, b) => b.at - a.at);
     const localDone = candidates[0];
     if (localDone) {
+      // 一覧が引けない時の受け皿も「直近の完了1件」であり、完了の
+      // 総数ではない。行の側で範囲を明示する（Q9-03）。
       doneRows.push({
         id: 'last-completed',
         title: localDone.label,
-        statusText: ja ? '完了' : 'Done',
+        statusText: ja ? '直近の完了' : 'Latest completion',
+        note: ja ? '終わった作業は、最新の1件だけを表示しています' : 'Only the latest finished work is shown.',
         steps: localDone.steps,
         pulsing: false,
       });
@@ -407,6 +426,7 @@ export default function OrinPanel({
 
   const catalog = buildOrinFeatureCatalog({
     voiceOutput: voiceOutput === 'available',
+    voiceConversation: voiceOutput === 'available' && voiceConversationSupported,
     attachments: attachmentsEnabled,
   });
 

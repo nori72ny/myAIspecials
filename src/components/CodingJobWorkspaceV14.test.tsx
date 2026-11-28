@@ -149,6 +149,21 @@ describe('CodingJobWorkspaceV14', () => {
     expect(guide.textContent).not.toContain('「実行キーを入力する」を押すと');
   });
 
+  it('keeps the key-entry guidance to the button line and the guide row (Q9-02)', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(response(capability));
+    vi.stubGlobal('fetch', fetchMock);
+    render(<CodingJobWorkspaceV14 />);
+    await screen.findByText('準備できています');
+    // 開始条件はボタン直下の状態行に集約する。
+    expect(screen.getAllByText('始めるには、先に実行キーを入力してください')).toHaveLength(1);
+    // 入力場所の案内はガイド行の1回だけ。進み方の締めの文では
+    // 繰り返さない（同趣旨の行を1〜2行に収める）。
+    expect(screen.getAllByText(/実行キーは、設定の「コード実行」で入力します/)).toHaveLength(1);
+    const guide = screen.getByRole('region', { name: '進み方' });
+    expect(guide.textContent).not.toContain('設定で実行キーを入力してから始められます');
+    expect(guide.textContent).toContain('「実行キーを入力する」を押すと、進み具合と結果はここに表示されます。');
+  });
+
   it('keeps submission fail-closed without an internal readiness breakdown when prerequisites are missing', async () => {
     const fetchMock = vi.fn().mockResolvedValueOnce(response({
       ...capability,

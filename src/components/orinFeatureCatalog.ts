@@ -6,10 +6,15 @@
  * 状態の決め方は項目ごとに3種（§6.3）：
  * 1. 固定：本番で常時使えるものは 'ready'、有効化待ちは
  *    'preparing'、条件つきで動くものは 'partial' をカタログに持つ。
- * 2. ヘルス連動：読み上げ（voiceOutputEnabled）と添付
- *    （attachmentsEnabled）だけは、開いた時点の確認結果で決める。
- *    取れない時は「準備中」側に倒す（fail closed：確認できない
- *    ものを「使える」とは言わない）。
+ * 2. 実状態連動：読み上げ（voiceOutputEnabled）、声の会話
+ *    （入口がこの端末で実際に出るか）と添付（attachmentsEnabled）
+ *    は、開いた時点の確認結果で決める。取れない時は「準備中」側
+ *    に倒す（fail closed：確認できないものを「使える」とは
+ *    言わない）。声の会話の判定は会話バー（VoiceConversationBar）
+ *    の表示条件と同一：サーバー側の音声スイッチが確認でき、かつ
+ *    端末が聞き取りと読み上げの両方に対応していること
+ *    （品質検査 Q8-01 の是正、2026-11-28：実稼働中なのに
+ *    「準備中」と表示され続けていた）。
  * 3. 準備中の項目には移動操作を付けない（押して「使えません」
  *    となる体験を作らない）。
  */
@@ -28,6 +33,11 @@ export type OrinFeatureIcon =
 export interface OrinFeatureHealth {
   /** 音声読み上げが使えるか（ヘルス表示の voiceOutputEnabled）。 */
   voiceOutput: boolean;
+  /**
+   * 声の会話の入口がこの端末で実際に出るか（会話バーの表示条件と
+   * 同一：音声スイッチ確認済み かつ 端末が聞き取り・読み上げ対応）。
+   */
+  voiceConversation: boolean;
   /** エージェントへのファイル添付が使えるか（状態表示の attachmentsEnabled）。 */
   attachments: boolean;
 }
@@ -183,11 +193,16 @@ export function buildOrinFeatureCatalog(health: OrinFeatureHealth): OrinFeatureG
           id: 'voice-talk',
           icon: 'mic',
           name: { ja: '声で話しかける・会話する', en: 'Talk by voice' },
-          description: {
-            ja: '日本語の聞き取り確認のあとに使えるようになります。',
-            en: 'Available after the Japanese listening check.',
-          },
-          status: 'preparing',
+          description: health.voiceConversation
+            ? {
+              ja: '声で話しかけると、その場で会話できます。',
+              en: 'Start a voice conversation right away.',
+            }
+            : {
+              ja: '今の端末・ブラウザでは、まだ会話を使えません。',
+              en: 'Voice conversation is not available on this device or browser yet.',
+            },
+          status: health.voiceConversation ? 'ready' : 'preparing',
         },
       ],
     },
