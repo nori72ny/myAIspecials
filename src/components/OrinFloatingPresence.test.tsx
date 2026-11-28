@@ -195,13 +195,14 @@ describe('Orin presence (2026-11-14 08:59 revision, frameless form + floating au
     // 枠なし方式（2026-11-20 12:06）：台座も窓枠も付けない。
     // 円盤は枠も影もないラッパー（__disc）に包まれる。
     expect(within(presence).queryByTestId('origin-cat-pedestal')).toBeNull();
-    // 円盤の中のオリン：通常時（待機・未スクロール）は絵72px
-    // （2026-11-20 18:17 の実機判定で、顔が読める大きさへ拡大）。
+    // 円盤の中のオリン：通常時（待機・未スクロール）は絵96px
+    // （2026-11-20 18:17 の実機判定で顔が読める大きさへ拡大し、
+    // 2026-11-28 の実機判定でさらに拡大）。
     const cat = screen.getByTestId('origin-cat-state');
     expect(cat.tagName).toBe('IMG');
     expect((cat as HTMLElement).style.width).toBe(`${ORIN_PRESENCE_CAT_SIZE_PX}px`);
     expect((cat as HTMLElement).style.height).toBe(`${ORIN_PRESENCE_CAT_SIZE_PX}px`);
-    expect(ORIN_PRESENCE_CAT_SIZE_PX).toBe(72);
+    expect(ORIN_PRESENCE_CAT_SIZE_PX).toBe(96);
     expect(presence.contains(cat)).toBe(true);
     expect(cat.parentElement?.classList.contains('origin-orin-presence__disc')).toBe(true);
     // 待機中はオリンだけの形（is-idle）になり、
@@ -230,17 +231,17 @@ describe('Orin presence (2026-11-14 08:59 revision, frameless form + floating au
   it('shows the status text below the disc while working, and shrinks the art to the compact size (2026-11-20 10:10 auto-shrink; text moved below 2026-11-21)', () => {
     const { props, rerender } = renderPresence();
     const idleCat = screen.getByTestId('origin-cat-state');
-    expect((idleCat as HTMLElement).style.width).toBe('72px');
+    expect((idleCat as HTMLElement).style.width).toBe('96px');
     rerender(<OrinFloatingPresence {...props} text="回答を準備しています…" state="thinking" />);
     // 状態テキストは段階文をそのまま円盤の下に出す（中心軸は待機時と固定）。
     expect(screen.getByTestId('origin-orin-presence-status').textContent).toBe('回答を準備しています…');
-    // 作業中は自動縮小が発火し、絵は48pxになる（テキストは常に見える）。
+    // 作業中は自動縮小が発火し、絵は64pxになる（テキストは常に見える）。
     const cat = screen.getByTestId('origin-cat-state');
     expect(cat).toBe(idleCat);
-    expect(ORIN_PRESENCE_CAT_SIZE_COMPACT_PX).toBe(48);
+    expect(ORIN_PRESENCE_CAT_SIZE_COMPACT_PX).toBe(64);
     expect((cat as HTMLElement).style.width).toBe(`${ORIN_PRESENCE_CAT_SIZE_COMPACT_PX}px`);
     expect((cat as HTMLElement).style.height).toBe(`${ORIN_PRESENCE_CAT_SIZE_COMPACT_PX}px`);
-    // 名前タグは作業中（48px の縮小状態）でも常に出て読める。
+    // 名前タグは作業中（64px の縮小状態）でも常に出て読める。
     expect(screen.getByTestId('origin-orin-presence-name').textContent).toBe('Orin');
     // テキストが出ている間はオリンだけの形ではなく、呼吸も付けない。
     const tap = screen.getByRole('button', { name: 'Orin（いまの作業を表示）' });
@@ -252,7 +253,7 @@ describe('Orin presence (2026-11-14 08:59 revision, frameless form + floating au
   it('keeps the full idle size: scroll state no longer shrinks the presence (P4, 2026-11-23)', () => {
     renderPresence();
     // P4 改訂：プレゼンスは通常フロー内の行になり、スクロールで
-    // 縮むことも薄くなることもなくなった。待機中は常に 72px で、
+    // 縮むことも薄くなることもなくなった。待機中は常に 96px で、
     // is-compact は付かず、円盤に is-scrolling も付かない。
     const cat = screen.getByTestId('origin-cat-state');
     expect((cat as HTMLElement).style.width).toBe(`${ORIN_PRESENCE_CAT_SIZE_PX}px`);
@@ -323,14 +324,14 @@ describe('Orin presence (2026-11-14 08:59 revision, frameless form + floating au
   it('on completion only the status text fades out — the presence and the art stay, and the art grows back to full size', () => {
     const { props, rerender } = renderPresence({ text: '回答を準備しています…', state: 'thinking' });
     act(() => { vi.advanceTimersByTime(50); });
-    // テキスト表示中は自動縮小で48px。
+    // テキスト表示中は自動縮小で64px。
     expect((screen.getByTestId('origin-cat-state') as HTMLElement).style.width).toBe(`${ORIN_PRESENCE_CAT_SIZE_COMPACT_PX}px`);
     rerender(<OrinFloatingPresence {...props} text={null} state="idle" />);
     // フェードアウトの間テキストは残り、尺が過ぎたらテキストだけが消える。
     expect(screen.queryByTestId('origin-orin-presence-status')).not.toBeNull();
     act(() => { vi.advanceTimersByTime(ORIN_PRESENCE_FADE_MS); });
     expect(screen.queryByTestId('origin-orin-presence-status')).toBeNull();
-    // 姿は残り、絵は通常の72pxに戻る。オリンだけの形に戻り、
+    // 姿は残り、絵は通常の96pxに戻る。オリンだけの形に戻り、
     // 自動縮小も解ける。
     expect(screen.getByTestId('origin-orin-presence')).toBeTruthy();
     const cat = screen.getByTestId('origin-cat-state');
@@ -420,7 +421,7 @@ describe('Orin presence (2026-11-14 08:59 revision, frameless form + floating au
     expect(tapRule).toContain('box-shadow: none;');
     expect(tapRule).toContain('padding: 6px;');
     // タップの的は全状態で44px以上（2026-11-20 15:36）：最小寸法
-    // を44pxに置き、48pxの縮小状態でも的は 60px（48＋ padding
+    // を44pxに置き、64pxの縮小状態でも的は 76px（64＋ padding
     // 6px×2）になる。
     expect(tapRule).toContain('min-width: 44px;');
     expect(tapRule).toContain('min-height: 44px;');

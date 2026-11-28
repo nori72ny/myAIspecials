@@ -103,8 +103,14 @@ export interface OrinPanelProps {
   onOpenDocuments?: (draft: string) => void;
 }
 
-/** カードに出すオリンの姿の寸法（px）。旧プロフィールカードから継承。 */
-export const ORIN_PANEL_ART_SIZE_PX = 80;
+/**
+ * パネルに出すオリンの姿の寸法（px）。旧プロフィールカードから
+ * 継承した 80px は、常駐プレゼンス（当時 72px）より一回り大きい
+ * 値だった。2026-11-28 に常駐が 96px へ拡大されたのに合わせ、
+ * パネル側が小さく見える階層の逆転を避けて 112px にした
+ * （パネル表示中は常駐が隠れ、パネル側が「大きいオリン」を担う）。
+ */
+export const ORIN_PANEL_ART_SIZE_PX = 112;
 
 /**
  * パネルが表示する作業状態の材料一式。「残っている依頼」ページ

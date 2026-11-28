@@ -160,7 +160,7 @@ export default function AgentLivePanel({ steps, runView, statusHint, catState }:
 
   return <section aria-label="いまの作業" className="p-4">
     <div className="flex items-center gap-2">
-      <OriginCatState state={catState} size={32} />
+      <OriginCatState state={catState} size={40} />
       <h3 className="text-sm font-bold">いまの作業</h3>
       <span className="text-sm font-semibold">{headline}</span>
     </div>
