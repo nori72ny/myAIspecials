@@ -17,6 +17,8 @@ import {
 import { sanitizePreEgress } from "../services/securitySanitizer";
 import {
   buildOriginProviderFailureDiagnostic,
+  ORIGIN_ANALYZER_CHUNK_COMPLETION_FLOOR_TOKENS,
+  originCompletionTokenBudget,
   OriginProviderError,
   type OriginFetch,
   type OriginProviderExecutionRequest,
@@ -1123,5 +1125,71 @@ describe("Groq deck completion-budget floor (DOCUMENT_WAVE2 unit 3)", () => {
     // the floor changes nothing.
     expect(deck.max_tokens).toBe(standard.max_tokens);
     expect(deck.messages).toEqual(standard.messages);
+  });
+});
+
+describe("Groq analyzer-chunk completion-budget floor (AGENT_BASEL_BUDGET_FLOOR_DESIGN_2026-11-27)", () => {
+  beforeEach(() => {
+    resetOriginCapacityLedgerForTests();
+  });
+
+  const captureBody = async (chunkRequest: OriginProviderExecutionRequest) => {
+    const fetchMock = vi.fn(async () => groqJson(successBody())) as unknown as OriginFetch;
+    await executeOriginGroqProvider(chunkRequest, groqEnv, fetchMock, { nowMs: NOW_MS });
+    const calls = (fetchMock as unknown as ReturnType<typeof vi.fn>).mock.calls;
+    expect(calls).toHaveLength(1);
+    return JSON.parse(String((calls[0] as [string, RequestInit])[1].body)) as {
+      max_tokens: number;
+      messages: Array<{ role: string; content: string }>;
+    };
+  };
+
+  it("raises the completion budget to the floor for marked chunk calls", async () => {
+    // taskType "test" falls in the 2,400 default budget class — the
+    // Basel classification shape.
+    const lowBudgetRequest: OriginProviderExecutionRequest = {
+      ...request,
+      plan: { ...groqPlan(), taskType: "test" },
+    };
+    const standard = await captureBody(lowBudgetRequest);
+    expect(standard.max_tokens).toBe(2_400);
+    const marked = await captureBody({ ...lowBudgetRequest, analyzerChunkRequest: true });
+    expect(marked.max_tokens).toBe(ORIGIN_ANALYZER_CHUNK_COMPLETION_FLOOR_TOKENS);
+    expect(marked.messages).toEqual(standard.messages);
+  });
+
+  it("clamps the floor at the TPM headroom instead of exceeding it", async () => {
+    // Five ~1,004-token messages (~5,030 estimated input tokens with
+    // the system instruction) leave ≈2,970 tokens of headroom under
+    // the 8,000 TPM ceiling: the marked budget rises above the
+    // task-type budget but stops at the headroom, not at the floor.
+    const history = Array.from({ length: 5 }, (_, index) => ({
+      role: index % 2 === 0 ? ("user" as const) : ("assistant" as const),
+      content: "あ".repeat(2_000),
+    }));
+    const bigRequest: OriginProviderExecutionRequest = {
+      ...request,
+      plan: { ...groqPlan(), taskType: "test" },
+      messages: history,
+    };
+    const standard = await captureBody(bigRequest);
+    expect(standard.max_tokens).toBe(2_400);
+    const marked = await captureBody({ ...bigRequest, analyzerChunkRequest: true });
+    expect(marked.max_tokens).toBeGreaterThan(2_400);
+    expect(marked.max_tokens).toBeLessThan(ORIGIN_ANALYZER_CHUNK_COMPLETION_FLOOR_TOKENS);
+  });
+
+  it("pins the floor against the measured Basel sizing (diagnosis 2026-11-26)", () => {
+    // Measured inputs, not targets: the pre-packing chunk-0 answer
+    // body was ≈2,043 tokens and the observed TPM headroom ≈5,418
+    // (8,000 ceiling − ≈2,582 estimated input). The floor must
+    // leave at least 2,000 tokens of reasoning room over that body
+    // and stay at least 500 under the headroom, so estimator error
+    // cannot push a marked request over the provider's own
+    // tokens/minute enforcement.
+    expect(ORIGIN_ANALYZER_CHUNK_COMPLETION_FLOOR_TOKENS - 2_043).toBeGreaterThanOrEqual(2_000);
+    expect(ORIGIN_ANALYZER_CHUNK_COMPLETION_FLOOR_TOKENS).toBeLessThanOrEqual(5_418 - 500);
+    expect(originCompletionTokenBudget("test")).toBe(2_400);
+    expect(originCompletionTokenBudget("test")).toBeLessThan(ORIGIN_ANALYZER_CHUNK_COMPLETION_FLOOR_TOKENS);
   });
 });

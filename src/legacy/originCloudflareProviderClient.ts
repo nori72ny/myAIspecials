@@ -10,6 +10,7 @@ import {
 } from "../lib/orchestration/OriginCloudflareFreeModelCatalog.js";
 import { sanitizePreEgress } from "../services/securitySanitizer.js";
 import {
+  ORIGIN_ANALYZER_CHUNK_COMPLETION_FLOOR_TOKENS,
   originCompletionTokenBudget,
   OriginProviderError,
   safeOriginUpstreamErrorCode,
@@ -635,7 +636,14 @@ async function prepareOriginCloudflareInference(
     })),
   ];
   const timeoutMs = Math.min(MAX_CF_REQUEST_TIMEOUT_MS, Math.max(5_000, Number(providerRequest.plan.timeoutMs) || MAX_CF_REQUEST_TIMEOUT_MS));
-  const completionTokenBudget = originCompletionTokenBudget(providerRequest.plan.taskType);
+  // Analyzer-chunk floor (design AGENT_BASEL_BUDGET_FLOOR_DESIGN_
+  // 2026-11-27): this route is bound by the same plan budget as
+  // route 3 and hits the same reasoning-first wall on chunk calls,
+  // so the shared floor applies here too. Unmarked requests keep
+  // the task-type budget exactly.
+  const completionTokenBudget = providerRequest.analyzerChunkRequest === true
+    ? Math.max(originCompletionTokenBudget(providerRequest.plan.taskType), ORIGIN_ANALYZER_CHUNK_COMPLETION_FLOOR_TOKENS)
+    : originCompletionTokenBudget(providerRequest.plan.taskType);
   return { messages, timeoutMs, completionTokenBudget };
 }
 
