@@ -549,6 +549,10 @@ export function createOriginStreamingChatRouter(options: OriginStreamingChatRout
       // detection codes from the created outcome, logged below as codes
       // only. Never affects whether the file is created.
       let deckGroundingViolationCodes: readonly string[] | undefined;
+      // Deck finish gate (shadow): same treatment as numeric grounding —
+      // detection codes from the created outcome, logged below as codes
+      // only. Never affects whether the file is created.
+      let deckFinishGateViolationCodes: readonly string[] | undefined;
       // Deck continuation (unit 3): set when the single continuation
       // generation for a truncated deck draft fired, and whether the
       // merged draft then assembled into a deck.
@@ -730,6 +734,7 @@ export function createOriginStreamingChatRouter(options: OriginStreamingChatRout
         if (outcome.status === "created") {
           deckArtifact = outcome.artifact;
           deckGroundingViolationCodes = outcome.numericGroundingViolationCodes;
+          deckFinishGateViolationCodes = outcome.finishGateViolationCodes;
         } else {
           deckFailureCode = outcome.failureCode;
           deckViolationCodes = outcome.violationCodes;
@@ -923,6 +928,7 @@ export function createOriginStreamingChatRouter(options: OriginStreamingChatRout
         ...(deckFailureShape ? { proposalDeckFailureShape: deckFailureShape } : {}),
         ...(deckRecordsMetrics ? { proposalDeckRecords: deckRecordsMetrics } : {}),
         ...(deckGroundingViolationCodes ? { proposalDeckNumericGroundingCodes: deckGroundingViolationCodes } : {}),
+        ...(deckFinishGateViolationCodes ? { proposalDeckFinishGateCodes: deckFinishGateViolationCodes } : {}),
         ...(deckContinuationOutcome ? { proposalDeckContinuation: deckContinuationOutcome } : {}),
       });
       if (deckRequested && !deckArtifact && !deckRecordsPlan) {

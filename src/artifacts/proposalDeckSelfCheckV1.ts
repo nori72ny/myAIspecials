@@ -13,6 +13,7 @@ import {
 } from './proposalDeckV1.js';
 import type { ProposalDeckInput } from './proposalDeckPlannerV1.js';
 import { checkProposalDeckNumericGrounding } from './proposalDeckNumericGroundingV1.js';
+import { checkProposalDeckFinishGate } from './proposalDeckFinishGateV1.js';
 
 export type ProposalDeckViolationCode =
   | 'SUMMARY_MISSING'
@@ -29,7 +30,15 @@ export type ProposalDeckViolationCode =
   // numericGroundingViolations に分離して返る（成立可否は変えない）。
   | 'NUMERIC_FORMULA_MISMATCH'
   | 'NUMERIC_NOT_GROUNDED'
-  | 'SOURCE_NUMERIC_MISSING';
+  | 'SOURCE_NUMERIC_MISSING'
+  // 仕上がり検証（proposalDeckFinishGateV1、shadow 専用コード）。
+  // 同じく violations には入らず、結果の finishGateViolations に
+  // 分離して返る（成立可否は変えない）。
+  | 'TEMPLATE_TEXT_REMAINING'
+  | 'GRAMMAR_POLITENESS_DUPLICATION'
+  | 'SCHEDULE_COUNT_MISMATCH'
+  | 'PRODUCT_RESULT_MISMATCH'
+  | 'ASSUMPTION_NOT_LABELED';
 
 export interface ProposalDeckViolation {
   code: ProposalDeckViolationCode;
@@ -46,6 +55,12 @@ export interface ProposalDeckSelfCheckResult {
    * 注記・enforce は単位4で、オーナー承認待ち）。
    */
   numericGroundingViolations?: ProposalDeckViolation[];
+  /**
+   * 仕上がり検証（shadow）の検出結果。options.finishGate を指定した
+   * 場合にだけ付き、ok には数えない（数値照合と同じ段階付け:
+   * 注記・enforce は後段の単位で、オーナー承認待ち）。
+   */
+  finishGateViolations?: ProposalDeckViolation[];
 }
 
 /**
@@ -222,6 +237,17 @@ export interface ProposalDeckSelfCheckOptions {
     /** 当日日付の刻印を根拠なしとしないための基準日。 */
     referenceDate?: Date;
   };
+  /**
+   * 指定された場合のみ、生成物の仕上がり（定型文の残存・文法の
+   * 二重丁寧・回数と積の整合・仮定の明示）を検証する
+   * （proposalDeckFinishGateV1）。素材テキストは不要で、結果は
+   * shadow として結果の finishGateViolations に分離して返り、
+   * ok（成立可否）は変えない。未指定時は一切実行しない
+   * （現行挙動と同一）。enabled: false の指定でも実行しない。
+   */
+  finishGate?: {
+    enabled?: boolean;
+  };
 }
 
 export function checkProposalDeck(
@@ -361,9 +387,19 @@ export function checkProposalDeck(
       })
     : undefined;
 
+  // 仕上がり検証（shadow、options 指定時のみ）: 数値照合と同じ段階
+  // 付けで、検出は成立可否に一切影響させず、別のフィールドで返す。
+  const finishGateViolations =
+    options?.finishGate && options.finishGate.enabled !== false
+      ? checkProposalDeckFinishGate({
+          deckSegments: collectProposalDeckTextSegments(source),
+        })
+      : undefined;
+
   return {
     ok: violations.length === 0,
     violations,
     ...(numericGroundingViolations ? { numericGroundingViolations } : {}),
+    ...(finishGateViolations ? { finishGateViolations } : {}),
   };
 }
