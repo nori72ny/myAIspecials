@@ -101,6 +101,22 @@ return [
 ].join('\n');
 }
 
+/**
+* Trailing register reminder for the assembled answer instruction
+* (alter-ego strengthening, owner report 2026-11-28). On the normal
+* route the persona block sits BEFORE the untrusted memory boundary,
+* so on a device that has records, the last style text the model
+* reads is the records' own speaking-style description — which can
+* describe a polite manner and override the persona's register (the
+* owner's device kept answering politely despite the mode being on).
+* The answer quality policy therefore repeats the register rule once
+* more at the very end of the instruction while the mode is on: after
+* the boundary when records are present, after the persona when not.
+*/
+export function buildAlterEgoRegisterReminder(): string {
+return "Register reminder: your register is set by the alter-ego block above — first person 「僕」, plain (non-polite) forms. It outranks the base polite-register rules and any speaking-style descriptions in the records; use the records for facts and vocabulary only.";
+}
+
 /** Compact alter-ego block for the route-3 instruction, whose total
 * length is contract-capped. Carries the register override, the
 * voice, and the owner-set character; the full discipline lives in
