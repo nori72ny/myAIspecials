@@ -4,7 +4,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-libra
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { App } from './App';
 import { refreshVoiceOutputAvailability } from './voice/voiceOutputAvailability';
-import { voiceConversation } from './voice/voiceConversation';
+import { ORIN_CONVERSATION_ACK_PHRASES, voiceConversation } from './voice/voiceConversation';
 import type { SpeechUtteranceLike, SpeechVoiceLike } from './voice/voiceSpeech';
 
 // App-level tests for VC-2: with the voice-output switch proven on,
@@ -148,11 +148,24 @@ describe('App voice conversation (VC-2)', () => {
     const chatCall = fetchMock.mock.calls.find(([input]) => requestPath(input).includes('/api/chat'));
     expect(chatCall).toBeDefined();
     expect(String((chatCall![1] as RequestInit | undefined)?.body ?? '')).toContain('明日の天気は？');
+    // A spoken turn is marked as one by the explicit field, so the
+    // server can append the conversation brevity instruction.
+    expect(String((chatCall![1] as RequestInit | undefined)?.body ?? '')).toContain('"voiceConversationTurn":true');
 
     await waitFor(() => {
-      expect(synthesis.spoken.map((utterance) => utterance.text)).toEqual([
+      const texts = synthesis.spoken.map((utterance) => utterance.text);
+      expect(texts).toHaveLength(5);
+      expect(texts.slice(0, 2)).toEqual([
         'こんにちは、オリンです。',
         '何をお手伝いしましょうか？',
+      ]);
+      // The fixed acknowledgment lands the moment the turn is
+      // accepted (speed program 2026-11-28), before the answer.
+      // Its exact line rotates on the shared controller, so assert
+      // membership; the wording and rotation are pinned by the
+      // controller's own tests.
+      expect(ORIN_CONVERSATION_ACK_PHRASES).toContain(texts[2]);
+      expect(texts.slice(3)).toEqual([
         '明日は晴れです。',
         '気温は20度です。',
       ]);
@@ -206,9 +219,16 @@ describe('App voice conversation (VC-2)', () => {
     });
     await screen.findByText('明日は晴れです。気温は20度です。');
     await waitFor(() => {
-      expect(synthesis.spoken.map((utterance) => utterance.text)).toEqual([
+      const texts = synthesis.spoken.map((utterance) => utterance.text);
+      expect(texts).toHaveLength(5);
+      expect(texts.slice(0, 2)).toEqual([
         'こんにちは、オリンです。',
         '何をお手伝いしましょうか？',
+      ]);
+      // The fixed acknowledgment lands when the turn is accepted
+      // (speed program 2026-11-28), before each answer.
+      expect(ORIN_CONVERSATION_ACK_PHRASES).toContain(texts[2]);
+      expect(texts.slice(3)).toEqual([
         '明日は晴れです。',
         '気温は20度です。',
       ]);
@@ -231,11 +251,22 @@ describe('App voice conversation (VC-2)', () => {
     });
     await screen.findByText('明後日は雨です。気温は18度です。');
     await waitFor(() => {
-      expect(synthesis.spoken.map((utterance) => utterance.text)).toEqual([
+      const texts = synthesis.spoken.map((utterance) => utterance.text);
+      expect(texts).toHaveLength(8);
+      expect(texts.slice(0, 2)).toEqual([
         'こんにちは、オリンです。',
         '何をお手伝いしましょうか？',
+      ]);
+      expect(ORIN_CONVERSATION_ACK_PHRASES).toContain(texts[2]);
+      expect(texts.slice(3, 5)).toEqual([
         '明日は晴れです。',
         '気温は20度です。',
+      ]);
+      // The acknowledgment rotates across turns: the second turn's
+      // line differs from the first turn's.
+      expect(ORIN_CONVERSATION_ACK_PHRASES).toContain(texts[5]);
+      expect(texts[5]).not.toBe(texts[2]);
+      expect(texts.slice(6)).toEqual([
         '明後日は雨です。',
         '気温は18度です。',
       ]);
@@ -297,9 +328,16 @@ describe('App voice conversation (VC-2)', () => {
       });
       await screen.findByText('明日は晴れです。気温は20度です。');
       await waitFor(() => {
-        expect(synthesis.spoken.map((utterance) => utterance.text)).toEqual([
+        const texts = synthesis.spoken.map((utterance) => utterance.text);
+        expect(texts).toHaveLength(5);
+        expect(texts.slice(0, 2)).toEqual([
           'こんにちは、オリンです。',
           '何をお手伝いしましょうか？',
+        ]);
+        // The fixed acknowledgment lands when the turn is
+        // accepted (speed program 2026-11-28), before the answer.
+        expect(ORIN_CONVERSATION_ACK_PHRASES).toContain(texts[2]);
+        expect(texts.slice(3)).toEqual([
           '明日は晴れです。',
           '気温は20度です。',
         ]);
@@ -321,11 +359,22 @@ describe('App voice conversation (VC-2)', () => {
       });
       await screen.findByText('明後日は雨です。気温は18度です。');
       await waitFor(() => {
-        expect(synthesis.spoken.map((utterance) => utterance.text)).toEqual([
+        const texts = synthesis.spoken.map((utterance) => utterance.text);
+        expect(texts).toHaveLength(8);
+        expect(texts.slice(0, 2)).toEqual([
           'こんにちは、オリンです。',
           '何をお手伝いしましょうか？',
+        ]);
+        expect(ORIN_CONVERSATION_ACK_PHRASES).toContain(texts[2]);
+        expect(texts.slice(3, 5)).toEqual([
           '明日は晴れです。',
           '気温は20度です。',
+        ]);
+        // The acknowledgment rotates across turns: the second
+        // turn's line differs from the first turn's.
+        expect(ORIN_CONVERSATION_ACK_PHRASES).toContain(texts[5]);
+        expect(texts[5]).not.toBe(texts[2]);
+        expect(texts.slice(6)).toEqual([
           '明後日は雨です。',
           '気温は18度です。',
         ]);
@@ -401,9 +450,16 @@ describe('App voice conversation (VC-2)', () => {
     await screen.findByText(/今日の東京は晴れです/);
     // …and its summary is spoken (the source list is not).
     await waitFor(() => {
-      expect(synthesis.spoken.map((utterance) => utterance.text)).toEqual([
+      const texts = synthesis.spoken.map((utterance) => utterance.text);
+      expect(texts).toHaveLength(5);
+      expect(texts.slice(0, 2)).toEqual([
         'こんにちは、オリンです。',
         '何をお手伝いしましょうか？',
+      ]);
+      // The fixed acknowledgment lands when the turn is accepted
+      // (speed program 2026-11-28), before the answer.
+      expect(ORIN_CONVERSATION_ACK_PHRASES).toContain(texts[2]);
+      expect(texts.slice(3)).toEqual([
         '今日の東京は晴れです。',
         '最高気温は20度です。',
       ]);
@@ -459,14 +515,23 @@ describe('App voice conversation (VC-2)', () => {
         recognition.emitEnd();
       });
       await screen.findByText('裏付けが取れませんでした。');
-      // Nothing beyond the greeting is spoken…
+      // The held answer itself is never spoken — only the fixed
+      // acknowledgment that landed when the turn was accepted
+      // (speed program 2026-11-28). The floor return waits for the
+      // acknowledgment to finish, so end it first.
+      act(() => {
+        for (const utterance of synthesis.spoken.slice(2)) utterance.onend?.();
+      });
       await waitFor(() => {
         expect(voiceConversation.getState().phase).toBe('listening');
       }, { timeout: 3000 });
-      expect(synthesis.spoken.map((utterance) => utterance.text)).toEqual([
+      const heldTexts = synthesis.spoken.map((utterance) => utterance.text);
+      expect(heldTexts).toHaveLength(3);
+      expect(heldTexts.slice(0, 2)).toEqual([
         'こんにちは、オリンです。',
         '何をお手伝いしましょうか？',
       ]);
+      expect(ORIN_CONVERSATION_ACK_PHRASES).toContain(heldTexts[2]);
     } finally {
       frame.mockRestore();
     }
