@@ -115,7 +115,7 @@ import { readAlterEgoEnabled } from '../hooks/usePersonalSettings';
  *   on purpose (matchEndPhrase): the phrase mentioned inside a
  *   sentence is an ordinary utterance and is sent as usual, and
  *   outside a conversation the phrase does nothing at all.
- * - Caps: one listening turn ends at 60 seconds; at most 20
+ * - Caps: one listening turn ends at 60 seconds; at most 40
  *   transcript-producing turns per day (client-side counter storing
  *   only the date and the count — no content).
  * - Nothing is stored: no audio, no transcripts, no summaries. The
@@ -149,7 +149,7 @@ export const ORIN_CONVERSATION_OPENING_TEXT_ALTER_EGO = 'やあ、僕だよ。�
 export const ORIN_CONVERSATION_CLOSING_TEXT_ALTER_EGO = 'じゃあ、またいつでも呼んで。';
 
 export const VOICE_CONVERSATION_MAX_TURN_SECONDS = 60;
-export const VOICE_CONVERSATION_DAILY_LIMIT = 20;
+export const VOICE_CONVERSATION_DAILY_LIMIT = 40;
 export const VOICE_CONVERSATION_DAILY_STORAGE_KEY = 'origin_voice_conversation_daily_v1';
 /** Beat between one side finishing and the other starting. Kept as
  * short as safely possible (owner, 2026-11-25: speed first, no

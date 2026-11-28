@@ -561,7 +561,7 @@ describe('VoiceConversationController caps and failures', () => {
     speech.finishPlayback();
     scheduler.fireByMs(VOICE_CONVERSATION_NEXT_TURN_DELAY_MS);
     expect(controller.getState().phase).toBe('listening');
-    // The 20th turn: heard under the cap, so it is sent and answered.
+    // The 40th turn: heard under the cap, so it is sent and answered.
     recognitions.at(-1)!.emitResult([{ isFinal: true, transcript: '最後の質問です' }]);
     recognitions.at(-1)!.emitEnd();
     expect(sent).toEqual(['最後の質問です']);
