@@ -144,15 +144,16 @@
      Orin presence row is the first child now, so the generic selector
      handed the presence a full-height min-height and the home layout
      lost its own. The rules therefore name their real targets. The
-     min-height also subtracts the presence row (84px at idle: the
-     72px disc plus the tap target's 6px top/bottom padding), which
+     min-height also subtracts the presence row (108px at idle:
+     the 96px disc plus the tap target's 6px top/bottom padding;
+     84px before the 2026-11-28 size enlargement), which
      restores the exact pre-K-01 geometry: presence + content =
      the scroller's full content height. */
   .origin-app main > div.min-h-0.flex-1.overflow-y-auto.p-2 > .origin-home-layout,
   .origin-app main > div.min-h-0.flex-1.overflow-y-auto.p-4 > .origin-home-layout,
   .origin-app main > div.min-h-0.flex-1.overflow-y-auto.p-2 > .origin-conversation-log,
   .origin-app main > div.min-h-0.flex-1.overflow-y-auto.p-4 > .origin-conversation-log {
-    min-height: calc(100% - 84px) !important;
+    min-height: calc(100% - 108px) !important;
     justify-content: flex-start !important;
     padding-bottom: max(24px, env(safe-area-inset-bottom)) !important;
   }

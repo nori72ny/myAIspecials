@@ -3502,7 +3502,7 @@ describe('Orin floating presence (owner request 2026-11-14, revised 08:59)', () 
     await waitFor(() => expect(screen.getByTestId('origin-orin-presence').textContent).toContain('できました'));
     await waitFor(() => expect(screen.queryByTestId('origin-orin-presence-status')).toBeNull(), { timeout: 5000 });
     const presence = screen.getByTestId('origin-orin-presence');
-    expect((within(presence).getByTestId('origin-cat-state') as HTMLElement).style.width).toBe('72px');
+    expect((within(presence).getByTestId('origin-cat-state') as HTMLElement).style.width).toBe('96px');
   });
 
   it('places Orin at the head of the scroll content so it scrolls away with the conversation (K-01, 2026-11-24)', async () => {
@@ -3510,8 +3510,8 @@ describe('Orin floating presence (owner request 2026-11-14, revised 08:59)', () 
     const presence = await screen.findByTestId('origin-orin-presence');
     const cat = within(presence).getByTestId('origin-cat-state') as HTMLElement;
     const disc = cat.parentElement as HTMLElement;
-    // 待機中は通常の72px（2026-11-20 18:17 の実機判定）。薄くもなっていない。
-    expect(cat.style.width).toBe('72px');
+    // 待機中は通常の96px（2026-11-28 の実機判定で拡大）。薄くもなっていない。
+    expect(cat.style.width).toBe('96px');
     expect(disc.classList.contains('is-scrolling')).toBe(false);
     const scroller = container.querySelector('.origin-chat-scroll') as HTMLElement;
     expect(scroller).toBeTruthy();
@@ -3529,12 +3529,12 @@ describe('Orin floating presence (owner request 2026-11-14, revised 08:59)', () 
     fireEvent.scroll(scroller);
     // スクロールしても、絵は縮まず薄くもならない（浮遊前提の
     // 自動縮小・フェードは P4 で廃止済み。K-01 でも維持する）。
-    await waitFor(() => expect(cat.style.width).toBe('72px'));
+    await waitFor(() => expect(cat.style.width).toBe('96px'));
     expect(disc.classList.contains('is-scrolling')).toBe(false);
     // 先頭に戻っても同じ大きさのまま。
     scrollTop = 0;
     fireEvent.scroll(scroller);
-    await waitFor(() => expect(cat.style.width).toBe('72px'));
+    await waitFor(() => expect(cat.style.width).toBe('96px'));
     expect(disc.classList.contains('is-scrolling')).toBe(false);
   });
 

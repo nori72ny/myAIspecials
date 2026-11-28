@@ -377,12 +377,12 @@
   .origin-app main > div.min-h-0.flex-1.overflow-y-auto.p-4 > .origin-home-layout {
     /* K-01 revision (2026-11-24): 100% used to be the whole
        scroller content height because the home layout was its
-       only child. The Orin presence row (84px at idle) now shares
+       only child. The Orin presence row (108px at idle) now shares
        the scroller, so the home owns the remainder; presence +
        home again add up to exactly the scroller's height, which
        is the pre-K-01 geometry the composer contracts pin. */
-    height: calc(100% - 84px) !important;
-    min-height: calc(100% - 84px) !important;
+    height: calc(100% - 108px) !important;
+    min-height: calc(100% - 108px) !important;
     box-sizing: border-box !important;
     justify-content: flex-start !important;
   }
@@ -441,9 +441,10 @@
   }
   .origin-app main > div.min-h-0.flex-1.overflow-y-auto.p-2 > .origin-home-layout,
   .origin-app main > div.min-h-0.flex-1.overflow-y-auto.p-4 > .origin-home-layout {
-    /* K-01 revision (2026-11-24): minus the 84px presence row,
-       as in the height rule above. */
-    min-height: calc(100% - 84px) !important;
+    /* K-01 revision (2026-11-24): minus the 108px presence row
+       (84px until the 2026-11-28 size enlargement), as in the
+       height rule above. */
+    min-height: calc(100% - 108px) !important;
     padding-block: 16px 0 !important;
     justify-content: flex-start !important;
   }
@@ -521,7 +522,7 @@
 }
 
 /* Home fit: the home layout is exactly the scroll viewport's height
-   minus the Orin presence row (84px at idle, K-01 revision
+   minus the Orin presence row (108px at idle, K-01 revision
    2026-11-24) — never a minimum that taller content can stretch.
    The intro is the only
    flexible part (flex + min-height 0 above), so the suggestion chips and
@@ -530,7 +531,7 @@
 @media (max-width: 639px) {
   .origin-app main > div.min-h-0.flex-1.overflow-y-auto.p-2 > .origin-home-layout,
   .origin-app main > div.min-h-0.flex-1.overflow-y-auto.p-4 > .origin-home-layout {
-    height: calc(100% - 84px) !important;
+    height: calc(100% - 108px) !important;
     min-height: 0 !important;
   }
   /* Bound the intro's text growth (system font scaling / text zoom):
@@ -739,7 +740,7 @@
      rim-lit dark variant of the art carries the outline.
    - The tap target's hit area is at least 44x44px in every
      state (6px padding around the art plus 44px minimum
-     dimensions): at the compact 48px size the target is 60px,
+     dimensions): at the compact 64px size the target is 76px,
      so the smaller art never shrinks the target.
    - While work is in flight, the status text carries three
      blinking dots at its end (the __dots element, driven by
@@ -747,12 +748,14 @@
      that Orin is running; the animation stops under
      prefers-reduced-motion (the dots stay, static).
    Auto-shrink (2026-11-20 10:10): while work is in flight
-   (status text shown) the art goes from 72px to 48px (the
+   (status text shown) the art goes from 96px to 64px (the
    is-compact state, driven by the component). The sizes were
    enlarged on 2026-11-20 18:17 after the owner found the
    48/36px pair too small to read the cat's face on both PC
-   and phone (identical sizes on both, as before); the status
-   text stays visible at the compact size.
+   and phone (identical sizes on both, as before), and again
+   on 2026-11-28 (72px -> 96px, compact 48px -> 64px) after
+   the owner found Orin still smaller than Muse on the real
+   device; the status text stays visible at the compact size.
    P4 revision (2026-11-23, weekly quality inspection defect
    #4, open since 2026-11-17): the floating form above still
    occluded the conversation at rest — scrolled content passed
@@ -805,14 +808,14 @@
      flex item of the main column any more (the P4 form), and
      it carries no positioning of any kind: it scrolls with
      the content, so the disc can never cover a message.
-     Row height at idle is exactly 84px (the 72px disc plus
+     Row height at idle is exactly 108px (the 96px disc plus
      the tap target's 6px top/bottom padding; the name tag is
      shorter than the disc and the status line is absent).
      The home layout and the conversation log size themselves
-     as calc(100% - 84px) against the scroller (App.tsx and
+     as calc(100% - 108px) against the scroller (App.tsx and
      the mobile shell rules), so presence + content restore
      the pre-K-01 full-height geometry exactly. In the
-     working state the row can grow (48px disc + status
+     working state the row can grow (64px disc + status
      line); that state belongs to the conversation surface,
      whose log simply starts below the taller row — no
      fixed-height contract applies there. On the home screen
@@ -1889,8 +1892,8 @@ button.origin-orin-panel__feature-row {
    the Orin panel is open it carries the large Orin, so the small
    presence in the main column hides — showing both at once doubled
    the character on one screen. visibility (not display) keeps the
-   presence row's 84px height, so the home geometry that sizes
-   itself as calc(100% - 84px) is untouched, and the hidden row
+   presence row's 108px height, so the home geometry that sizes
+   itself as calc(100% - 108px) is untouched, and the hidden row
    takes no pointer events and leaves the tab order. App.tsx puts
    the origin-main--orin-panel-open class on <main> while the panel
    is open, at every width. */
@@ -1919,28 +1922,33 @@ button.origin-orin-panel__feature-row {
    (layout alone ~35%, the value the sixth blind re-evaluation
    reported) and the heading sat at 44.1%. This block grows the
    group's own substance instead of moving the void around:
-   the Orin disc goes 72px -> 96px in the home state only (the
-   JS size constants and the 84px row contract stay untouched —
-   the row simply grows inside the centred group, and the
-   mobile geometry contracts are all below 640px), the heading
+   the Orin disc goes 72px -> 96px in the home state only (at
+   the time via a CSS override, with the JS size constants and
+   the 84px row contract untouched — the row simply grew
+   inside the centred group, and the mobile geometry
+   contracts are all below 640px), the heading
    goes 28px -> 34px, and the four starter chips become a 2x2
    grid of icon cards (60px tall) so the first view shows what
    ORIGIN can do as a capability grid, not a single row of
    pills. The fixed 24px gaps of the 案B scale are unchanged,
    and the group stays centred: the void still frames the
    group symmetrically, it is just smaller. Mobile keeps the
-   batch-1 assembly exactly as before. */
+   batch-1 assembly exactly as before.
+   Follow-up (2026-11-28, owner instruction — Orin still read
+   smaller than Muse on the real device): the 96px disc moved
+   into the JS base constants at every width and state
+   (ORIN_PRESENCE_CAT_SIZE_PX; compact 64px), the row contract
+   became 108px everywhere including mobile, and the disc
+   override that used to sit in this block was retired — on
+   desktop home the working state now shrinks to the compact
+   size like everywhere else. The heading and chips changes
+   of this batch stay as they are. */
 .origin-starter-chip__icon {
   flex: none;
   margin-right: 8px;
 }
 
 @media (min-width: 640px) {
-  .origin-app main > div.min-h-0.flex-1.overflow-y-auto.p-2:has(> .origin-home-layout) > .origin-orin-presence .origin-orin-presence__disc > *,
-  .origin-app main > div.min-h-0.flex-1.overflow-y-auto.p-4:has(> .origin-home-layout) > .origin-orin-presence .origin-orin-presence__disc > * {
-    width: 96px !important;
-    height: 96px !important;
-  }
   .origin-app main .origin-home-intro h1 {
     font-size: 34px !important;
     line-height: 1.3 !important;
