@@ -76,6 +76,13 @@ export type ProposalDeckChatArtifactOutcome =
        * 単位2）。呼び出し側はコードと件数だけをログへ残す。
        */
       numericGroundingViolationCodes?: readonly string[];
+      /**
+       * 仕上がり検証（shadow）の検出コード。素材テキストが不要なため
+       * この経路では常時実行し、検出ゼロでも空配列を付ける。ファイル
+       * 作成の成否は変えない（数値照合と同じ段階付け）。呼び出し側は
+       * コードと件数だけをログへ残す。
+       */
+      finishGateViolationCodes?: readonly string[];
     }
   | {
       status: "failed";
@@ -153,6 +160,9 @@ export function buildProposalDeckChatArtifact(
           },
         }
       : {}),
+    // 仕上がり検証（shadow）: 素材テキストが不要なため常時実行する。
+    // 検出はファイル作成の成否を変えず、コードだけが outcome に乗る。
+    finishGate: {},
   });
   if (!selfCheck.ok) {
     return fail(
@@ -161,6 +171,9 @@ export function buildProposalDeckChatArtifact(
     );
   }
   const numericGroundingViolationCodes = selfCheck.numericGroundingViolations?.map(
+    (violation) => violation.code,
+  );
+  const finishGateViolationCodes = selfCheck.finishGateViolations?.map(
     (violation) => violation.code,
   );
 
@@ -197,6 +210,8 @@ export function buildProposalDeckChatArtifact(
     // shadow 照合を実行した場合は、検出ゼロでもコード配列（空）を付けて
     // 「実行した」ことを呼び出し側が判別できるようにする。
     ...(numericGroundingViolationCodes ? { numericGroundingViolationCodes } : {}),
+    // 仕上がり検証（shadow）も常時実行するため、同じく空配列でも付ける。
+    ...(finishGateViolationCodes ? { finishGateViolationCodes } : {}),
     artifact: {
       id: `artifact-pptx-${sha256.slice(0, 20)}`,
       kind: "presentation",
