@@ -552,6 +552,7 @@ export function createOriginResearchRouter(options: OriginResearchRouterOptions 
                     sourceCount: recordsOutcome.usedSourceIds.length,
                     ...(recordsOutcome.partial ? { partial: true } : {}),
                     ...(synthesisProviderAttempts.length > 0 ? { attempts: synthesisProviderAttempts } : {}),
+                    ...(recordsOutcome.payloadChars !== undefined ? { payloadChars: recordsOutcome.payloadChars } : {}),
                   },
                 },
               });
