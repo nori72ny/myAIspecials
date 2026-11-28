@@ -74,7 +74,6 @@ import {
   type DeckRecordsRequestPlan,
   type DeckRecordsStageMetrics,
 } from "./originProposalDeckRecordsChat.js";
-import { parseOriginDeterministicCalculationQuestion } from "../search/originDeterministicCalculationAnswer.js";
 import type { ProposalDeckAnswerShape } from "../artifacts/proposalDeckFailureShapeV1.js";
 import type { OriginSupervisorArtifactPayloadV2 } from "../lib/orchestration/OriginSupervisorV2.js";
 import {
@@ -85,6 +84,8 @@ import {
   type OriginChatBody,
   validateOriginChatMessages,
 } from "./originChatValidation.js";
+import { parseOriginDeterministicCalculationQuestion } from "../search/originDeterministicCalculationAnswer.js";
+import { parseOriginDeterministicDateArithmeticQuestion } from "../search/originDeterministicDateArithmetic.js";
 
 export interface OriginStreamingChatRouterOptions {
   env?: NodeJS.ProcessEnv;
@@ -172,6 +173,11 @@ export function createOriginStreamingChatRouter(options: OriginStreamingChatRout
       // path must not re-decide arithmetic the question already
       // determines.
       || (parseOriginDeterministicCalculationQuestion(lastUserMessage) !== null && !refinementOfPreviousAnswer)
+      // Date arithmetic is answered deterministically by the
+      // non-streaming router's date-arithmetic branch (its phased
+      // stream serves SSE requests), never by this router's model —
+      // the same delegation discipline as the research route.
+      || (parseOriginDeterministicDateArithmeticQuestion(lastUserMessage) !== null && !refinementOfPreviousAnswer)
       || (requiresGroundedResearch(lastUserMessage, env) && !deckRequestText && !refinementOfPreviousAnswer)
       || screenResult.outcome === "blocked") {
       return next();

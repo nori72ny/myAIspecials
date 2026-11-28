@@ -11,6 +11,7 @@
 
 import { parseOriginDeterministicDateQuestion } from "./originDeterministicDateAnswer.js";
 import { parseOriginDeterministicCalculationQuestion } from "./originDeterministicCalculationAnswer.js";
+import { parseOriginDeterministicDateArithmeticQuestion } from "./originDeterministicDateArithmetic.js";
 
 export type OriginSearchQuestionType =
 | "weather"
@@ -380,6 +381,15 @@ if (parseOriginDeterministicDateQuestion(text)) return done("no_search", "determ
 // (「消費税率の歴史は？」), and a calculation embedded in a larger
 // request never land here.
 if (parseOriginDeterministicCalculationQuestion(text)) return done("no_search", "deterministic-calculation-answer");
+// Date ARITHMETIC (deterministic date-arithmetic route): an offset
+// from a stated date / relative day, or the span between two stated
+// dates, is likewise a pure function of the question and the clock.
+// Without this guard the 今日-anchored shapes fell into the
+// freshness-marker rule below (fresh_general) and the grounded path
+// refused a question the calendar answers exactly (production-
+// observed 2026-11-28). The parser is whole-question strict, so a
+// date-CONTAINING request never lands here.
+if (parseOriginDeterministicDateArithmeticQuestion(text)) return done("no_search", "deterministic-date-arithmetic");
 
 const hasFreshnessMarker = FRESHNESS_MARKER.test(text);
 const hasConceptMarker = CONCEPT_MARKER.test(text);

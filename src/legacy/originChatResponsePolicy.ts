@@ -13,6 +13,7 @@ import {
 import { originRequirementClarificationInstruction } from "../lib/orchestration/OriginRequirementClarifier.js";
 import { classifyOriginSearchQuestion, detectOriginHighRiskCategory } from "../search/originSearchClassifier.js";
 import { parseOriginDeterministicCalculationQuestion } from "../search/originDeterministicCalculationAnswer.js";
+import { parseOriginDeterministicDateArithmeticQuestion } from "../search/originDeterministicDateArithmetic.js";
 import {
   buildOriginGroqBusinessPlanningInstruction,
   detectOriginBusinessPlanningKind,
@@ -369,6 +370,7 @@ export function matchesOriginOfficialPriceQuestion(message: string): boolean {
     || isProvidedPriceDecisionRequest(message)
     || isBusinessPlanningRequest(message)
   ) return false;
+
   // A question that itself supplies the price (「85円の切手を3枚買うと
   // いくらかかる？」) is asking for arithmetic over a given value, not
   // for the institutional price — the price is already in the message.
@@ -688,6 +690,17 @@ export function requiresOriginCurrentInformation(message: string): boolean {
     || isProvidedPriceDecisionRequest(message)
     || isBusinessPlanningRequest(message)
   ) return false;
+
+  // Date arithmetic (deterministic date-arithmetic route): every
+  // input is inside the question (plus the server clock for the
+  // relative shapes), so no current information can be needed. The
+  // classifier guard alone cannot hold this exemption here: this
+  // determination re-classifies the message itself, and the
+  // 今日-anchored shapes classify fresh_general on the freshness
+  // marker and would promote below. The exemption calls the parser
+  // itself — the same discipline as the deterministic calculation
+  // exemptions — never a cue list.
+  if (parseOriginDeterministicDateArithmeticQuestion(message)) return false;
 
   // Search-grounding classification (SEARCH_GROUNDING_DESIGN_2026-11-07
   // §2.2 step 1): the dedicated classifier assigns concrete signal types

@@ -37,6 +37,10 @@ import {
   buildOriginDeterministicCalculationAnswer,
   parseOriginDeterministicCalculationQuestion,
 } from "../search/originDeterministicCalculationAnswer.js";
+import {
+  buildOriginDeterministicDateArithmeticAnswer,
+  parseOriginDeterministicDateArithmeticQuestion,
+} from "../search/originDeterministicDateArithmetic.js";
 import { buildGroundedResearchPartialAnswer, buildGroundedResearchReport } from "../research/groundedResearchV11.js";
 import { tryDeterministicCalculationFallback } from "../research/groundedDeterministicCalculation.js";
 import {
@@ -497,6 +501,24 @@ export function createOriginChatRouter(options: OriginChatRouterOptions = {}) {
           ? "Answered deterministically from the server clock (Asia/Tokyo) without a search or model call."
           : "サーバーの時計（日本時間）から、検索もモデルも使わずに決定的に回答しました。";
         return res.json({ content, answer: answerEnvelope(content, dateQuestion.language, "not-required", reason), routing: { ...applicationRouting(requestId, reason), answerMode: "deterministic-date" } });
+      }
+      // Deterministic date ARITHMETIC branch: an offset from a stated
+      // date / relative day, or the span between two stated dates,
+      // is likewise a pure function of the question and the clock.
+      // The sibling date branch above does not enumerate these
+      // shapes, and the 今日-anchored ones were promoted to the
+      // grounded path by the freshness determination and refused
+      // when retrieval failed (production-observed 2026-11-28) —
+      // the same category error as the weekday defect. The parser
+      // is whole-question strict, so date-CONTAINING questions
+      // never land here.
+      const dateArithmeticQuestion = parseOriginDeterministicDateArithmeticQuestion(lastUserMessage);
+      if (dateArithmeticQuestion) {
+        const content = buildOriginDeterministicDateArithmeticAnswer(dateArithmeticQuestion, now());
+        const reason = dateArithmeticQuestion.language === "en"
+          ? "Answered deterministically from the calendar without a search or model call."
+          : "暦の計算で、検索もモデルも使わずに決定的に回答しました。";
+        return res.json({ content, answer: answerEnvelope(content, dateArithmeticQuestion.language, "not-required", reason), routing: { ...applicationRouting(requestId, reason), answerMode: "deterministic-date-arithmetic" } });
       }
     }
     // Deterministic calculation branch (Q9-01, round-9 measure 3
