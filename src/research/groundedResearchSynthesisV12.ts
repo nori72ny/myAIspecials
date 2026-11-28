@@ -11,6 +11,8 @@ import {
   type QuoteFirstRegistry,
   type QuoteFirstVerifiedQuote,
 } from "./groundedResearchQuoteFirst.js";
+import { isAlterEgoMode } from "../lib/orchestration/alterEgoRequestStore.js";
+import { buildAlterEgoResearchStyleSuffix } from "../services/alterEgoPersona.js";
 
 export type GroundedResearchSynthesisValidationCode =
   | "EMPTY_SYNTHESIS"
@@ -300,7 +302,14 @@ export function buildGroundedResearchSynthesisInstruction(
   // Quote-first contract (groundedResearchQuoteFirst.ts): appended
   // only when the caller resolved the mode to shadow/enforce, so an
   // off-mode request stays byte-identical to the pre-contract one.
-  return quoteFirstContract ? `${base}\n${quoteFirstContract}` : base;
+  const withContract = quoteFirstContract ? `${base}\n${quoteFirstContract}` : base;
+  // Alter-ego mode (2026-11-28): only the register travels into the
+  // synthesis stage, as a style suffix at the very end — the section
+  // structure and citation discipline above stay exactly as specified.
+  // With the mode off the return value is byte-identical to before.
+  return isAlterEgoMode()
+    ? `${withContract}\n${buildAlterEgoResearchStyleSuffix(language)}`
+    : withContract;
 }
 
 function buildGroundedResearchSynthesisInstructionText(

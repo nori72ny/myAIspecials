@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { Router } from "express";
 import { createOriginAnswerEnvelope, type OriginAnswerEnvelope, type OriginAnswerEvidenceItem, type OriginAnswerRichOutput, type OriginAnswerVerificationStatus } from "../lib/orchestration/OriginAnswerEnvelope.js";
 import { extractProvidedOriginEvidence } from "../lib/orchestration/OriginAnswerEvidence.js";
+import { isAlterEgoMode } from "../lib/orchestration/alterEgoRequestStore.js";
 import { DEFAULT_ORIGIN_CONTEXT_POLICY, minimizeOriginContext, type OriginContextPolicy } from "../lib/orchestration/OriginContextPolicy.js";
 import { buildOriginExecutionPlan, ORIGIN_CLOUDFLARE_WORKERS_AI_FREE_PROVIDER_ID, ORIGIN_GROQ_FREE_PROVIDER_ID, type OriginExecutionPlan } from "../lib/orchestration/OriginExecutionPolicy.js";
 import type { OriginFreeModelEvidence } from "../lib/orchestration/OriginFreeModelCatalog.js";
@@ -2127,7 +2128,7 @@ export function createOriginChatRouter(options: OriginChatRouterOptions = {}) {
         ? planOriginPremiseGuard({ messages, nowMs: now() })
         : null;
       const premiseGuardBlockSuffix = premiseGuardPlan?.block ? `\n\n${premiseGuardPlan.block.text}` : "";
-      const providerRequest: OriginProviderExecutionRequest = { plan: { ...planningResult.plan, timeoutMs: Math.min(planningResult.plan.timeoutMs, MAX_PROVIDER_ATTEMPT_TIMEOUT_MS) }, messages: contextResult.window.messages, systemInstruction: fullSystemInstruction + premiseGuardBlockSuffix, cloudflareSystemInstruction: originCloudflareRouteSystemInstruction(fullSystemInstruction) + premiseGuardBlockSuffix, groqSystemInstruction: originGroqRouteSystemInstruction(answerQualityPolicy.businessPlanning) + premiseGuardBlockSuffix };
+      const providerRequest: OriginProviderExecutionRequest = { plan: { ...planningResult.plan, timeoutMs: Math.min(planningResult.plan.timeoutMs, MAX_PROVIDER_ATTEMPT_TIMEOUT_MS) }, messages: contextResult.window.messages, systemInstruction: fullSystemInstruction + premiseGuardBlockSuffix, cloudflareSystemInstruction: originCloudflareRouteSystemInstruction(fullSystemInstruction) + premiseGuardBlockSuffix, groqSystemInstruction: originGroqRouteSystemInstruction(answerQualityPolicy.businessPlanning, { alterEgo: isAlterEgoMode() }) + premiseGuardBlockSuffix };
       let result = await execute(providerRequest); assertOriginZeroCostExecutionResultWithFailover(result, planningResult.plan.modelId);
       // Recovery build Stage 1, PR-5: refusal output validation
       // with ONE bounded re-execution (J-05: the round-5 direct path
