@@ -1735,8 +1735,19 @@ export async function retrieveRelevantContext(
   return sections.join('\n');
 }
 
-export function buildActiveContextInstruction(context: string): string {
+export function buildActiveContextInstruction(context: string, options?: { alterEgoMode?: boolean }): string {
   if (!context.trim()) return "";
+  // Speaking-style line, alter-ego variant (strengthening, owner
+  // report 2026-11-28): with the mode on, the line itself — not only
+  // the trailing clause added in #1567 — states that the register
+  // recorded in the style lines does not apply, because on the
+  // owner's device the recorded polite manner still overrode the
+  // persona. Vocabulary, characteristic phrases, sentence length and
+  // conclusion-first habits still carry over. With the mode off (or
+  // the option absent) the line is byte-identical to before.
+  const speakingStyleLine = options?.alterEgoMode === true
+    ? "- Speaking style: lines labelled as the owner's speaking style describe how the owner himself talks — his politeness, sentence length, characteristic phrases, and whether he leads with the conclusion. Alter-ego mode is on, so the register recorded in those lines does not apply: his politeness level, including any polite desu/masu manner recorded there, never sets your register — the alter-ego persona block does. From these lines take only his vocabulary, characteristic phrases, sentence length, and whether he leads with the conclusion. Never exaggerate them into caricature, and never let the manner change the facts of the answer."
+    : "- Speaking style: lines labelled as the owner's speaking style describe how the owner himself talks — his politeness, sentence length, characteristic phrases, and whether he leads with the conclusion. When you answer in his stead, and when you phrase an answer that will be read aloud, mirror that manner naturally. Never exaggerate it into caricature, and never let the manner change the facts of the answer, except while alter-ego mode is on, where the persona's register governs and this line bears on vocabulary and phrasing only.";
   // The <untrusted_memory_boundary> wrapper itself lives only in
   // OriginAnswerQualityPolicy (design §6.2: the duplicated boundary was
   // unified on the quality-policy side). This builder contributes the
@@ -1766,7 +1777,7 @@ export function buildActiveContextInstruction(context: string): string {
     // manner only — never content — and matter most for proxy answers
     // and for answers that will be read aloud, where the owner asked
     // for the reply to feel like talking with him.
-    "- Speaking style: lines labelled as the owner's speaking style describe how the owner himself talks — his politeness, sentence length, characteristic phrases, and whether he leads with the conclusion. When you answer in his stead, and when you phrase an answer that will be read aloud, mirror that manner naturally. Never exaggerate it into caricature, and never let the manner change the facts of the answer, except while alter-ego mode is on, where the persona's register governs and this line bears on vocabulary and phrasing only.",
+    speakingStyleLine,
     context,
   ].join("\n");
 }
