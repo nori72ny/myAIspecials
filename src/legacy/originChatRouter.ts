@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { Router } from "express";
 import { createOriginAnswerEnvelope, type OriginAnswerEnvelope, type OriginAnswerEvidenceItem, type OriginAnswerRichOutput, type OriginAnswerVerificationStatus } from "../lib/orchestration/OriginAnswerEnvelope.js";
 import { extractProvidedOriginEvidence } from "../lib/orchestration/OriginAnswerEvidence.js";
-import { isAlterEgoMode } from "../lib/orchestration/alterEgoRequestStore.js";
+import { enterAlterEgoMode, isAlterEgoMode } from "../lib/orchestration/alterEgoRequestStore.js";
 import { DEFAULT_ORIGIN_CONTEXT_POLICY, minimizeOriginContext, type OriginContextPolicy } from "../lib/orchestration/OriginContextPolicy.js";
 import { buildOriginExecutionPlan, ORIGIN_CLOUDFLARE_WORKERS_AI_FREE_PROVIDER_ID, ORIGIN_GROQ_FREE_PROVIDER_ID, type OriginExecutionPlan } from "../lib/orchestration/OriginExecutionPolicy.js";
 import type { OriginFreeModelEvidence } from "../lib/orchestration/OriginFreeModelCatalog.js";
@@ -440,6 +440,20 @@ export function createOriginChatRouter(options: OriginChatRouterOptions = {}) {
     if (!messages) return res.status(400).json({ code: "INVALID_CHAT_MESSAGES", message: "チャットメッセージの形式が正しくありません。", retryable: false, requestId });
     if (messages[messages.length - 1].role !== "user") return res.status(400).json({ code: "INVALID_CHAT_MESSAGES", message: "最後のメッセージはユーザーからのものである必要があります。", retryable: false, requestId });
     const lastUserMessage = messages[messages.length - 1].content;
+    // Alter-ego mode entry (2026-11-28 fix): the request-scoped flag
+    // must be entered BEFORE any branch builds answer text. Until now
+    // the only entry was the originClientPolicy(body) side effect at
+    // the synthesis plan build below — which the grounded branch
+    // reaches only AFTER groundedResearchAnswer has already built the
+    // tier-T4 hold text, and never reaches at all when no usable
+    // sources were retrieved (the plan build is gated on
+    // grounded.sources.length > 0). A failed research request with
+    // the mode on therefore landed on the polite hold while every
+    // later-built answer spoke plainly (production-observed).
+    // originClientPolicy re-enters the same value when the plan is
+    // built, so this early entry changes nothing else; with the mode
+    // off it enters false and every output stays byte-identical.
+    enterAlterEgoMode(body.alterEgoMode);
     // P1 countermeasure 2: a client-marked refinement of the previous
     // answer is a transformation of that answer, not a new request, so
     // the text-scan route classification does not apply to it — its
