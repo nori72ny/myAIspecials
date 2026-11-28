@@ -12,6 +12,7 @@ import {
   type SpeechVoiceLike,
 } from '../voice/voiceSpeech';
 import { VOICE_CONVERSATION_TONE_STORAGE_KEY } from '../voice/voiceConversationTone';
+import { VOICE_CONVERSATION_START_STYLE_STORAGE_KEY } from '../voice/voiceConversationStartStyle';
 
 // Component tests for the "Orin's voice" settings section (VC-1): the
 // section exists only when the server switch proved on, lists the
@@ -129,6 +130,22 @@ describe('VoiceOutputSettings', () => {
     expect(window.localStorage.getItem(VOICE_CONVERSATION_TONE_STORAGE_KEY)).toBe('gentle');
     expect(screen.getByTestId('orin-voice-tone-gentle').getAttribute('aria-checked')).toBe('true');
     expect(screen.getByTestId('orin-voice-tone-everyday').getAttribute('aria-checked')).toBe('false');
+  });
+
+  it('offers the two conversation start styles and persists the choice on the device', async () => {
+    await act(async () => { await refreshVoiceOutputAvailability(healthFetch(true)); });
+    render(<VoiceOutputSettings language="ja" />);
+    expect(screen.getByRole('heading', { name: '会話の始まり方' })).toBeTruthy();
+    expect(screen.getByTestId('orin-voice-start-greeting').textContent).toContain('挨拶してから始める');
+    expect(screen.getByTestId('orin-voice-start-listen').textContent).toContain('挨拶なしですぐ聞き取る');
+    // The greeting start is the default — the behaviour the
+    // conversation has always had.
+    expect(screen.getByTestId('orin-voice-start-greeting').getAttribute('aria-checked')).toBe('true');
+
+    fireEvent.click(screen.getByTestId('orin-voice-start-listen'));
+    expect(window.localStorage.getItem(VOICE_CONVERSATION_START_STYLE_STORAGE_KEY)).toBe('listen');
+    expect(screen.getByTestId('orin-voice-start-listen').getAttribute('aria-checked')).toBe('true');
+    expect(screen.getByTestId('orin-voice-start-greeting').getAttribute('aria-checked')).toBe('false');
   });
 
   it('offers the five speaking-speed steps and persists the choice as the stored rate', async () => {

@@ -7,8 +7,22 @@ import {
   type SpeechRecognitionLike,
 } from './voiceSpeechRecognition';
 import { buildSpokenSummary } from './voiceSpokenSummary';
-import { resolveStoredVoiceConversationStyle } from './voiceConversationTone';
+import { applySpokenTonePhrasing } from './voiceSpokenPhrasing';
+import {
+  getStoredVoiceConversationTone,
+  resolveStoredVoiceConversationStyle,
+  type VoiceConversationTone,
+} from './voiceConversationTone';
+import {
+  getStoredVoiceConversationStartStyle,
+  type VoiceConversationStartStyle,
+} from './voiceConversationStartStyle';
+import {
+  getStoredWakeWaitingPreference,
+  setStoredWakeWaitingPreference,
+} from './voiceWakeWaitingPreference';
 import { voiceSpeech, type SpeechStyleOptions, type VoiceStorageLike } from './voiceSpeech';
+import { readAlterEgoEnabled } from '../hooks/usePersonalSettings';
 
 /**
  * Voice conversation controller (VC-2 + the reachable part of VC-3,
@@ -123,6 +137,17 @@ export const VOICE_CONVERSATION_CLOSING_ID = 'orin-conversation-closing';
  * no chat content. */
 export const ORIN_CONVERSATION_CLOSING_TEXT = 'はい、またいつでも呼んでください。';
 
+/** Alter-ego variants of the two fixed lines (owner's real-device
+ * finding, 2026-11-28: with alter-ego mode on, the greeting and
+ * the farewell still sounded like the default Orin). The wording
+ * follows the alter-ego persona (alterEgoPersona.ts): first person
+ * 「僕」, casual with the owner (タメ口), frank and brief. A
+ * greeting / farewell only — no claims, no chat content, exactly
+ * like the default lines. With the mode off, the default lines
+ * above are spoken, unchanged. */
+export const ORIN_CONVERSATION_OPENING_TEXT_ALTER_EGO = 'やあ、僕だよ。何か話したいことある？';
+export const ORIN_CONVERSATION_CLOSING_TEXT_ALTER_EGO = 'じゃあ、またいつでも呼んで。';
+
 export const VOICE_CONVERSATION_MAX_TURN_SECONDS = 60;
 export const VOICE_CONVERSATION_DAILY_LIMIT = 20;
 export const VOICE_CONVERSATION_DAILY_STORAGE_KEY = 'origin_voice_conversation_daily_v1';
@@ -138,6 +163,20 @@ export const VOICE_CONVERSATION_NEXT_TURN_DELAY_MS = 150;
 export const VOICE_CONVERSATION_SUMMARY_MAX_SENTENCES = 2;
 export const VOICE_CONVERSATION_SUMMARY_MAX_CHARS = 160;
 const WAKE_RESTART_DELAY_MS = 300;
+/** Backoff for reopening a WAKE session after a transient failure
+ * (a recognizer 'network'/'audio-capture' error, or start()
+ * throwing). Wake sessions are short and cycle constantly, so a
+ * transient error is routine — the previous behaviour (one error
+ * permanently disarmed standby, silently) is why the wake phrase
+ * stopped answering on the owner's device (2026-11-28). Retries
+ * widen to a 10-second cap, so a genuinely broken recognizer is
+ * retried at most six times a minute, never in a hot loop; a
+ * session that ends normally (or hears anything) resets the
+ * count. Permission errors still disarm at once. */
+const WAKE_RETRY_DELAYS_MS = [1000, 3000, 10000];
+/** After this many consecutive wake failures the failure is
+ * surfaced as a notice — standby keeps retrying at the cap. */
+const WAKE_FAILURE_NOTICE_THRESHOLD = 3;
 /** Consecutive silent listening sessions tolerated before the
  * controller rests at idle instead of reopening the microphone
  * forever. Any heard turn resets the count. */
@@ -209,11 +248,47 @@ export interface VoiceConversationDeps {
   onUtterance?: (text: string) => boolean;
   /** Overrides the opening line (tests, future localization). */
   openingText?: string;
+  /** Whether the owner's alter-ego mode is on, consulted at each
+   * playback of the fixed lines (opening / closing) — the same
+   * resolver discipline as styleProfile below, so flipping the
+   * settings toggle takes effect from the next fixed line without
+   * rebuilding the controller. Absent, or false, keeps the default
+   * Orin's lines exactly as before. */
+  alterEgoActive?: () => boolean;
   /** The speaking-style profile, or a resolver consulted at each
    * playback (so a profile that appears later — e.g. the owner's
    * saved speaking style — is picked up without rebuilding the
    * controller). Null from a resolver means the default profile. */
   styleProfile?: VoiceConversationStyleProfile | (() => VoiceConversationStyleProfile | null);
+  /** The stored conversation tone, consulted when a spoken
+   * summary is built: the tone shapes the summary's
+   * sentence-final phrasing (voiceSpokenPhrasing.ts), on top of
+   * the prosody the styleProfile already carries. Null (or no
+   * resolver) means the everyday tone — no phrasing change. While
+   * alter-ego mode is on the phrasing pass is skipped entirely:
+   * the persona's own voice outranks the tone's wording. */
+  conversationTone?: () => VoiceConversationTone | null;
+  /** How the conversation starts (owner choice, 2026-11-28):
+   * 'greeting' speaks the opening line first (the default, and
+   * the behaviour the conversation has always had); 'listen'
+   * skips the greeting and opens the microphone at once. A
+   * resolver is consulted at each start, mirroring styleProfile,
+   * so the settings choice applies from the next conversation
+   * without rebuilding the controller. Null means 'greeting'. */
+  startStyle?: VoiceConversationStartStyle | (() => VoiceConversationStartStyle | null);
+  /** The owner's stored wake-waiting preference (the 呼びかけ待受
+   * toggle), consulted when a conversation ends: while the
+   * preference is on, ending a conversation rests back into
+   * standby instead of switching the mode fully off, so the wake
+   * phrase can start the next conversation. Absent means the
+   * preference is off and endings behave exactly as before. */
+  wakeWaitingPreferred?: () => boolean;
+  /** Persists the wake-waiting toggle whenever it changes,
+   * including the forced disarm on a microphone-permission
+   * failure (standby stays off until the owner re-enables it
+   * after fixing the permission, instead of re-arming into the
+   * same failure on every load). */
+  onWakeWaitingChange?: (enabled: boolean) => void;
 }
 
 const INITIAL_STATE: VoiceConversationState = {
@@ -258,6 +333,10 @@ export class VoiceConversationController {
    * turn; reset whenever a fresh floor opens a turn and whenever
    * a session actually hears something. */
   private turnStartRetries = 0;
+  /** Consecutive failed wake-session openings; drives the
+   * WAKE_RETRY_DELAYS_MS backoff and resets whenever a wake
+   * session ends normally or hears anything. */
+  private wakeRetryCount = 0;
   private pendingTimer: unknown = null;
   private turnCapTimer: unknown = null;
   private unsubscribeSpeech: (() => void) | null = null;
@@ -447,7 +526,12 @@ export class VoiceConversationController {
       this.recognition = null;
       this.sessionKind = null;
       if (kind === 'wake') {
-        this.setState({ notice: 'failed', phase: 'idle' });
+        // No onend follows a throwing start, so without a
+        // scheduled retry standby would sit armed but dead
+        // (the toggle on, nothing listening). Retry with the
+        // same wake backoff as a session error.
+        if (this.state.wakeWaiting) this.scheduleWakeRetry();
+        else this.setState({ phase: 'idle' });
       }
       return 'failed';
     }
@@ -505,20 +589,27 @@ export class VoiceConversationController {
     if (error === 'not-allowed' || error === 'service-not-allowed') {
       this.stopSession();
       this.setState({ mode: 'off', wakeWaiting: false, phase: 'idle', notice: 'permission-denied' });
+      // The stored preference is cleared too: standby stays off
+      // until the owner re-enables it after fixing the permission,
+      // instead of re-arming into the same failure on every load.
+      this.deps.onWakeWaitingChange?.(false);
       return;
     }
     // Network / audio-capture / anything else. A wake session
-    // still fails closed at once — retrying a background listener
-    // against a broken recognizer would loop forever. A turn
-    // session the owner is actively waiting on instead retries
-    // with backoff (scheduleTurnStartRetry): these errors are
-    // exactly what a contended audio path produces right after
-    // playback, and one transient failure must not end the
+    // retries with the widening wake backoff (scheduleWakeRetry):
+    // wake sessions cycle constantly, so one transient error is
+    // routine — the former fail-closed disarm is what silently
+    // killed standby on the owner's device (2026-11-28). The
+    // capped backoff keeps a broken recognizer from looping.
+    // A turn session the owner is actively waiting on instead
+    // retries with backoff (scheduleTurnStartRetry): these errors
+    // are exactly what a contended audio path produces right
+    // after playback, and one transient failure must not end the
     // conversation. Text already heard in this turn is kept —
     // the retried session continues accumulating it.
     this.stopSession();
     if (kind === 'wake') {
-      this.setState({ wakeWaiting: false, phase: 'idle', notice: 'failed' });
+      if (this.state.wakeWaiting) this.scheduleWakeRetry();
     } else if (this.state.mode === 'on' && this.state.phase === 'listening') {
       this.scheduleTurnStartRetry();
     } else {
@@ -611,6 +702,7 @@ export class VoiceConversationController {
 
   private handleWakeResult(heard: string): void {
     if (!heard) return;
+    this.wakeRetryCount = 0; // a live session proves the path works
     const match = matchWakePhrase(heard);
     if (!match.matched) return; // discarded on the spot, by design
     this.stopSession();
@@ -618,6 +710,7 @@ export class VoiceConversationController {
   }
 
   private handleWakeEnd(): void {
+    this.wakeRetryCount = 0; // a session that ends normally is healthy
     if (this.state.mode !== 'on' || !this.state.wakeWaiting) return;
     if (this.state.phase !== 'idle') return;
     this.schedule(() => {
@@ -625,6 +718,27 @@ export class VoiceConversationController {
         this.beginSession('wake');
       }
     }, WAKE_RESTART_DELAY_MS);
+  }
+
+  /** Reopens a wake session after a transient failure, with the
+   * widening WAKE_RETRY_DELAYS_MS backoff. Standby stays armed —
+   * the failure is only surfaced (as a notice) once it repeats;
+   * the retry itself continues at the capped delay so a
+   * recognizer that recovers (network back, audio path free) is
+   * picked up without the owner touching anything. */
+  private scheduleWakeRetry(): void {
+    this.wakeRetryCount += 1;
+    if (this.wakeRetryCount >= WAKE_FAILURE_NOTICE_THRESHOLD) {
+      this.setState({ notice: 'failed', phase: 'idle' });
+    } else {
+      this.setState({ phase: 'idle' });
+    }
+    const delay = WAKE_RETRY_DELAYS_MS[Math.min(this.wakeRetryCount - 1, WAKE_RETRY_DELAYS_MS.length - 1)]!;
+    this.schedule(() => {
+      if (this.state.mode === 'on' && this.state.wakeWaiting && this.state.phase === 'idle' && !this.recognition) {
+        this.beginSession('wake');
+      }
+    }, delay);
   }
 
   private enterIdleOrWake(): void {
@@ -671,19 +785,52 @@ export class VoiceConversationController {
     this.emptyRestarts = 0;
     this.preparedFirstRecognition = probe;
     this.setState({ mode: 'on', notice: null });
+    if (this.resolveStartStyle() === 'listen') {
+      // No greeting (owner's choice): the floor is the owner's at
+      // once — or, when wake waiting brought the mode up, the
+      // conversation simply rests into wake sessions, exactly as
+      // it does after the greeting.
+      if (this.state.wakeWaiting) this.enterIdleOrWake();
+      else this.startTurnListening();
+      return;
+    }
     this.speakOpening();
+  }
+
+  private resolveStartStyle(): VoiceConversationStartStyle {
+    const style = typeof this.deps.startStyle === 'function'
+      ? this.deps.startStyle()
+      : this.deps.startStyle;
+    return style ?? 'greeting';
   }
 
   /** Orin takes the first turn: a fixed greeting, then the floor
    * passes to the owner through the normal playback-end path. When
    * the greeting cannot be spoken at all, the conversation falls
    * back to listening (or wake waiting) immediately. */
+  /** The opening line for this playback: an explicit override
+   * wins; otherwise the alter-ego variant while the owner's
+   * alter-ego mode is on, and the default line while it is off. */
+  private resolveOpeningText(): string {
+    if (this.deps.openingText !== undefined) return this.deps.openingText;
+    return this.deps.alterEgoActive?.() === true
+      ? ORIN_CONVERSATION_OPENING_TEXT_ALTER_EGO
+      : ORIN_CONVERSATION_OPENING_TEXT;
+  }
+
+  /** The closing line for this playback, resolved the same way. */
+  private resolveClosingText(): string {
+    return this.deps.alterEgoActive?.() === true
+      ? ORIN_CONVERSATION_CLOSING_TEXT_ALTER_EGO
+      : ORIN_CONVERSATION_CLOSING_TEXT;
+  }
+
   private speakOpening(): void {
     this.speakingObservedActive = false;
     this.setState({ phase: 'speaking' });
     const started = this.speech().speak(
       VOICE_CONVERSATION_OPENING_ID,
-      this.deps.openingText ?? ORIN_CONVERSATION_OPENING_TEXT,
+      this.resolveOpeningText(),
       this.resolveStyle(),
     );
     if (started) return;
@@ -702,7 +849,7 @@ export class VoiceConversationController {
     this.stopConversation();
     this.speech().speak(
       VOICE_CONVERSATION_CLOSING_ID,
-      ORIN_CONVERSATION_CLOSING_TEXT,
+      this.resolveClosingText(),
       this.resolveStyle(),
     );
   }
@@ -715,6 +862,33 @@ export class VoiceConversationController {
     this.accumulatedFinal = '';
     this.seedText = '';
     this.setState({ mode: 'off', wakeWaiting: false, phase: 'idle', interimText: '', notice: null });
+    // While the owner's wake-waiting preference is on, ending a
+    // conversation is not the end of standby: the surface rests
+    // back into wake sessions so 「ハイ、オリン」 can start the
+    // next conversation (the owner's model of the feature; the
+    // toggle is what turns standby off). Without the preference
+    // this is exactly the full stop it has always been.
+    if (this.deps.wakeWaitingPreferred?.() === true && !this.state.dailyLimitReached) {
+      this.setState({ mode: 'on', wakeWaiting: true, phase: 'idle' });
+      this.beginSession('wake');
+    }
+  }
+
+  /** Re-arms standby from the stored preference (called by the
+   * conversation surface when it appears and voice output is
+   * available). Silent: no greeting, no turn — the mode rests at
+   * idle running wake sessions. A no-op when standby is already
+   * armed or a conversation is live. */
+  restoreWakeWaiting(): void {
+    if (this.state.wakeWaiting && this.state.mode === 'on') return;
+    if (this.state.mode === 'on' && this.state.phase !== 'idle') return;
+    if (this.state.dailyLimitReached) {
+      this.setState({ notice: 'daily-limit' });
+      return;
+    }
+    this.wakeRetryCount = 0;
+    this.setState({ mode: 'on', wakeWaiting: true, phase: 'idle', notice: null });
+    if (!this.recognition) this.beginSession('wake');
   }
 
   /** The one main button of the conversation surface. Its meaning
@@ -746,6 +920,8 @@ export class VoiceConversationController {
 
   setWakeWaiting(enabled: boolean): void {
     if (!enabled) {
+      this.deps.onWakeWaitingChange?.(false);
+      this.wakeRetryCount = 0;
       this.setState({ wakeWaiting: false });
       if (this.sessionKind === 'wake') {
         this.stopSession();
@@ -757,6 +933,8 @@ export class VoiceConversationController {
       this.setState({ notice: 'daily-limit' });
       return;
     }
+    this.deps.onWakeWaitingChange?.(true);
+    this.wakeRetryCount = 0;
     this.setState({ wakeWaiting: true, notice: null });
     if (this.state.mode !== 'on') {
       // Wake waiting implies conversation mode: starting the mode
@@ -787,10 +965,18 @@ export class VoiceConversationController {
    * owner straight away. */
   notifyAnswerReady(messageId: string, finalAnswerText: string): void {
     if (this.state.mode !== 'on' || this.state.phase !== 'thinking') return;
-    const summary = (this.deps.buildSummary ?? ((text: string) => buildSpokenSummary(text, {
+    const built = (this.deps.buildSummary ?? ((text: string) => buildSpokenSummary(text, {
       maxSentences: VOICE_CONVERSATION_SUMMARY_MAX_SENTENCES,
       maxChars: VOICE_CONVERSATION_SUMMARY_MAX_CHARS,
     })))(finalAnswerText);
+    // The conversation tone shapes how the summary sounds AND
+    // how its sentences end — except while alter-ego mode is on:
+    // the answer already speaks in the persona's voice there, and
+    // the persona outranks the tone's phrasing (the tone's
+    // prosody still applies through the style profile).
+    const summary = this.deps.alterEgoActive?.() === true
+      ? built
+      : applySpokenTonePhrasing(built, this.deps.conversationTone?.() ?? 'everyday');
     if (!summary) {
       this.startTurnListening();
       return;
@@ -846,4 +1032,18 @@ export const voiceConversation = new VoiceConversationController({
   // How Orin sounds follows the tone pattern the owner picked in
   // settings (強い／優しい／丁寧／日常), read at each playback.
   styleProfile: () => resolveStoredVoiceConversationStyle(),
+  // The fixed lines follow the owner's alter-ego mode toggle,
+  // read from the persisted settings at each playback.
+  alterEgoActive: () => readAlterEgoEnabled(),
+  // The start style follows the owner's stored choice, read at
+  // each conversation start.
+  startStyle: () => getStoredVoiceConversationStartStyle(),
+  // The tone for the spoken summary's phrasing, read from the
+  // same stored choice the prosody resolver reads.
+  conversationTone: () => getStoredVoiceConversationTone(),
+  // The wake-waiting toggle is a stored device preference: it
+  // survives conversation endings and app reloads, and the
+  // conversation surface re-arms standby from it.
+  wakeWaitingPreferred: () => getStoredWakeWaitingPreference(),
+  onWakeWaitingChange: (enabled) => setStoredWakeWaitingPreference(enabled),
 });

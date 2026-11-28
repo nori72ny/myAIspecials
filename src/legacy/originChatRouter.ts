@@ -32,7 +32,6 @@ import {
   buildOriginDeterministicDateAnswer,
   parseOriginDeterministicDateQuestion,
 } from "../search/originDeterministicDateAnswer.js";
-import { resolveOriginOfficialSourceRoutingEnabled } from "../search/originOfficialSourceRouting.js";
 import { buildGroundedResearchPartialAnswer, buildGroundedResearchReport } from "../research/groundedResearchV11.js";
 import { tryDeterministicCalculationFallback } from "../research/groundedDeterministicCalculation.js";
 import {
@@ -459,10 +458,19 @@ export function createOriginChatRouter(options: OriginChatRouterOptions = {}) {
     // 「今日は何曜日ですか？」 (production-observed twice) was a
     // category error, not a retrieval failure. The parser is
     // whole-question strict, so date-CONTAINING questions
-    // (今日のニュース, 今日の天気) never land here. The branch
-    // rides the official-routing switch, the same gate as the other
-    // follow-up measures; with it off, behaviour is unchanged.
-    if (!refinementOfPreviousAnswer && resolveOriginOfficialSourceRoutingEnabled(env)) {
+    // (今日のニュース, 今日の天気) never land here.
+    //
+    // Q7-04 (2026-11-28 audit): the branch no longer rides the
+    // official-source-routing switch. A pure clock question needs
+    // no official source, no search and no credits, so gating it
+    // behind that switch only decided whether the question fell
+    // back to the model — whose weekday arithmetic is unreliable
+    // and produced a weekday-only answer for the wrong day in
+    // production. The deterministic answer is always computed in
+    // Asia/Tokyo (the user's timezone) and always names the date,
+    // so it cannot drift with the runtime's own timezone. The
+    // switch still gates the other follow-up measures.
+    if (!refinementOfPreviousAnswer) {
       const dateQuestion = parseOriginDeterministicDateQuestion(lastUserMessage);
       if (dateQuestion) {
         const content = buildOriginDeterministicDateAnswer(dateQuestion, now());

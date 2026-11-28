@@ -50,6 +50,17 @@
  * （429 の引き直しを含む）はそのまま残し、RSS が失敗した時
  * だけ通る。タイムアウト・キャッシュ（10分）・stale（24時間）
  * ・失敗理由の記録は従来どおり。
+ *
+ * 2026-11-28 のリンク是正（Q7-03）：RSS の <link> は
+ * news.google.com の中継 URL で、辿っても言語パラメータ付きの
+ * 同じ中継に 302 され、最後はスクリプトで飛ばす中間ページ
+ * （200）に着くため、記事そのものへは届かない（実測で確認）。
+ * 「出典元でそのまま読めます」という画面の説明と一致させるため、
+ * 中継 URL はサーバー側で記事 URL へ解決を試み、解決できた
+ * 見出しだけをリンクにする。解決できない見出しは url を null
+ * にして出し、画面はリンクにせず出典名だけを表示する（中継を
+ * 記事リンクと偽らない）。GDELT 由来の URL は記事そのもの
+ * なので対象外。
  */
 import {
   defaultOriginSearchFetch,
@@ -64,6 +75,8 @@ export const ORIN_AI_NEWS_QUERY = "人工知能 OR 生成AI OR 大規模言語�
 export const ORIN_AI_NEWS_RSS_URL = "https://news.google.com/rss/search"
   + `?q=${encodeURIComponent("人工知能 OR 生成AI OR 大規模言語モデル")}&hl=ja&gl=JP&ceid=JP:ja`;
 export const ORIN_AI_NEWS_RSS_TIMEOUT_MS = 10_000;
+/** 中継 URL の解決は見出しごとに並行して試みる。その1件あたりの上限。 */
+export const ORIN_AI_NEWS_RESOLVE_TIMEOUT_MS = 5_000;
 export const ORIN_AI_NEWS_TIMEOUT_MS = 20_000;
 export const ORIN_AI_NEWS_CACHE_TTL_MS = 10 * 60 * 1000;
 export const ORIN_AI_NEWS_STALE_LIMIT_MS = 24 * 60 * 60 * 1000;
@@ -71,7 +84,8 @@ export const ORIN_AI_NEWS_RATE_LIMIT_WAIT_MS = 5_500;
 
 export interface OrinAiNewsHeadlineItem {
   title: string;
-  url: string;
+  /** 記事そのものの URL。解決できなかった中継 URL の見出しは null（画面はリンクにしない）。 */
+  url: string | null;
   source: string;
   publishedAt?: string;
 }
@@ -103,6 +117,7 @@ export interface OrinAiNewsServiceDeps {
   fetchImpl?: OriginSearchFetch;
   timeoutMs?: number;
   rssTimeoutMs?: number;
+  resolveTimeoutMs?: number;
   cacheTtlMs?: number;
   staleLimitMs?: number;
   rateLimitWaitMs?: number;
@@ -202,9 +217,50 @@ export function parseOrinAiNewsRss(xml: string): OrinAiNewsHeadlineItem[] {
   return items;
 }
 
+/** Google ニュースの中継 URL かどうか（解決の対象はこれだけ）。 */
+export function isOrinAiNewsRedirectorUrl(url: string): boolean {
+  try {
+    return new URL(url).hostname === "news.google.com";
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * 中継 URL を記事 URL へ解決する（Q7-03）。リダイレクトを辿り、
+ * 最終到達先が中継以外の https ならそれを記事 URL とする。
+ * 中間ページ（中継のまま）に着いた場合・失敗した場合は null
+ * （＝リンクにしない）。本文は読まない：必要なのは最終 URL
+ * だけで、応答の `url` がそれを持っている。
+ */
+export async function resolveOrinAiNewsArticleUrl(
+  fetchImpl: OriginSearchFetch,
+  url: string,
+  timeoutMs: number,
+): Promise<string | null> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const response = await fetchImpl(url, {
+      headers: { "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36" },
+      signal: controller.signal,
+    });
+    const finalUrl = typeof response.url === "string" ? response.url : "";
+    if (finalUrl && isSafeHttpsUrl(finalUrl) && !isOrinAiNewsRedirectorUrl(finalUrl)) {
+      return finalUrl;
+    }
+    return null;
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 export function createOrinAiNewsService(deps: OrinAiNewsServiceDeps = {}): OrinAiNewsService {
   const timeoutMs = deps.timeoutMs ?? ORIN_AI_NEWS_TIMEOUT_MS;
   const rssTimeoutMs = deps.rssTimeoutMs ?? ORIN_AI_NEWS_RSS_TIMEOUT_MS;
+  const resolveTimeoutMs = deps.resolveTimeoutMs ?? ORIN_AI_NEWS_RESOLVE_TIMEOUT_MS;
   const cacheTtlMs = deps.cacheTtlMs ?? ORIN_AI_NEWS_CACHE_TTL_MS;
   const staleLimitMs = deps.staleLimitMs ?? ORIN_AI_NEWS_STALE_LIMIT_MS;
   const rateLimitWaitMs = deps.rateLimitWaitMs ?? ORIN_AI_NEWS_RATE_LIMIT_WAIT_MS;
@@ -266,10 +322,18 @@ export function createOrinAiNewsService(deps: OrinAiNewsServiceDeps = {}): OrinA
     } finally {
       clearTimeout(timer);
     }
-    const items = parseOrinAiNewsRss(text);
-    if (items.length === 0) {
+    const parsed = parseOrinAiNewsRss(text);
+    if (parsed.length === 0) {
       throw new OrinAiNewsUnavailableError({ code: "rss-invalid" });
     }
+    // Q7-03: 中継 URL は記事 URL へ解決できた見出しだけリンクに
+    // する。解決は見出しごとに並行して試み、失敗は見出しを
+    // 落とす理由にはしない（url: null で出す）。
+    const items: OrinAiNewsHeadlineItem[] = await Promise.all(parsed.map(async (item) => {
+      if (!isOrinAiNewsRedirectorUrl(item.url)) return item;
+      const resolved = await resolveOrinAiNewsArticleUrl(fetchImpl, item.url, resolveTimeoutMs);
+      return { ...item, url: resolved };
+    }));
     return { fetchedAt: new Date(now()).toISOString(), stale: false, items };
   };
 

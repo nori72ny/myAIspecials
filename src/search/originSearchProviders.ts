@@ -16,6 +16,14 @@ export interface OriginSearchFetchResponse {
   status: number;
   text(): Promise<string>;
   /**
+   * The final URL after redirects, when the implementation offers
+   * it (the real fetch Response does). Optional for the same reason
+   * as the byte access below: test doubles that only model `text()`
+   * stay valid; callers that resolve redirector URLs (the ai-news
+   * headline outlet) use it when present.
+   */
+  url?: string;
+  /**
    * Byte access, when the implementation offers it (the real
    * fetch Response does). Optional so existing test doubles that
    * only model `text()` stay valid; callers that need the raw

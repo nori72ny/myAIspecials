@@ -449,4 +449,41 @@ describe('AgentTaskBoard', () => {
     await waitFor(() => expect(screen.getByText('実行待ち')).toBeTruthy());
     expect(listCalls).toBe(2);
   });
+
+  it('shows the neutral no-authority guidance from the start when neither a credential nor a plan exists (Q7-01)', () => {
+    const fetchMock = vi.fn(async () => { throw new Error('must not be called'); });
+    vi.stubGlobal('fetch', fetchMock);
+    const onOpenSettings = vi.fn();
+
+    render(<AgentTaskBoard onOpenSettings={onOpenSettings} />);
+
+    expect(screen.getByText('上の画面で計画を作ると、ここに表示されます。管理者として作成した作業は、設定の「管理者キー」でキーを入力すると表示できます。')).toBeTruthy();
+    expect(screen.queryByRole('alert')).toBeNull();
+    fireEvent.click(screen.getByTestId('origin-board-open-settings'));
+    expect(onOpenSettings).toHaveBeenCalledWith('admin');
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('treats a rejected browser plan token on the automatic load as the neutral empty state, never a red error (Q7-01)', async () => {
+    const fetchMock = vi.fn(async () => json({ ok: false, code: 'UNAUTHORIZED' }, 403));
+    vi.stubGlobal('fetch', fetchMock);
+
+    render(<AgentTaskBoard browserPlanToken="plan-token-1" />);
+
+    expect(await screen.findByText('表示できる作業はありません。')).toBeTruthy();
+    expect(screen.queryByRole('alert')).toBeNull();
+    expect(screen.queryByText(/作業を表示できませんでした/)).toBeNull();
+  });
+
+  it('keeps the red alert for an operator key the server rejects after an explicit load (Q7-01)', async () => {
+    setSessionCredential('admin', 'wrong-key');
+    const fetchMock = vi.fn(async () => json({ ok: false, code: 'UNAUTHORIZED' }, 401));
+    vi.stubGlobal('fetch', fetchMock);
+
+    render(<AgentTaskBoard />);
+    fireEvent.click(screen.getByRole('button', { name: '作業を表示' }));
+
+    expect(await screen.findByRole('alert')).toBeTruthy();
+    expect(screen.getByText(/認証できませんでした。入力したキーを確認してください/)).toBeTruthy();
+  });
 });

@@ -1,10 +1,11 @@
-import { useMemo, useSyncExternalStore } from 'react';
+import { useEffect, useMemo, useSyncExternalStore } from 'react';
 import { Mic, Square, Volume2, X } from 'lucide-react';
 import type { OriginLanguage } from '../i18n';
 import {
   getVoiceOutputAvailability,
   subscribeVoiceOutputAvailability,
 } from '../voice/voiceOutputAvailability';
+import { getStoredWakeWaitingPreference } from '../voice/voiceWakeWaitingPreference';
 import {
   voiceConversation,
   type VoiceConversationController,
@@ -50,6 +51,17 @@ export default function VoiceConversationBar({ language, controller = voiceConve
   );
   const supported = useMemo(() => controller.supported(), [controller]);
 
+  // Standby is a stored preference: when the surface appears with
+  // voice output available and the owner left wake waiting on,
+  // re-arm it (silently — no greeting for merely opening the app),
+  // so 「ハイ、オリン」 works across reloads and conversation
+  // endings. restoreWakeWaiting is a no-op when already armed.
+  useEffect(() => {
+    if (availability === 'available' && supported && getStoredWakeWaitingPreference()) {
+      controller.restoreWakeWaiting();
+    }
+  }, [availability, supported, controller]);
+
   if (availability !== 'available' || !supported) return null;
 
   const ja = language === 'ja';
@@ -87,7 +99,7 @@ export default function VoiceConversationBar({ language, controller = voiceConve
             type="button"
             data-testid="voice-conversation-start"
             onClick={() => controller.pressMainButton()}
-            className="origin-primary-button inline-flex min-h-11 shrink-0 items-center gap-1.5 px-3 text-sm font-semibold"
+            className="origin-primary-button origin-brand-button inline-flex min-h-11 shrink-0 items-center gap-1.5 px-3 text-sm font-semibold"
           >
             <Mic aria-hidden="true" size={16} />
             {ja ? 'オリンと会話' : 'Talk with Orin'}
@@ -142,7 +154,7 @@ export default function VoiceConversationBar({ language, controller = voiceConve
             data-testid="voice-conversation-main"
             disabled={phase === 'thinking'}
             onClick={() => controller.pressMainButton()}
-            className="origin-primary-button min-h-11 shrink-0 px-3 text-sm font-semibold disabled:cursor-not-allowed disabled:opacity-50"
+            className="origin-primary-button origin-brand-button min-h-11 shrink-0 px-3 text-sm font-semibold disabled:cursor-not-allowed disabled:opacity-50"
           >
             {mainLabel}
           </button>

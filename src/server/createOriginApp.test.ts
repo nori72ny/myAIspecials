@@ -448,17 +448,23 @@ describe("createOriginApp Orin panel AI news outlet (expansion design §8.4)", (
     const response = await request(createOriginApp({})).get("/api/orin/ai-news");
     expect(response.status).toBe(200);
     expect(response.body.ok).toBe(true);
+    // Q7-03: the stubbed fetch reports no final URL, so the RSS
+    // redirector links cannot be resolved and ship as url: null
+    // (the page renders those headlines without a link).
     expect(response.body.items).toEqual([
-      { title: "生成AIの新モデルを発表", url: "https://news.google.com/rss/articles/AAA", source: "ITmedia", publishedAt: "2026-11-25T03:30:00.000Z" },
-      { title: "AI regulation & policy update", url: "https://news.google.com/rss/articles/BBB", source: "Reuters", publishedAt: "2026-11-25T01:00:00.000Z" },
+      { title: "生成AIの新モデルを発表", url: null, source: "ITmedia", publishedAt: "2026-11-25T03:30:00.000Z" },
+      { title: "AI regulation & policy update", url: null, source: "Reuters", publishedAt: "2026-11-25T01:00:00.000Z" },
     ]);
-    // The only outbound call is the RSS feed with the fixed topic
-    // query (the primary route since 2026-11-27) — nothing about a
-    // user is ever part of it.
-    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    // The outbound calls are the RSS feed with the fixed topic
+    // query (the primary route since 2026-11-27) plus one
+    // resolution attempt per headline against the feed's own
+    // article URLs — nothing about a user is ever part of them.
+    expect(fetchSpy).toHaveBeenCalledTimes(3);
     const calledUrl = String(fetchSpy.mock.calls[0][0]);
     expect(calledUrl).toContain("news.google.com/rss");
     expect(decodeURIComponent(calledUrl)).toContain("人工知能");
+    expect(String(fetchSpy.mock.calls[1][0])).toBe("https://news.google.com/rss/articles/AAA");
+    expect(String(fetchSpy.mock.calls[2][0])).toBe("https://news.google.com/rss/articles/BBB");
   });
 
   it("falls back to GDELT headlines when the RSS route fails", async () => {

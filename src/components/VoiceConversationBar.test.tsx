@@ -132,6 +132,20 @@ describe('VoiceConversationBar', () => {
     controller.stopConversation();
   });
 
+  it('re-arms wake waiting on mount when the stored preference is on, without a greeting', async () => {
+    window.localStorage.setItem('origin_voice_wake_waiting', 'on');
+    await act(async () => { await refreshVoiceOutputAvailability(healthFetch(true)); });
+    const { controller, speech } = makeController();
+    render(<VoiceConversationBar language="ja" controller={controller} />);
+    expect(controller.getState().mode).toBe('on');
+    expect(controller.getState().wakeWaiting).toBe(true);
+    expect(controller.getState().phase).toBe('idle');
+    expect(speech.spoken).toEqual([]);
+    expect(screen.getByTestId('voice-conversation-bar').textContent).toContain('「ハイ、オリン」と呼びかけてください');
+    controller.setWakeWaiting(false);
+    controller.stopConversation();
+  });
+
   it('arms wake waiting from the toggle inside conversation mode', async () => {
     await act(async () => { await refreshVoiceOutputAvailability(healthFetch(true)); });
     const { controller, speech } = makeController();

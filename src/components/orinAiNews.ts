@@ -12,7 +12,12 @@
 
 export interface OrinAiNewsHeadline {
   title: string;
-  url: string;
+  /**
+   * 記事そのものの URL。サーバー側で中継 URL から解決できな
+   * かった見出しは null で届き、画面はリンクにせず出典名だけ
+   * を表示する（Q7-03：中継を記事リンクと偽らない）。
+   */
+  url: string | null;
   /** 出典ドメインの表示名（例：blog.google）。 */
   source: string;
   /** ISO 8601。取れない場合は undefined。 */
@@ -45,12 +50,20 @@ export function parseOrinAiNewsPayload(raw: unknown): OrinAiNewsPayload | null {
   for (const entry of raw.items) {
     if (!isRecord(entry)) continue;
     if (typeof entry.title !== 'string' || !entry.title.trim()) continue;
-    if (typeof entry.url !== 'string' || !isSafeHttpsUrl(entry.url)) continue;
+    // url は「記事 URL の文字列」か「解決できなかったことを示す
+    // null」のどちらか。それ以外の形は壊れた項目として落とす。
+    let url: string | null = null;
+    if (typeof entry.url === 'string') {
+      if (!isSafeHttpsUrl(entry.url)) continue;
+      url = entry.url;
+    } else if (entry.url !== null && entry.url !== undefined) {
+      continue;
+    }
     if (typeof entry.source !== 'string' || !entry.source.trim()) continue;
     const publishedAt = typeof entry.publishedAt === 'string' && !Number.isNaN(new Date(entry.publishedAt).getTime())
       ? entry.publishedAt
       : undefined;
-    items.push({ title: entry.title.trim(), url: entry.url, source: entry.source.trim(), publishedAt });
+    items.push({ title: entry.title.trim(), url, source: entry.source.trim(), publishedAt });
     if (items.length >= 7) break;
   }
   return { fetchedAt: raw.fetchedAt, items };

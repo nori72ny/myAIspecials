@@ -390,7 +390,7 @@ export default function CodingJobWorkspaceV14({ initialGoal, onOpenSettings, onG
         </button>
 
         <div id="coding-run-status" role="status" className="mt-3 text-[13px]">
-          <span className={ready && hasCredential ? 'font-bold text-origin-success' : 'text-origin-muted'}>{checkingCapability ? '利用できるか確認しています…' : !ready ? '今は利用できません' : hasCredential ? '利用できます' : '実行キーを入力すると始められます'}</span>
+          <span className={ready && hasCredential ? 'font-bold text-origin-success' : 'text-origin-muted'}>{checkingCapability ? '利用できるか確認しています…' : !ready ? '今は利用できません' : hasCredential ? '利用できます' : '始めるには、先に実行キーを入力してください'}</span>
         </div>
         {/* External evaluation fix (2026-11-25): the disabled start
             button no longer fades to opacity 0.5 — the class-level
@@ -403,11 +403,9 @@ export default function CodingJobWorkspaceV14({ initialGoal, onOpenSettings, onG
         {ready && hasCredential && !goal.trim() && !busy && !(job && ACTIVE.has(job.status)) && (
           <p className="mt-1 text-[13px] leading-5 text-origin-muted">作りたいもの・直したいことを書くと始められます。</p>
         )}
-        {/* キーなし＋依頼文なしでも理由をボタン直下に出す（同上、案2。
-            キーあり側だけに理由文がある非対称をなくす）。 */}
-        {ready && !hasCredential && !goal.trim() && !busy && !jobActive && (
-          <p className="mt-1 text-[13px] leading-5 text-origin-muted">始めるには、先に実行キーを入力してください。</p>
-        )}
+        {/* キーなしの理由は上の状態行に統合した（品質検査 Q6-14
+            の是正、2026-11-28：同義の2行目を置かない）。キー入力の
+            場所は下の案内行が担う。 */}
 
         {ready && !hasCredential && (
           <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-2 text-[13px] leading-5">

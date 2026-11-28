@@ -30,8 +30,8 @@ describe('voice conversation tones', () => {
   it('gives every tone a distinct prosody profile', () => {
     const profiles = VOICE_CONVERSATION_TONES.map((tone) => JSON.stringify(tone.profile));
     expect(new Set(profiles).size).toBe(profiles.length);
-    expect(voiceConversationToneProfile('strong')).toEqual({ rate: 1.05, pitch: 0.95 });
-    expect(voiceConversationToneProfile('gentle')).toEqual({ rate: 0.95, pitch: 1.1 });
+    expect(voiceConversationToneProfile('strong')).toEqual({ rate: 1.15, pitch: 0.85 });
+    expect(voiceConversationToneProfile('gentle')).toEqual({ rate: 0.88, pitch: 1.2 });
     expect(voiceConversationToneProfile('polite')).toEqual({ rate: 0.95, pitch: 1.0 });
     // Everyday leaves the rate to the owner's stored setting.
     expect(voiceConversationToneProfile('everyday').rate).toBeUndefined();
@@ -56,19 +56,19 @@ describe('voice conversation tones', () => {
     window.localStorage.clear();
     expect(resolveStoredVoiceConversationStyle()).toEqual({ pitch: 1.05 });
     setStoredVoiceConversationTone('gentle');
-    expect(resolveStoredVoiceConversationStyle()).toEqual({ rate: 0.95, pitch: 1.1 });
+    expect(resolveStoredVoiceConversationStyle()).toEqual({ rate: 0.88, pitch: 1.2 });
     window.localStorage.clear();
   });
 
   it('composes the tone factor onto the stored speaking rate （声の速さ）', () => {
     window.localStorage.clear();
-    // はやい step stored as its plain rate; the gentle factor (0.95)
+    // はやい step stored as its plain rate; the gentle factor (0.88)
     // applies on top of it instead of replacing it.
     window.localStorage.setItem(VOICE_OUTPUT_RATE_STORAGE_KEY, '1.25');
     setStoredVoiceConversationTone('gentle');
     const gentle = resolveStoredVoiceConversationStyle();
-    expect(gentle.rate).toBeCloseTo(1.25 * 0.95);
-    expect(gentle.pitch).toBe(1.1);
+    expect(gentle.rate).toBeCloseTo(1.25 * 0.88);
+    expect(gentle.pitch).toBe(1.2);
     // The everyday tone names no factor: the profile keeps its
     // historical shape and the stored rate applies via the speech
     // controller's fallback — the conversation still follows the step.
@@ -77,11 +77,11 @@ describe('voice conversation tones', () => {
     window.localStorage.clear();
   });
 
-  it('keeps the historical absolutes at the default ふつう step', () => {
+  it('at the default ふつう step the composed rate is the tone factor itself', () => {
     window.localStorage.clear();
     window.localStorage.setItem(VOICE_OUTPUT_RATE_STORAGE_KEY, '1');
     setStoredVoiceConversationTone('strong');
-    expect(resolveStoredVoiceConversationStyle()).toEqual({ rate: 1.05, pitch: 0.95 });
+    expect(resolveStoredVoiceConversationStyle()).toEqual({ rate: 1.15, pitch: 0.85 });
     window.localStorage.clear();
   });
 });

@@ -11,14 +11,24 @@ import { isSourcesOnlyPartialLead, reshapeReconstructionLanding, SOURCES_ONLY_FO
 
 export type AnswerRefinementKind = 'depth' | 'example' | 'plan' | 'summary';
 
+// 結果の種別。種別ごとに付ける操作の規律はこの部品側で固定する
+// （2026-11-28 品質検査の提案7：Q7-06／Q6-04 の共通対策）。
+// - 'answer'（通常のテキスト回答）：「回答をコピー」＋調整チップ
+// - 'image'（画像の結果）：文章用の操作は付けない（画像の操作は
+//   画像側の表示が担う）
+// - 'failure'（失敗・「確認できませんでした」等のカード）：文章用の
+//   操作は付けない（再試行は呼び出し側の専用ボタンが担う）
+// 呼び出し側は種別を渡すだけで、出し分けの判断はここに置く。
+export type OriginAnswerResultKind = 'answer' | 'image' | 'failure';
+
 type OriginAnswerMarkdownProps = {
   content: string;
   language: OriginLanguage;
-  // 回答への操作（コピー・調整）の表示可否。生成中（ストリーミング中）の
-  // 回答では false にし、完了後にだけ出す（2026-11-20 外部デザイン評価の
-  // 指摘：まだ回答が無いのに「回答をコピー」が出ている）。既定は true で、
-  // 完了済み回答や成果物プレビューなど従来の呼び出しはそのまま。
-  showActions?: boolean;
+  resultKind?: OriginAnswerResultKind;
+  // 生成中（ストリーミング中）・再生中は、種別にかかわらず操作を
+  // 出さない（2026-11-20 外部デザイン評価の指摘：まだ回答が無いのに
+  // 「回答をコピー」が出ている）。タイミングの軸は種別とは別に持つ。
+  actionsSuspended?: boolean;
   // 第1引数はモデルへ送る完全な内部指示文、第2引数は利用者の吹き出しに
   // 表示する短いラベル（ピルの表示文そのもの）。内部指示文をそのまま
   // 吹き出しに出さないため、表示文は必ず分けて渡す。
@@ -232,7 +242,9 @@ function PartialAnswerSources({ section, language }: { section: PartialAnswerSou
  * external image loading. Semantic elements are styled in index.css so long
  * answers remain readable on narrow screens.
  */
-export default function OriginAnswerMarkdown({ content, language, onRefine, showActions = true }: OriginAnswerMarkdownProps) {
+export default function OriginAnswerMarkdown({ content, language, onRefine, resultKind = 'answer', actionsSuspended = false }: OriginAnswerMarkdownProps) {
+  // 操作行（コピー＋調整チップ）は通常のテキスト回答にだけ付ける。
+  const showActions = resultKind === 'answer' && !actionsSuspended;
   const refinementOptions: { kind: AnswerRefinementKind; label: string }[] = [
     { kind: 'depth', label: language === 'en' ? 'More depth for practical work' : '実務向けに詳しく' },
     { kind: 'example', label: language === 'en' ? 'Add an example' : '具体例を足す' },

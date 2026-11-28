@@ -19,6 +19,12 @@ import {
   VOICE_CONVERSATION_TONES,
   type VoiceConversationTone,
 } from '../voice/voiceConversationTone';
+import {
+  getStoredVoiceConversationStartStyle,
+  setStoredVoiceConversationStartStyle,
+  VOICE_CONVERSATION_START_STYLES,
+  type VoiceConversationStartStyle,
+} from '../voice/voiceConversationStartStyle';
 
 interface Props {
   language: OriginLanguage;
@@ -57,10 +63,16 @@ export default function VoiceOutputSettings({ language }: Props) {
   const [selectedURI, setSelectedURI] = useState<string | null>(() => voiceSpeech.getSelectedVoiceURI());
   const [tone, setTone] = useState<VoiceConversationTone>(() => getStoredVoiceConversationTone());
   const [rateStep, setRateStep] = useState<VoiceSpeechRateStep>(() => voiceSpeech.getRateStep());
+  const [startStyle, setStartStyle] = useState<VoiceConversationStartStyle>(() => getStoredVoiceConversationStartStyle());
 
   const selectTone = (next: VoiceConversationTone) => {
     setStoredVoiceConversationTone(next);
     setTone(next);
+  };
+
+  const selectStartStyle = (next: VoiceConversationStartStyle) => {
+    setStoredVoiceConversationStartStyle(next);
+    setStartStyle(next);
   };
 
   const selectRateStep = (next: VoiceSpeechRateStep) => {
@@ -132,7 +144,7 @@ export default function VoiceOutputSettings({ language }: Props) {
                   style={{ minHeight: 48 }}
                   className={cn(
                     'flex min-h-12 items-center gap-2 rounded-xl border px-3 text-left text-sm font-semibold transition',
-                    selected ? 'origin-primary-button border-transparent' : 'origin-secondary-button',
+                    selected ? 'origin-primary-button origin-brand-button border-transparent' : 'origin-secondary-button',
                   )}
                 >
                   {selected && <Check className="h-4 w-4 shrink-0" aria-hidden="true" />}
@@ -184,7 +196,7 @@ export default function VoiceOutputSettings({ language }: Props) {
                 onClick={() => selectRateStep(option.id)}
                 className={cn(
                   'inline-flex min-h-11 items-center rounded-full border px-3 text-sm font-semibold transition',
-                  selected ? 'origin-primary-button border-transparent' : 'origin-secondary-button',
+                  selected ? 'origin-primary-button origin-brand-button border-transparent' : 'origin-secondary-button',
                 )}
               >
                 {ja ? option.labelJa : option.labelEn}
@@ -215,7 +227,38 @@ export default function VoiceOutputSettings({ language }: Props) {
                 onClick={() => selectTone(option.id)}
                 className={cn(
                   'inline-flex min-h-11 items-center rounded-full border px-3 text-sm font-semibold transition',
-                  selected ? 'origin-primary-button border-transparent' : 'origin-secondary-button',
+                  selected ? 'origin-primary-button origin-brand-button border-transparent' : 'origin-secondary-button',
+                )}
+              >
+                {ja ? option.labelJa : option.labelEn}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+      <div>
+        <h4 id="orin-voice-start-heading" className="text-sm font-bold">
+          {ja ? '会話の始まり方' : 'How conversation starts'}
+        </h4>
+        <p className="origin-muted mt-1 text-[13px] leading-5">
+          {ja
+            ? '会話ボタンを押したときに、オリンが挨拶してから始めるか、挨拶なしですぐ聞き取りを始めるかを選べます。'
+            : 'Choose whether Orin greets you first when you press the conversation button, or starts listening right away.'}
+        </p>
+        <div role="radiogroup" aria-labelledby="orin-voice-start-heading" className="mt-2 flex flex-wrap gap-2">
+          {VOICE_CONVERSATION_START_STYLES.map((option) => {
+            const selected = option.id === startStyle;
+            return (
+              <button
+                type="button"
+                key={option.id}
+                role="radio"
+                aria-checked={selected}
+                data-testid={`orin-voice-start-${option.id}`}
+                onClick={() => selectStartStyle(option.id)}
+                className={cn(
+                  'inline-flex min-h-11 items-center rounded-full border px-3 text-sm font-semibold transition',
+                  selected ? 'origin-primary-button origin-brand-button border-transparent' : 'origin-secondary-button',
                 )}
               >
                 {ja ? option.labelJa : option.labelEn}

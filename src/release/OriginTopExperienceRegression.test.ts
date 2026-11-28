@@ -213,7 +213,7 @@ describe('ORIGIN top experience regression boundary', () => {
     // queue-send was primary and stop was a subdued origin-stop-button
     // carrying a text glyph, restyled neutral by PR-α2 so it never
     // reads as a destructive action.
-    expect(app).toContain('data-testid="stop-generation-button" aria-label={t.stopGeneration} title={t.stopGeneration} onClick={() => abortRef.current?.abort()} className="origin-primary-button inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full p-0"');
+    expect(app).toContain('data-testid="stop-generation-button" aria-label={t.stopGeneration} title={t.stopGeneration} onClick={() => abortRef.current?.abort()} className="origin-primary-button origin-brand-button inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full p-0"');
     expect(app).toContain('<Square aria-hidden="true" fill="currentColor" size={18} />');
     expect(app).toContain('data-testid="queue-send-button" aria-label={t.queueSend} title={t.queueSend} onClick={() => void handleSend()}');
     expect(app).toContain('className="origin-secondary-button inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full p-0 disabled:cursor-not-allowed"');

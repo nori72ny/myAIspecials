@@ -190,20 +190,27 @@ describe('SettingsModalLegacy key sections (design batch 6)', () => {
     const safety = screen.getByTestId('origin-execution-policy');
     // 注意文の対象は外部サービスの秘密情報に限定される（切り分け案A）。
     expect(safety.textContent).toContain('外部サービスのパスワード、APIキー、トークン、秘密鍵を、この画面やチャットへ入力しないでください。');
-    // 安全節に、この画面の2つのキーが例外である一文が添えられる。
-    expect(safety.textContent).toContain('この画面の『実行キー』と『管理者キー』はORIGIN専用のキーです。入力先はこの画面だけで、保存はされません。');
+    // 安全節に、この画面の2つのキーが例外である一文が添えられる
+    // （注意書きの正本は「コード実行」の節に一本化し、ここは参照のみ。
+    // 品質検査 Q6-15 の是正）。
+    expect(safety.textContent).toContain('この画面の『実行キー』と『管理者キー』だけは例外です。キーの注意書きは「コード実行」の説明をご覧ください。');
   });
 
   it('places the two key sections next to each other under one shared note (案B)', async () => {
     await renderModal();
 
     const scrollRegion = screen.getByTestId('settings-scroll-region');
-    const note = Array.from(scrollRegion.querySelectorAll('p')).find((element) => element.textContent?.includes('実行キーと管理者キーは、どちらもORIGIN専用のキーです'));
+    const note = Array.from(scrollRegion.querySelectorAll('p')).find((element) => element.textContent?.includes('実行キーと管理者キーについては、下の「コード実行」の説明をご覧ください'));
     expect(note).toBeTruthy();
-    expect(note!.textContent).toContain('外部サービスのAPIキーとは別物で、入力したキーは保存されません。');
 
     const codingSection = document.getElementById('coding-execution-heading')?.closest('section');
     expect(codingSection).toBeTruthy();
+    // キーの注意書き（APIキーではない／保存されない）の正本は
+    // 「コード実行」の節の1箇所だけ（品質検査 Q6-15 の是正）。
+    expect(codingSection!.textContent).toContain('これはAPIキーではありません');
+    expect(codingSection!.textContent).toContain('入力したキーは保存されず、このアプリを開いている間だけ使われます');
+    expect(scrollRegion.textContent!.split('入力したキーは保存されず').length - 1).toBe(1);
+    expect(scrollRegion.textContent!.split('APIキーではありません').length - 1).toBe(1);
     // 共通説明は、2つのキー節の冒頭（コード実行の節の直前）に置かれる。
     expect(note!.compareDocumentPosition(codingSection!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
 
@@ -215,8 +222,10 @@ describe('SettingsModalLegacy key sections (design batch 6)', () => {
     const safety = screen.getByTestId('origin-execution-policy');
     expect(adminDetails.compareDocumentPosition(safety) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
 
-    // 管理者キーの節の説明にも、ORIGIN専用である切り分けが同型で入る。
-    expect(adminDetails.textContent).toContain('ORIGIN専用のキーで、外部サービスのAPIキーとは別物です。');
+    // 管理者キーの節は注意書きを繰り返さず、「コード実行」への
+    // 参照だけを置く（Q6-15 の正本化）。
+    expect(adminDetails.textContent).toContain('キーの注意書きは「コード実行」の説明をご覧ください。');
+    expect(adminDetails.textContent).not.toContain('保存されず');
     // ラベル「管理者キー」はオーナー決定で現行維持。
     expect(adminSummary!.textContent).toContain('管理者キー');
     expect(screen.getByLabelText('管理者キー')).toBeTruthy();

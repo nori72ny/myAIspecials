@@ -2,7 +2,9 @@ import { describe, expect, it } from 'vitest';
 import {
   DEFAULT_VOICE_CONVERSATION_STYLE,
   ORIN_CONVERSATION_CLOSING_TEXT,
+  ORIN_CONVERSATION_CLOSING_TEXT_ALTER_EGO,
   ORIN_CONVERSATION_OPENING_TEXT,
+  ORIN_CONVERSATION_OPENING_TEXT_ALTER_EGO,
   VoiceConversationController,
   VOICE_CONVERSATION_CLOSING_ID,
   VOICE_CONVERSATION_DAILY_LIMIT,
@@ -17,6 +19,8 @@ import type {
   SpeechRecognitionEventLike,
   SpeechRecognitionLike,
 } from './voiceSpeechRecognition';
+import type { VoiceConversationStartStyle } from './voiceConversationStartStyle';
+import type { VoiceConversationTone } from './voiceConversationTone';
 import type { VoiceStorageLike } from './voiceSpeech';
 
 class FakeRecognition implements SpeechRecognitionLike {
@@ -117,7 +121,13 @@ function createMemoryStorage(): VoiceStorageLike & { map: Map<string, string> } 
 
 const FIXED_NOW = new Date(2026, 10, 25, 12, 0, 0).getTime();
 
-function setup() {
+function setup(extraDeps: {
+  alterEgoActive?: () => boolean;
+  startStyle?: VoiceConversationStartStyle | (() => VoiceConversationStartStyle | null);
+  conversationTone?: () => VoiceConversationTone | null;
+  wakeWaitingPreferred?: () => boolean;
+  onWakeWaitingChange?: (enabled: boolean) => void;
+} = {}) {
   const recognitions: FakeRecognition[] = [];
   const speech = new FakeSpeech();
   const scheduler = createManualScheduler();
@@ -135,6 +145,7 @@ function setup() {
     schedule: scheduler.schedule,
     cancelSchedule: scheduler.cancel,
     onUtterance: (text) => { sent.push(text); return true; },
+    ...extraDeps,
   });
   return { controller, recognitions, speech, scheduler, storage, sent };
 }
@@ -155,7 +166,7 @@ function driveTurnToSpeaking(ctx: ReturnType<typeof setup>): void {
   recognition.emitResult([{ isFinal: true, transcript: '明日の天気は？' }]);
   recognition.emitEnd();
   ctx.controller.notifyUserSent();
-  ctx.controller.notifyAnswerReady('a1', '明日は晴れです。気温は20度です。');
+  ctx.controller.notifyAnswerReady('a1', '明日は晴れです。 気温は20度です。');
 }
 
 /** From a fresh start, burns the silent restarts until the
@@ -712,6 +723,157 @@ describe('VoiceConversationController turn-start resilience', () => {
   });
 });
 
+describe('VoiceConversationController multi-turn loop', () => {
+  it('speaks the summary on the second and third turns too, returning to listening each time', () => {
+    const ctx = setup();
+    // Turn 1.
+    driveTurnToSpeaking(ctx);
+    expect(ctx.speech.spoken.at(-1)?.text).toBe('明日は晴れです。 気温は20度です。');
+    ctx.speech.finishPlayback();
+    ctx.scheduler.fireByMs(VOICE_CONVERSATION_NEXT_TURN_DELAY_MS);
+    expect(ctx.controller.getState().phase).toBe('listening');
+    // Turn 2: a fresh recognition session serves the next turn.
+    const second = ctx.recognitions.at(-1)!;
+    second.emitResult([{ isFinal: true, transcript: '明後日は？' }]);
+    second.emitEnd();
+    ctx.controller.notifyUserSent();
+    ctx.controller.notifyAnswerReady('a2', '明後日は雨です。気温は18度です。');
+    expect(ctx.controller.getState().phase).toBe('speaking');
+    expect(ctx.speech.spoken.at(-1)?.text).toBe('明後日は雨です。 気温は18度です。');
+    ctx.speech.finishPlayback();
+    ctx.scheduler.fireByMs(VOICE_CONVERSATION_NEXT_TURN_DELAY_MS);
+    expect(ctx.controller.getState().phase).toBe('listening');
+    // Turn 3.
+    const third = ctx.recognitions.at(-1)!;
+    third.emitResult([{ isFinal: true, transcript: '週末は？' }]);
+    third.emitEnd();
+    ctx.controller.notifyUserSent();
+    ctx.controller.notifyAnswerReady('a3', '週末は曇りです。気温は15度です。');
+    expect(ctx.speech.spoken.at(-1)?.text).toBe('週末は曇りです。 気温は15度です。');
+  });
+});
+
+describe('VoiceConversationController tone phrasing', () => {
+  /** One full turn ending with the given answer; returns the
+   * spoken summary text. */
+  function spokenSummaryFor(ctx: ReturnType<typeof setup>, answer: string): string {
+    startToListening(ctx);
+    const recognition = ctx.recognitions.at(-1)!;
+    recognition.emitResult([{ isFinal: true, transcript: '明日の天気は？' }]);
+    recognition.emitEnd();
+    ctx.controller.notifyUserSent();
+    ctx.controller.notifyAnswerReady('a1', answer);
+    return ctx.speech.spoken.at(-1)!.text;
+  }
+
+  it('speaks the summary in the strong tone\u2019s phrasing', () => {
+    const ctx = setup({ conversationTone: () => 'strong' });
+    expect(spokenSummaryFor(ctx, '明日は晴れです。 気温は20度です。'))
+      .toBe('明日は晴れだ。 気温は20度だ。');
+  });
+
+  it('speaks the summary in the gentle tone\u2019s phrasing', () => {
+    const ctx = setup({ conversationTone: () => 'gentle' });
+    expect(spokenSummaryFor(ctx, '明日は晴れです。'))
+      .toBe('明日は晴れですよ。');
+  });
+
+  it('alter-ego mode outranks the tone phrasing: the persona\u2019s own words are spoken as-is', () => {
+    const ctx = setup({ conversationTone: () => 'strong', alterEgoActive: () => true });
+    expect(spokenSummaryFor(ctx, '明日は晴れです。 気温は20度です。'))
+      .toBe('明日は晴れです。 気温は20度です。');
+  });
+
+  it('without a tone resolver the summary keeps the answer\u2019s phrasing', () => {
+    const ctx = setup();
+    expect(spokenSummaryFor(ctx, '明日は晴れです。 気温は20度です。'))
+      .toBe('明日は晴れです。 気温は20度です。');
+  });
+});
+
+describe('VoiceConversationController start style', () => {
+  it('listen style: no greeting — the microphone opens at once', () => {
+    const ctx = setup({ startStyle: 'listen' });
+    ctx.controller.startConversation();
+    expect(ctx.controller.getState().mode).toBe('on');
+    expect(ctx.controller.getState().phase).toBe('listening');
+    expect(ctx.speech.spoken).toEqual([]);
+    expect(ctx.recognitions[0]!.started).toBe(true);
+  });
+
+  it('greeting style stays the default when the resolver returns null', () => {
+    const ctx = setup({ startStyle: () => null });
+    ctx.controller.startConversation();
+    expect(ctx.controller.getState().phase).toBe('speaking');
+    expect(ctx.speech.spoken[0]?.text).toBe(ORIN_CONVERSATION_OPENING_TEXT);
+  });
+
+  it('consults the choice at each start: switching to listen drops the greeting next time', () => {
+    let style: VoiceConversationStartStyle = 'greeting';
+    const ctx = setup({ startStyle: () => style });
+    ctx.controller.startConversation();
+    expect(ctx.speech.spoken[0]?.text).toBe(ORIN_CONVERSATION_OPENING_TEXT);
+    ctx.controller.stopConversation();
+    style = 'listen';
+    ctx.controller.startConversation();
+    expect(ctx.controller.getState().phase).toBe('listening');
+    expect(ctx.speech.spoken).toHaveLength(1); // still only the first greeting
+  });
+
+  it('listen style with wake waiting: rests into wake sessions without a greeting', () => {
+    const ctx = setup({ startStyle: 'listen' });
+    ctx.controller.setWakeWaiting(true);
+    expect(ctx.controller.getState().mode).toBe('on');
+    expect(ctx.controller.getState().wakeWaiting).toBe(true);
+    expect(ctx.controller.getState().phase).toBe('idle');
+    expect(ctx.speech.spoken).toEqual([]);
+    expect(ctx.recognitions.at(-1)!.started).toBe(true); // a wake session
+  });
+});
+
+describe('VoiceConversationController alter-ego fixed lines', () => {
+  it('speaks the alter-ego opening and closing while the mode is on', () => {
+    const ctx = setup({ alterEgoActive: () => true });
+    startToListening(ctx);
+    expect(ctx.speech.spoken[0]).toEqual({
+      id: VOICE_CONVERSATION_OPENING_ID,
+      text: ORIN_CONVERSATION_OPENING_TEXT_ALTER_EGO,
+      style: DEFAULT_VOICE_CONVERSATION_STYLE,
+    });
+    const recognition = ctx.recognitions.at(-1)!;
+    recognition.emitResult([{ isFinal: true, transcript: 'バイバイ、オリン' }]);
+    recognition.emitEnd();
+    expect(ctx.controller.getState().mode).toBe('off');
+    expect(ctx.speech.spoken.at(-1)).toEqual({
+      id: VOICE_CONVERSATION_CLOSING_ID,
+      text: ORIN_CONVERSATION_CLOSING_TEXT_ALTER_EGO,
+      style: DEFAULT_VOICE_CONVERSATION_STYLE,
+    });
+  });
+
+  it('consults the mode at each playback: a toggle flipped mid-conversation changes the closing line', () => {
+    let alterEgo = false;
+    const ctx = setup({ alterEgoActive: () => alterEgo });
+    startToListening(ctx);
+    expect(ctx.speech.spoken[0]?.text).toBe(ORIN_CONVERSATION_OPENING_TEXT);
+    alterEgo = true;
+    const recognition = ctx.recognitions.at(-1)!;
+    recognition.emitResult([{ isFinal: true, transcript: 'バイバイ、オリン' }]);
+    recognition.emitEnd();
+    expect(ctx.speech.spoken.at(-1)?.text).toBe(ORIN_CONVERSATION_CLOSING_TEXT_ALTER_EGO);
+  });
+
+  it('keeps the default lines while the mode is off', () => {
+    const ctx = setup({ alterEgoActive: () => false });
+    startToListening(ctx);
+    expect(ctx.speech.spoken[0]?.text).toBe(ORIN_CONVERSATION_OPENING_TEXT);
+    const recognition = ctx.recognitions.at(-1)!;
+    recognition.emitResult([{ isFinal: true, transcript: 'バイバイ、オリン' }]);
+    recognition.emitEnd();
+    expect(ctx.speech.spoken.at(-1)?.text).toBe(ORIN_CONVERSATION_CLOSING_TEXT);
+  });
+});
+
 describe('VoiceConversationController end phrase', () => {
   it('ends the conversation on the end phrase: nothing sent, nothing counted, closing line spoken', () => {
     const ctx = setup();
@@ -833,12 +995,114 @@ describe('VoiceConversationController wake phrase', () => {
     expect(ctx.controller.getState().phase).toBe('idle');
   });
 
-  it('stops wake waiting on a recognizer network failure instead of looping', () => {
+  it('keeps wake waiting across a recognizer network failure and reopens with backoff', () => {
+    const ctx = setup();
+    startToWakeWaiting(ctx);
+    const failedSession = ctx.recognitions.at(-1)!;
+    failedSession.emitError('network');
+    // Standby stays armed (the former fail-closed disarm silently
+    // killed the wake phrase on the owner's device); the reopen
+    // waits out the first backoff step instead of hot-looping.
+    expect(ctx.controller.getState().wakeWaiting).toBe(true);
+    expect(ctx.controller.getState().notice).toBeNull();
+    expect(ctx.recognitions.at(-1)).toBe(failedSession);
+    // The reopen is scheduled at the first backoff step (1000ms),
+    // not fired by the shorter wake restart delay.
+    expect(ctx.scheduler.pendingMs()).toContain(1000);
+    ctx.scheduler.fireByMs(300);
+    expect(ctx.recognitions.at(-1)).toBe(failedSession);
+    ctx.scheduler.fireByMs(1000);
+    const reopened = ctx.recognitions.at(-1)!;
+    expect(reopened).not.toBe(failedSession);
+    expect(reopened.started).toBe(true);
+    // A second consecutive failure widens the backoff; a normal
+    // end resets it, and the phrase still starts a turn.
+    reopened.emitError('audio-capture');
+    ctx.scheduler.fireByMs(1000);
+    expect(ctx.recognitions.at(-1)).toBe(reopened);
+    ctx.scheduler.fireByMs(3000);
+    const third = ctx.recognitions.at(-1)!;
+    expect(third).not.toBe(reopened);
+    third.emitResult([{ isFinal: true, transcript: 'ハイ、オリン' }]);
+    expect(ctx.controller.getState().phase).toBe('listening');
+  });
+
+  it('surfaces a notice after repeated wake failures but keeps standby armed', () => {
     const ctx = setup();
     startToWakeWaiting(ctx);
     ctx.recognitions.at(-1)!.emitError('network');
-    expect(ctx.controller.getState().wakeWaiting).toBe(false);
+    ctx.scheduler.fireByMs(1000);
+    ctx.recognitions.at(-1)!.emitError('network');
+    ctx.scheduler.fireByMs(3000);
+    ctx.recognitions.at(-1)!.emitError('network');
+    expect(ctx.controller.getState().wakeWaiting).toBe(true);
     expect(ctx.controller.getState().notice).toBe('failed');
+    // Still retrying at the capped delay — recovery needs no touch.
+    ctx.scheduler.fireByMs(10000);
+    expect(ctx.recognitions.at(-1)!.started).toBe(true);
+  });
+
+  it('reopens the wake session when its start throws instead of sitting armed but dead', () => {
+    const ctx = setupWithStartControl();
+    ctx.controller.setWakeWaiting(true);
+    ctx.speech.finishPlayback();
+    ctx.scheduler.fireByMs(VOICE_CONVERSATION_NEXT_TURN_DELAY_MS);
+    for (let round = 0; round < 6; round += 1) {
+      ctx.recognitions.at(-1)!.emitEnd();
+      ctx.scheduler.fireByMs(VOICE_CONVERSATION_NEXT_TURN_DELAY_MS);
+    }
+    expect(ctx.controller.getState().phase).toBe('idle');
+    // The next wake opening throws once: standby must schedule a
+    // retry rather than die with the toggle still on.
+    ctx.control.failuresQueued = 1;
+    ctx.recognitions.at(-1)!.emitEnd();
+    const attemptsBefore = ctx.control.attempts;
+    ctx.scheduler.fireByMs(300); // normal wake restart: start throws
+    expect(ctx.controller.getState().wakeWaiting).toBe(true);
+    ctx.scheduler.fireByMs(1000); // backoff retry: start succeeds
+    expect(ctx.control.attempts).toBeGreaterThan(attemptsBefore);
+    expect(ctx.recognitions.at(-1)!.started).toBe(true);
+  });
+
+  it('persists the wake toggle through the change callback', () => {
+    const changes: boolean[] = [];
+    const ctx = setup({ onWakeWaitingChange: (enabled) => { changes.push(enabled); } });
+    ctx.controller.setWakeWaiting(true);
+    ctx.controller.setWakeWaiting(false);
+    expect(changes).toEqual([true, false]);
+  });
+
+  it('a microphone permission failure disarms standby and clears the stored preference', () => {
+    const changes: boolean[] = [];
+    const ctx = setup({ onWakeWaitingChange: (enabled) => { changes.push(enabled); } });
+    startToWakeWaiting(ctx);
+    ctx.recognitions.at(-1)!.emitError('not-allowed');
+    expect(ctx.controller.getState().wakeWaiting).toBe(false);
+    expect(ctx.controller.getState().notice).toBe('permission-denied');
+    expect(changes).toEqual([true, false]);
+  });
+
+  it('ending a conversation rests back into standby while the preference is on', () => {
+    const ctx = setup({ wakeWaitingPreferred: () => true });
+    startToListening(ctx);
+    ctx.controller.stopConversation();
+    expect(ctx.controller.getState().mode).toBe('on');
+    expect(ctx.controller.getState().wakeWaiting).toBe(true);
+    expect(ctx.controller.getState().phase).toBe('idle');
+    expect(ctx.recognitions.at(-1)!.started).toBe(true); // a wake session
+  });
+
+  it('restoreWakeWaiting arms standby silently (no greeting) and is idempotent', () => {
+    const ctx = setup();
+    ctx.controller.restoreWakeWaiting();
+    expect(ctx.controller.getState().mode).toBe('on');
+    expect(ctx.controller.getState().wakeWaiting).toBe(true);
+    expect(ctx.controller.getState().phase).toBe('idle');
+    expect(ctx.speech.spoken).toEqual([]);
+    const session = ctx.recognitions.at(-1)!;
+    expect(session.started).toBe(true);
+    ctx.controller.restoreWakeWaiting();
+    expect(ctx.recognitions.at(-1)).toBe(session);
   });
 
   it('turning wake waiting off aborts the wake session', () => {
