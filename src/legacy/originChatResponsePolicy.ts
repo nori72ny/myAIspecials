@@ -12,6 +12,7 @@ import {
 } from "../lib/orchestration/OriginServiceRegistry.js";
 import { originRequirementClarificationInstruction } from "../lib/orchestration/OriginRequirementClarifier.js";
 import { classifyOriginSearchQuestion, detectOriginHighRiskCategory } from "../search/originSearchClassifier.js";
+import { parseOriginDeterministicCalculationQuestion } from "../search/originDeterministicCalculationAnswer.js";
 import {
   buildOriginGroqBusinessPlanningInstruction,
   detectOriginBusinessPlanningKind,
@@ -652,6 +653,28 @@ export function requiresOriginGroundedResearchRouted(
  * demanded a narrow recency pattern — and stale memorized values were
  * asserted as current (the F+G regression fatals).
  */
+/**
+ * Deterministic calculation questions (Q9-01 fix, round-9 measure
+ * 3 §2 brought forward): a question the strict parser in
+ * originDeterministicCalculationAnswer resolves to a pure function
+ * of its own numbers — tax-inclusive / tax-exclusive totals,
+ * percent-of, one binary operation, unit conversion — needs no
+ * current information, exactly as the date questions the sibling
+ * parser owns need none. The exemption runs the parser itself
+ * rather than another list of surface cues: the cue lists above
+ * are what let 「200万円の消費税10%込みの金額は？」 through (its
+ * result cue 金額は？ is in none of them, while 消費税 promoted it
+ * as a policy question). The parser is whole-question strict and
+ * requires every input — amount AND rate — inside the question,
+ * so a question that asks FOR a current rate, or embeds the
+ * calculation in a larger request, never matches; and an explicit
+ * research request still grounds via the determination's final
+ * branch, exactly as with the other exemptions.
+ */
+function isDeterministicCalculationAnswerRequest(message: string): boolean {
+  return parseOriginDeterministicCalculationQuestion(message) !== null;
+}
+
 export function requiresOriginCurrentInformation(message: string): boolean {
   if (
     isTransformOnlyRequest(message)
@@ -661,6 +684,7 @@ export function requiresOriginCurrentInformation(message: string): boolean {
     || isSuppliedPriceArithmeticRequest(message)
     || isDeterministicQuantitativeRequest(message)
     || isSelfContainedCalculationRequest(message)
+    || isDeterministicCalculationAnswerRequest(message)
     || isProvidedPriceDecisionRequest(message)
     || isBusinessPlanningRequest(message)
   ) return false;

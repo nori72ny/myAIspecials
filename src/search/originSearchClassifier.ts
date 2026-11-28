@@ -10,6 +10,7 @@
 */
 
 import { parseOriginDeterministicDateQuestion } from "./originDeterministicDateAnswer.js";
+import { parseOriginDeterministicCalculationQuestion } from "./originDeterministicCalculationAnswer.js";
 
 export type OriginSearchQuestionType =
 | "weather"
@@ -366,6 +367,19 @@ if (isDeterministicCalculation(text)) return done("no_search", "deterministic-ca
 // The parser is whole-question strict, so 今日のニュース / 今日の天気 /
 // 今日は何日までにやるべき？ never land here.
 if (parseOriginDeterministicDateQuestion(text)) return done("no_search", "deterministic-date");
+// A deterministic CALCULATION question (Q9-01 fix, round-9
+// measure 3 §2 brought forward): the answer is a pure function of
+// the numbers inside the question — a tax-inclusive total, a
+// percent-of, one binary operation, a unit conversion. Without
+// this guard the bare 消費税 fell into the policy signal below and
+// the question's fate depended on live search and synthesis
+// (production-observed: answered correctly on one release,
+// source-summarised with no amount on the next). The parser is
+// whole-question strict, so a tax question whose rate is asked
+// rather than supplied (「最新の税率は何%？」), a history question
+// (「消費税率の歴史は？」), and a calculation embedded in a larger
+// request never land here.
+if (parseOriginDeterministicCalculationQuestion(text)) return done("no_search", "deterministic-calculation-answer");
 
 const hasFreshnessMarker = FRESHNESS_MARKER.test(text);
 const hasConceptMarker = CONCEPT_MARKER.test(text);

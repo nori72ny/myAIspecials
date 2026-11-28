@@ -74,6 +74,7 @@ import {
   type DeckRecordsRequestPlan,
   type DeckRecordsStageMetrics,
 } from "./originProposalDeckRecordsChat.js";
+import { parseOriginDeterministicCalculationQuestion } from "../search/originDeterministicCalculationAnswer.js";
 import type { ProposalDeckAnswerShape } from "../artifacts/proposalDeckFailureShapeV1.js";
 import type { OriginSupervisorArtifactPayloadV2 } from "../lib/orchestration/OriginSupervisorV2.js";
 import {
@@ -165,6 +166,12 @@ export function createOriginStreamingChatRouter(options: OriginStreamingChatRout
     const deckRequestText = matchesDeckRecordsRequestText(lastUserMessage);
     if ((isOriginWeatherRequest(lastUserMessage) && !refinementOfPreviousAnswer)
       || (isOriginCapabilityQuestion(lastUserMessage) && !refinementOfPreviousAnswer)
+      // Deterministic calculation questions (Q9-01) delegate to
+      // the non-streaming router, whose deterministic calculation
+      // branch computes the answer exactly — the streamed model
+      // path must not re-decide arithmetic the question already
+      // determines.
+      || (parseOriginDeterministicCalculationQuestion(lastUserMessage) !== null && !refinementOfPreviousAnswer)
       || (requiresGroundedResearch(lastUserMessage, env) && !deckRequestText && !refinementOfPreviousAnswer)
       || screenResult.outcome === "blocked") {
       return next();
