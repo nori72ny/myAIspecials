@@ -713,11 +713,14 @@ describe("round 7: supplied-value arithmetic at the router (C-1 / C-2, Q6-01)", 
       .post("/api/chat")
       .send({ messages: [{ role: "user", content: "9000万円の6.2%はいくらですか？" }] });
     expect(response.status).toBe(200);
-    // The direct route answers (the harness executor's fixed
-    // text); the research executor is never invoked and no
-    // source-less refusal lands.
+    // The research executor is never invoked and no source-less
+    // refusal lands. Since the Q9-01 fix (round-9 measure 3 §2),
+    // the answer itself comes from the deterministic calculation
+    // branch — the exact computed value, not the direct route's
+    // model text this assertion pinned before the branch existed.
     expect(research).not.toHaveBeenCalled();
-    expect(response.body.content).toContain("安全な確認結果です。");
+    expect(response.body.content).toBe("9000万円の6.2%は、5,580,000円（558万円）です。");
+    expect(response.body.routing.answerMode).toBe("deterministic-calculation");
     expect(response.body.content).not.toContain("お伝えできません");
   });
 });

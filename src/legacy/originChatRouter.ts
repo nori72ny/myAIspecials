@@ -33,6 +33,10 @@ import {
   buildOriginDeterministicDateAnswer,
   parseOriginDeterministicDateQuestion,
 } from "../search/originDeterministicDateAnswer.js";
+import {
+  buildOriginDeterministicCalculationAnswer,
+  parseOriginDeterministicCalculationQuestion,
+} from "../search/originDeterministicCalculationAnswer.js";
 import { buildGroundedResearchPartialAnswer, buildGroundedResearchReport } from "../research/groundedResearchV11.js";
 import { tryDeterministicCalculationFallback } from "../research/groundedDeterministicCalculation.js";
 import {
@@ -493,6 +497,33 @@ export function createOriginChatRouter(options: OriginChatRouterOptions = {}) {
           ? "Answered deterministically from the server clock (Asia/Tokyo) without a search or model call."
           : "サーバーの時計（日本時間）から、検索もモデルも使わずに決定的に回答しました。";
         return res.json({ content, answer: answerEnvelope(content, dateQuestion.language, "not-required", reason), routing: { ...applicationRouting(requestId, reason), answerMode: "deterministic-date" } });
+      }
+    }
+    // Deterministic calculation branch (Q9-01, round-9 measure 3
+    // §2 brought forward): a question whose answer is a pure
+    // function of the numbers inside it — a tax-inclusive total,
+    // a percent-of, one binary operation, a unit conversion — is
+    // computed exactly, ahead of the grounded branch, by the same
+    // discipline as the date branch above. Until now the only
+    // deterministic calculation handling sat at the grounded
+    // path's zero-source exit and parsed only the amount-の-rate
+    // construction, so a calculation question whose phrasing
+    // slipped past the routing exemptions was promoted as a
+    // policy / price question and its fate depended on live
+    // search and synthesis: 「200万円の消費税10%込みの金額は？」
+    // landed on a source summary of the Consumption Tax Act with
+    // no amount at all (production cf6e3100), while the same
+    // calculation was answered correctly one release earlier.
+    // The parser is whole-question strict and requires every
+    // input inside the question, so a question asking FOR a
+    // current rate, a tax history question, or a calculation
+    // embedded in a larger request never lands here.
+    if (!refinementOfPreviousAnswer) {
+      const calculationQuestion = parseOriginDeterministicCalculationQuestion(lastUserMessage);
+      if (calculationQuestion) {
+        const content = buildOriginDeterministicCalculationAnswer(calculationQuestion);
+        const reason = "質問内の数値から、検索もモデルも使わずに決定的に計算して回答しました。";
+        return res.json({ content, answer: answerEnvelope(content, calculationQuestion.language, "not-required", reason), routing: { ...applicationRouting(requestId, reason), answerMode: "deterministic-calculation" } });
       }
     }
     const screenResult = screenConversationForSend(messages);
